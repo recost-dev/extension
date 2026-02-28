@@ -14,6 +14,12 @@ interface Message {
 
 const MODEL_GROUPS = [
   {
+    label: "ECO AI",
+    models: [
+      { id: "eco-ai", name: "Llama 3.1 (Free)" },
+    ],
+  },
+  {
     label: "GPT",
     models: [
       { id: "gpt-4o-mini", name: "GPT-4o Mini" },
@@ -35,7 +41,7 @@ const MODEL_GROUPS = [
 
 function getSavedModel(): string {
   const state = getVsCodeApi().getState() as { model?: string } | null;
-  return state?.model ?? "gpt-4o-mini";
+  return state?.model ?? "eco-ai";
 }
 
 function saveModel(model: string) {
@@ -442,7 +448,6 @@ export function ChatPage({ context }: ChatPageProps) {
             ))}
           </select>
           <button
-            className="eco-btn-icon"
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
             title="Send"
@@ -450,8 +455,16 @@ export function ChatPage({ context }: ChatPageProps) {
               flexShrink: 0,
               width: "28px",
               height: "28px",
-              opacity: input.trim() && !isLoading ? 1 : 0.35,
-              color: "var(--vscode-foreground)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "transparent",
+              border: "none",
+              borderRadius: "3px",
+              cursor: isLoading || !input.trim() ? "default" : "pointer",
+              padding: "4px",
+              color: "#ffffff",
+              opacity: input.trim() && !isLoading ? 1 : 0.45,
             }}
           >
             <span className="codicon codicon-send" style={{ fontSize: "14px" }} />

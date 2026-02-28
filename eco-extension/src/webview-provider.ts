@@ -18,6 +18,10 @@ const MODELS = {
 
 type ModelId = keyof typeof MODELS;
 
+function isOpenAIModel(model: string): boolean {
+  return model in MODELS;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -61,9 +65,6 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     );
 
     this.projectId = this.context.globalState.get<string>("eco.projectId") ?? null;
-
-    // Check API key status once the webview is ready
-    setTimeout(() => this.checkAndNotifyApiKey(), 300);
   }
 
   private async checkAndNotifyApiKey() {
@@ -102,10 +103,12 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         break;
       case "modelChanged": {
         await this.context.globalState.update("eco.selectedModel", message.model);
-        // Also check API key so the webview can show onboarding if needed
-        const apiKey = await this.context.secrets.get("eco.openaiApiKey");
-        if (!apiKey) {
-          this.postMessage({ type: "needsApiKey" });
+        // Only gate on API key when switching to an OpenAI model
+        if (isOpenAIModel(message.model)) {
+          const apiKey = await this.context.secrets.get("eco.openaiApiKey");
+          if (!apiKey) {
+            this.postMessage({ type: "needsApiKey" });
+          }
         }
         break;
       }
@@ -220,7 +223,50 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private buildMessages(text: string) {
+    return [
+      { role: "system" as const, content: buildSystemPrompt(this.lastSummary, this.lastSuggestions, this.lastEndpoints) },
+      ...this.chatHistory,
+      { role: "user" as const, content: text },
+    ];
+  }
+
   private async handleChat(text: string, model: string) {
+    if (isOpenAIModel(model)) {
+      await this.handleOpenAIChat(text, model);
+    } else {
+      await this.handleCloudflareChat(text);
+    }
+  }
+
+  private async handleCloudflareChat(text: string) {
+    try {
+      const response = await fetch("https://api.ecoapi.dev/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: this.buildMessages(text) }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: { message: "Unknown API error" } }));
+        const errMsg = (errData as { error?: { message?: string } })?.error?.message ?? "Chat request failed";
+        this.postMessage({ type: "chatError", message: errMsg });
+        return;
+      }
+
+      const data = await response.json() as { data: { response: string } };
+      const fullContent = data.data.response;
+
+      this.chatHistory.push({ role: "user", content: text });
+      this.chatHistory.push({ role: "assistant", content: fullContent });
+
+      this.postMessage({ type: "chatDone", fullContent });
+    } catch {
+      this.postMessage({ type: "chatError", message: "Network error. Check your connection." });
+    }
+  }
+
+  private async handleOpenAIChat(text: string, model: string) {
     const apiKey = await this.context.secrets.get("eco.openaiApiKey");
 
     if (!apiKey) {
@@ -228,16 +274,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Validate model is known; fall back to gpt-4o-mini
     const modelId: ModelId = (model in MODELS) ? (model as ModelId) : "gpt-4o-mini";
-
-    const systemPrompt = buildSystemPrompt(this.lastSummary, this.lastSuggestions, this.lastEndpoints);
-
-    const messages = [
-      { role: "system" as const, content: systemPrompt },
-      ...this.chatHistory,
-      { role: "user" as const, content: text },
-    ];
 
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -248,7 +285,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         },
         body: JSON.stringify({
           model: MODELS[modelId].id,
-          messages,
+          messages: this.buildMessages(text),
           temperature: 0.7,
           stream: true,
         }),
