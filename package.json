@@ -4,9 +4,9 @@
   "description": "REST API for analyzing codebase web API usage, costs, and optimization suggestions.",
   "private": true,
   "scripts": {
-    "dev": "wrangler pages dev",
+    "dev": "wrangler dev",
     "build": "tsc -p tsconfig.json",
-    "deploy": "wrangler pages deploy",
+    "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:migrate:local": "wrangler d1 migrations apply eco-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply eco-db --remote"
@@ -14,7 +14,7 @@
   "keywords": [
     "rest",
     "hono",
-    "cloudflare-pages",
+    "cloudflare-workers",
     "d1",
     "typescript",
     "api-analysis",

@@ -4,7 +4,7 @@ REST API for analyzing codebase API call patterns, estimating costs, and generat
 
 ## Tech Stack
 
-- **Cloudflare Pages** — hosting and serverless runtime
+- **Cloudflare Workers** — hosting and serverless runtime
 - **Hono** — web framework (Workers-compatible, Express-like)
 - **Cloudflare D1** — SQLite database (persistent)
 - **TypeScript** — strict mode
@@ -21,18 +21,17 @@ REST API for analyzing codebase API call patterns, estimating costs, and generat
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start local dev server (`wrangler pages dev`) |
+| `npm run dev` | Start local dev server (`wrangler dev`) |
 | `npm run typecheck` | TypeScript type check (no emit) |
-| `npm run deploy` | Deploy to Cloudflare Pages |
+| `npm run deploy` | Deploy to Cloudflare Workers |
 | `npm run db:migrate:local` | Apply D1 migrations locally |
 | `npm run db:migrate:remote` | Apply D1 migrations to production |
 
 ## Project Structure
 
 ```
-functions/
-  [[route]].ts        # Cloudflare Pages entry point (Hono app)
 src/
+  index.ts            # Workers entry point (Hono app, export default)
   env.ts              # Shared Env/Variables/AppContext types
   config/
     pricing.ts        # Provider pricing & keyword detection
