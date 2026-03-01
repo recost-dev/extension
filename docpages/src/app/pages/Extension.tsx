@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { motion as Motion } from 'motion/react';
 import { Link } from 'react-router';
 import { useTheme } from '../theme-context';
@@ -6,6 +6,7 @@ import { Particles } from '../components/particles';
 import {
   Leaf,
   ArrowLeft,
+  ChevronUp,
   PuzzleIcon,
   Download,
   Terminal,
@@ -319,6 +320,7 @@ function TOCSidebar() {
 
 export default function Extension() {
   const theme = useTheme();
+  const mainRef = useRef<HTMLElement>(null);
 
   return (
     <div className="relative w-full h-screen overflow-hidden flex flex-col" style={{ backgroundColor: theme.bg }}>
@@ -367,7 +369,7 @@ export default function Extension() {
         </aside>
 
         {/* Main scrollable content */}
-        <main className="flex-1 overflow-y-auto px-6 md:px-10 py-8">
+        <main ref={mainRef} className="flex-1 overflow-y-auto px-6 md:px-10 py-8">
           <div className="max-w-3xl mx-auto space-y-6 pb-20">
 
             {/* Hero */}
@@ -633,6 +635,30 @@ npm run build
           </div>
         </main>
       </div>
+
+      {/* Back to top */}
+      <button
+        onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+        style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '40px',
+          height: '40px',
+          borderRadius: '9999px',
+          backgroundColor: 'rgba(255,255,255,0.12)',
+          border: '1px solid rgba(255,255,255,0.25)',
+          color: 'rgba(255,255,255,0.8)',
+          cursor: 'pointer',
+          backdropFilter: 'blur(8px)',
+        }}
+      >
+        <ChevronUp size={18} />
+      </button>
     </div>
   );
 }
