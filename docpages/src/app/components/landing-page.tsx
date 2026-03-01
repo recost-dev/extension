@@ -395,7 +395,7 @@ export function LandingPage() {
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-green-900/10 blur-[150px] rounded-full pointer-events-none" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-green-900/10 blur-[150px] rounded-full pointer-events-none" />
 
-        <main className="relative z-[1] max-w-7xl mx-auto px-6 pt-32 pb-48 flex flex-col items-center">
+        <main className="relative z-[1] max-w-7xl mx-auto px-6 pt-32 pb-[30px] flex flex-col items-center">
           {/* Section header */}
           <Motion.div
             initial={{ opacity: 0, y: 30 }}

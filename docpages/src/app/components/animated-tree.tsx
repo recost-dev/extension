@@ -40,6 +40,7 @@ export function AnimatedTree() {
             <stop offset="100%" stopColor={theme.treeBarkGrad[2]} />
           </linearGradient>
 
+
           <filter id="trunkShadow" x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur stdDeviation="2" result="blur" />
             <feOffset dx="-2" dy="2" />
@@ -128,25 +129,31 @@ export function AnimatedTree() {
           <FoliageCluster x={580} y={640} scale={0.85} delay={0.9} color={theme.foliageColor} />
         </g>
 
-        <FallingLeaf startX={380} startY={500} delay={2} color={theme.treeBarkGrad[0]} />
-        <FallingLeaf startX={620} startY={450} delay={5} color={theme.treeBarkGrad[0]} />
-        <FallingLeaf startX={500} startY={400} delay={8} color={theme.treeBarkGrad[0]} />
+        {Array.from({ length: 132 }, (_, i) => {
+          const col = i % 12;
+          const row = Math.floor(i / 12);
+          const x = 260 + col * 42 + (row % 2) * 21;
+          const y = 310 + row * 28;
+          const delay = (i * 1.1) % 16;
+          return <FallingLeaf key={i} startX={x} startY={y} delay={delay} color="#1a3d1a" size={1.5} />;
+        })}
       </svg>
     </>
   );
 }
 
-function FallingLeaf({ startX, startY, delay, color }: { startX: number; startY: number; delay: number; color: string }) {
+function FallingLeaf({ startX, startY, delay, color, size = 1 }: { startX: number; startY: number; delay: number; color: string; size?: number }) {
   return (
     <Motion.path
       d="M0 0 C2 2 4 0 6 2 C4 4 2 4 0 2 Z"
       fill={color}
-      initial={{ x: startX, y: startY, opacity: 0, rotate: 0 }}
+      initial={{ x: startX, y: startY, opacity: 0, rotate: 0, scale: size }}
       animate={{
         x: [startX, startX + 70, startX - 30, startX + 40],
         y: [startY, startY + 250, startY + 500, startY + 750],
         rotate: [0, 180, 360, 540, 720],
-        opacity: [0, 0.7, 0.7, 0]
+        opacity: [0, 0.7, 0.7, 0],
+        scale: size,
       }}
       transition={{
         duration: 14,
