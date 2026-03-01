@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { motion as Motion } from 'motion/react';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import { useTheme } from '../theme-context';
 import { Particles } from '../components/particles';
 import {
   Leaf,
   ArrowLeft,
-  ArrowRight,
+  ChevronUp,
   Server,
   Code2,
   Zap,
@@ -520,7 +520,7 @@ function TOCSidebar() {
 
 export default function Docs() {
   const theme = useTheme();
-  const navigate = useNavigate();
+  const mainRef = useRef<HTMLElement>(null);
 
   return (
     <div className="relative w-full h-screen overflow-hidden flex flex-col" style={{ backgroundColor: theme.bg }}>
@@ -569,7 +569,7 @@ export default function Docs() {
         </aside>
 
         {/* Right: scrollable content */}
-        <main className="flex-1 overflow-y-auto min-w-0">
+        <main ref={mainRef} className="flex-1 overflow-y-auto min-w-0">
           <div className="px-2 pb-24 max-w-5xl mx-auto">
             {/* Hero */}
             <Motion.div {...FADE(0)} className="text-center px-4 pt-10 pb-12">
@@ -1409,26 +1409,34 @@ curl -s https://your-worker.workers.dev/projects/{projectId}/sustainability`}</C
                 />
               </SectionCard>
 
-              {/* CTA */}
-              <Motion.div {...FADE(0.5)} className="text-center pt-4 pb-4">
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full text-white text-[15px] transition-all hover:-translate-y-0.5"
-                  style={{
-                    background: `linear-gradient(to right, ${theme.btnGradient[0]}, ${theme.btnGradient[1]})`,
-                    fontFamily: "'Inter', sans-serif",
-                    fontWeight: 500,
-                  }}
-                >
-                  Dashboard
-                  <ArrowRight size={16} />
-                </button>
-              </Motion.div>
-
             </div>
           </div>
         </main>
       </div>
+
+      {/* Back to top */}
+      <button
+        onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+        style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '40px',
+          height: '40px',
+          borderRadius: '9999px',
+          backgroundColor: 'rgba(255,255,255,0.12)',
+          border: '1px solid rgba(255,255,255,0.25)',
+          color: 'rgba(255,255,255,0.8)',
+          cursor: 'pointer',
+          backdropFilter: 'blur(8px)',
+        }}
+      >
+        <ChevronUp size={18} />
+      </button>
     </div>
   );
 }

@@ -288,6 +288,85 @@ export class LocalServer {
       return true;
     }
 
+    if (pathname === "/projects/local/sustainability") {
+      const AI_PROVIDERS = new Set(["openai"]);
+      const ENERGY_PER_CALL_KWH: Record<string, number> = {
+        openai: 0.003,
+        "aws-s3": 0.000008,
+        "google-maps": 0.00003,
+        stripe: 0.00002,
+        twilio: 0.00001,
+        sendgrid: 0.000005,
+        internal: 0.000005,
+      };
+      const DEFAULT_AI_ENERGY_KWH = 0.001;
+      const DEFAULT_REGULAR_ENERGY_KWH = 0.00001;
+      const WATER_LITERS_PER_KWH = 1.8;
+      const CO2_GRAMS_PER_KWH = 386;
+
+      const providerMap = new Map<string, { callsPerDay: number }>();
+      for (const ep of endpoints) {
+        const cur = providerMap.get(ep.provider) ?? { callsPerDay: 0 };
+        cur.callsPerDay += ep.callsPerDay;
+        providerMap.set(ep.provider, cur);
+      }
+
+      let totalDailyKwh = 0;
+      let totalAiCallsPerDay = 0;
+      let totalCallsPerDay = 0;
+      const byProvider: Array<{
+        provider: string;
+        isAi: boolean;
+        callsPerDay: number;
+        dailyKwh: number;
+        dailyWaterLiters: number;
+        dailyCo2Grams: number;
+      }> = [];
+
+      for (const [provider, data] of providerMap.entries()) {
+        const isAi = AI_PROVIDERS.has(provider);
+        const energyPerCall = ENERGY_PER_CALL_KWH[provider] ?? (isAi ? DEFAULT_AI_ENERGY_KWH : DEFAULT_REGULAR_ENERGY_KWH);
+        const dailyKwh = data.callsPerDay * energyPerCall;
+        totalDailyKwh += dailyKwh;
+        totalCallsPerDay += data.callsPerDay;
+        if (isAi) totalAiCallsPerDay += data.callsPerDay;
+        byProvider.push({
+          provider,
+          isAi,
+          callsPerDay: Number(data.callsPerDay.toFixed(2)),
+          dailyKwh: Number(dailyKwh.toFixed(6)),
+          dailyWaterLiters: Number((dailyKwh * WATER_LITERS_PER_KWH).toFixed(6)),
+          dailyCo2Grams: Number((dailyKwh * CO2_GRAMS_PER_KWH).toFixed(4)),
+        });
+      }
+      byProvider.sort((a, b) => b.dailyKwh - a.dailyKwh);
+
+      this.sendJson(res, {
+        data: {
+          electricity: {
+            dailyKwh: Number(totalDailyKwh.toFixed(6)),
+            monthlyKwh: Number((totalDailyKwh * 30).toFixed(4)),
+          },
+          water: {
+            dailyLiters: Number((totalDailyKwh * WATER_LITERS_PER_KWH).toFixed(6)),
+            monthlyLiters: Number((totalDailyKwh * WATER_LITERS_PER_KWH * 30).toFixed(4)),
+          },
+          co2: {
+            dailyGrams: Number((totalDailyKwh * CO2_GRAMS_PER_KWH).toFixed(4)),
+            monthlyGrams: Number((totalDailyKwh * CO2_GRAMS_PER_KWH * 30).toFixed(2)),
+          },
+          aiCallsPerDay: Number(totalAiCallsPerDay.toFixed(2)),
+          totalCallsPerDay: Number(totalCallsPerDay.toFixed(2)),
+          aiCallsPercentage:
+            totalCallsPerDay > 0
+              ? Number(((totalAiCallsPerDay / totalCallsPerDay) * 100).toFixed(1))
+              : 0,
+          byProvider,
+        },
+      });
+      return true;
+    }
+
     if (pathname === "/projects/local/cost/by-provider") {
       const byProvider = new Map<
         string,

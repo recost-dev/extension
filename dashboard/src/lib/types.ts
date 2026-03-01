@@ -139,6 +139,23 @@ export interface ProviderCost {
   endpointCount: number;
 }
 
+export interface SustainabilityData {
+  electricity: { dailyKwh: number; monthlyKwh: number };
+  water: { dailyLiters: number; monthlyLiters: number };
+  co2: { dailyGrams: number; monthlyGrams: number };
+  aiCallsPerDay: number;
+  totalCallsPerDay: number;
+  aiCallsPercentage: number;
+  byProvider: {
+    provider: string;
+    isAi: boolean;
+    callsPerDay: number;
+    dailyKwh: number;
+    dailyWaterLiters: number;
+    dailyCo2Grams: number;
+  }[];
+}
+
 export interface PaginationMeta {
   page: number;
   limit: number;

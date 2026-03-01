@@ -1,28 +1,30 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
-import { X, Loader2, ChevronDown } from 'lucide-react';
+import * as d3 from 'd3';
+import { X, Loader2 } from 'lucide-react';
 import { useGraph } from '@/lib/queries';
 import type { EndpointStatus } from '@/lib/types';
+import { Select } from '@/components/Select';
 
-const statusColors: Record<EndpointStatus | string, string> = {
-  'normal': '#4EAA57',
-  'cacheable': '#7EA87E',
-  'batchable': '#5CBF65',
-  'redundant': '#B8A038',
-  'n_plus_one_risk': '#C87F3A',
-  'rate_limit_risk': '#C45A4A',
+const STATUS_COLOR: Record<string, string> = {
+  normal:          '#4EAA57',
+  cacheable:       '#7EA87E',
+  batchable:       '#5CBF65',
+  redundant:       '#B8A038',
+  n_plus_one_risk: '#C87F3A',
+  rate_limit_risk: '#C45A4A',
 };
 
-const statusLabels: Record<string, string> = {
-  'normal': 'normal',
-  'cacheable': 'cacheable',
-  'batchable': 'batchable',
-  'redundant': 'redundant',
-  'n_plus_one_risk': 'n+1 risk',
-  'rate_limit_risk': 'rate limit',
+const STATUS_LABEL: Record<string, string> = {
+  normal:          'normal',
+  cacheable:       'cacheable',
+  batchable:       'batchable',
+  redundant:       'redundant',
+  n_plus_one_risk: 'n+1 risk',
+  rate_limit_risk: 'rate limit',
 };
 
-interface PositionedNode {
+interface SimNode extends d3.SimulationNodeDatum {
   id: string;
   type: 'file' | 'api';
   label: string;
@@ -30,454 +32,380 @@ interface PositionedNode {
   provider?: string;
   monthlyCost?: number;
   method?: string;
-  x: number;
-  y: number;
+  callsPerDay?: number;
+}
+
+interface SimLink {
+  source: string | SimNode;
+  target: string | SimNode;
+}
+
+interface SelectedInfo {
+  type: 'file' | 'api';
+  id: string;
+  label: string;
+  status?: EndpointStatus;
+  provider?: string;
+  monthlyCost?: number;
+  method?: string;
+  callsPerDay?: number;
+  edgeCount?: number;
+}
+
+function nodeRadius(n: SimNode, maxCalls: number): number {
+  if (n.type === 'file') return 0;
+  return 18 + ((n.callsPerDay ?? 0) / maxCalls) * 26;
 }
 
 export default function Graph() {
   const { projectId } = useParams<{ projectId: string }>();
-  const [clusterBy, setClusterBy] = useState<string>('provider');
+  const [clusterBy, setClusterBy] = useState('provider');
   const { data, isLoading } = useGraph(projectId, clusterBy);
+  const [selected, setSelected] = useState<SelectedInfo | null>(null);
 
-  const graphData = data?.data;
-  const nodes = graphData?.nodes ?? [];
-  const edges = graphData?.edges ?? [];
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const positioned = useMemo(() => {
-    const fileIds = [...new Set(edges.map((e) => e.source))];
-    const result: PositionedNode[] = [];
+  const apiNodes = data?.data?.nodes ?? [];
+  const rawEdges = data?.data?.edges ?? [];
 
-    // Tree geometry in canvas coordinates (tuned for ~1440px viewport)
-    const CX = 640;        // horizontal center of tree
-    const CY = 275;        // vertical center of foliage
-    const RX = 130;        // horizontal radius of foliage ellipse
-    const RY = 145;        // vertical radius of foliage ellipse
-    const MIN_D = 62;      // minimum center-to-center distance between API nodes (44px + 18px gap)
+  useEffect(() => {
+    const svgEl = svgRef.current;
+    const containerEl = containerRef.current;
+    if (!svgEl || !containerEl || apiNodes.length === 0) return;
 
-    // --- 1. Place API nodes using a golden-angle spiral (non-overlapping, no gap) ---
-    // Golden-angle spiral distributes points evenly — deterministic so layout is stable
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-    const candidates: { x: number; y: number }[] = [];
-    const totalCandidates = Math.max(nodes.length * 6, 50);
-    for (let i = 0; i < totalCandidates; i++) {
-      const r = Math.sqrt((i + 0.5) / totalCandidates);
-      const theta = i * goldenAngle;
-      candidates.push({
-        x: Math.round(CX + r * RX * Math.cos(theta)),
-        y: Math.round(CY + r * RY * Math.sin(theta)),
+    const width = containerEl.clientWidth;
+    const height = containerEl.clientHeight;
+    const maxCalls = Math.max(...apiNodes.map(n => n.callsPerDay), 1);
+
+    // ── Build node data ──────────────────────────────────────────────────────
+    // Invisible file nodes act as anchor points for the link force
+    const fileIds = [...new Set(rawEdges.map(e => e.source))];
+    const fileNodes: SimNode[] = fileIds.map(id => ({
+      id,
+      type: 'file' as const,
+      label: id,
+    }));
+
+    const apiSimNodes: SimNode[] = apiNodes.map(n => {
+      const parts = n.label.split(' ');
+      return {
+        id: n.id,
+        type: 'api' as const,
+        label: parts.slice(1).join(' ') || n.label,
+        status: n.status,
+        provider: n.provider,
+        monthlyCost: n.monthlyCost,
+        method: parts[0] ?? '',
+        callsPerDay: n.callsPerDay,
+      };
+    });
+
+    const simNodes: SimNode[] = [...fileNodes, ...apiSimNodes];
+
+    // ── Build link data ──────────────────────────────────────────────────────
+    const apiIds = new Set(apiSimNodes.map(n => n.id));
+    const simLinks: SimLink[] = rawEdges
+      .filter(e => apiIds.has(e.target))
+      .map(e => ({ source: e.source, target: e.target }));
+
+    // ── SVG setup ───────────────────────────────────────────────────────────
+    const svg = d3.select(svgEl);
+    svg.selectAll('*').remove();
+    svg.attr('width', width).attr('height', height);
+
+    const defs = svg.append('defs');
+
+    // Dot grid pattern
+    const pat = defs.append('pattern')
+      .attr('id', 'g-dots').attr('width', 28).attr('height', 28)
+      .attr('patternUnits', 'userSpaceOnUse');
+    pat.append('circle').attr('cx', 1).attr('cy', 1).attr('r', 0.75)
+      .attr('fill', 'rgba(255,255,255,0.06)');
+
+    // Radial centre glow
+    const rg = defs.append('radialGradient').attr('id', 'g-glow')
+      .attr('cx', '50%').attr('cy', '50%').attr('r', '50%');
+    rg.append('stop').attr('offset', '0%').attr('stop-color', '#4EAA57').attr('stop-opacity', 0.05);
+    rg.append('stop').attr('offset', '100%').attr('stop-color', '#4EAA57').attr('stop-opacity', 0);
+
+    // Backgrounds
+    svg.append('rect').attr('width', '100%').attr('height', '100%').attr('fill', 'url(#g-dots)');
+    svg.append('rect').attr('width', '100%').attr('height', '100%').attr('fill', 'url(#g-glow)');
+
+    // ── Zoom / pan ──────────────────────────────────────────────────────────
+    const g = svg.append('g');
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.1, 6])
+      .on('zoom', ev => g.attr('transform', ev.transform));
+    svg.call(zoom);
+
+    // ── Force simulation ────────────────────────────────────────────────────
+    const simulation = d3.forceSimulation<SimNode>(simNodes)
+      .velocityDecay(0.5)
+      .alphaDecay(0.02)
+      .force('link', d3.forceLink<SimNode, SimLink>(simLinks).id(d => d.id).distance(117).strength(0.4))
+      .force('charge', d3.forceManyBody<SimNode>().strength(-180))
+      .force('x', d3.forceX<SimNode>(width / 2).strength(0.08))
+      .force('y', d3.forceY<SimNode>(height / 2).strength(0.08))
+      .force('collide', d3.forceCollide<SimNode>(d => nodeRadius(d, maxCalls) + 20));
+
+    // ── Edges (drawn before nodes so nodes sit on top) ───────────────────────
+    const linkSel = g.append('g')
+      .selectAll<SVGLineElement, SimLink>('line')
+      .data(simLinks)
+      .join('line')
+      .attr('stroke', 'rgba(255,255,255,0.07)')
+      .attr('stroke-width', 1);
+
+    // ── Node groups ─────────────────────────────────────────────────────────
+    const nodeSel = g.append('g')
+      .selectAll<SVGGElement, SimNode>('g')
+      .data(simNodes)
+      .join('g')
+      .style('cursor', d => d.type === 'api' ? 'grab' : 'default');
+
+    // API nodes ─ outer glow ring
+    nodeSel.filter(d => d.type === 'api')
+      .append('circle')
+      .attr('r', d => nodeRadius(d, maxCalls) + 5)
+      .attr('fill', 'none')
+      .attr('stroke', d => `${STATUS_COLOR[d.status ?? 'normal']}18`)
+      .attr('stroke-width', 8);
+
+    // API nodes ─ main circle
+    nodeSel.filter(d => d.type === 'api')
+      .append('circle')
+      .attr('r', d => nodeRadius(d, maxCalls))
+      .attr('fill', d => `${STATUS_COLOR[d.status ?? 'normal']}16`)
+      .attr('stroke', d => `${STATUS_COLOR[d.status ?? 'normal']}85`)
+      .attr('stroke-width', 1.5);
+
+    // API nodes ─ method label
+    nodeSel.filter(d => d.type === 'api')
+      .append('text')
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+      .attr('fill', d => STATUS_COLOR[d.status ?? 'normal'])
+      .attr('font-size', '10px').attr('font-weight', '700')
+      .attr('font-family', "'JetBrains Mono', monospace")
+      .text(d => (d.method ?? '').slice(0, 3));
+
+    // API nodes ─ URL label below circle
+    nodeSel.filter(d => d.type === 'api')
+      .append('text')
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'hanging')
+      .attr('y', d => nodeRadius(d, maxCalls) + 9)
+      .attr('fill', 'rgba(255,255,255,0.7)')
+      .attr('font-size', '11px')
+      .attr('font-family', "'JetBrains Mono', monospace")
+      .text(d => {
+        const label = d.label ?? '';
+        return label.length > 22 ? '…' + label.slice(-21) : label;
       });
-    }
 
-    // Greedily pick non-overlapping positions
-    const picked: { x: number; y: number }[] = [];
-    for (const c of candidates) {
-      if (picked.length >= nodes.length) break;
-      if (picked.every(p => Math.hypot(p.x - c.x, p.y - c.y) >= MIN_D)) {
-        picked.push(c);
-      }
-    }
-    // Fallback if spiral didn't yield enough (shouldn't happen with 6× candidates)
-    while (picked.length < nodes.length) {
-      picked.push({ x: CX + (picked.length % 3 - 1) * MIN_D, y: CY + Math.floor(picked.length / 3) * MIN_D });
-    }
+    // API nodes ─ provider label below URL
+    nodeSel.filter(d => d.type === 'api')
+      .append('text')
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'hanging')
+      .attr('y', d => nodeRadius(d, maxCalls) + 25)
+      .attr('fill', 'rgba(255,255,255,0.25)')
+      .attr('font-size', '10px')
+      .attr('font-family', "'JetBrains Mono', monospace")
+      .text(d => d.provider ?? '');
 
-    const apiXY: Record<string, { x: number; y: number }> = {};
-    nodes.forEach((n, i) => {
-      const { x, y } = picked[i];
-      apiXY[n.id] = { x, y };
-      const method = n.label.split(' ')[0] ?? '';
-      const url = n.label.split(' ').slice(1).join(' ') || n.label;
-      result.push({ id: n.id, type: 'api', label: url, status: n.status, provider: n.provider, monthlyCost: n.monthlyCost, method, x, y });
-    });
-
-    // --- 2. Place file boxes on the side nearest their connected API nodes ---
-    const fileInfo = fileIds.map((fid) => {
-      const pts = edges
-        .filter((e) => e.source === fid)
-        .map((e) => apiXY[e.target])
-        .filter(Boolean) as { x: number; y: number }[];
-      const cx = pts.length ? pts.reduce((s, p) => s + p.x, 0) / pts.length : CX;
-      const cy = pts.length ? pts.reduce((s, p) => s + p.y, 0) / pts.length : 280;
-      return { id: fid, cx, cy };
-    });
-
-    type Side = 'left' | 'right' | 'btm-left' | 'btm-right';
-    const sides: Record<Side, typeof fileInfo> = { left: [], right: [], 'btm-left': [], 'btm-right': [] };
-    for (const f of fileInfo) {
-      const side: Side = f.cy > 300
-        ? (f.cx <= CX ? 'btm-left' : 'btm-right')
-        : (f.cx <= CX ? 'left' : 'right');
-      sides[side].push(f);
-    }
-
-    // Left files: x=95, y tracks centroid
-    sides.left.sort((a, b) => a.cy - b.cy);
-    let prevY = -Infinity;
-    for (const f of sides.left) {
-      const y = Math.max(f.cy - 16, prevY + 55, 80);
-      prevY = y;
-      result.push({ id: f.id, type: 'file', label: f.id.split('/').pop() ?? f.id, x: 95, y });
-    }
-
-    // Right files: x = CX+295
-    sides.right.sort((a, b) => a.cy - b.cy);
-    prevY = -Infinity;
-    for (const f of sides.right) {
-      const y = Math.max(f.cy - 16, prevY + 55, 80);
-      prevY = y;
-      result.push({ id: f.id, type: 'file', label: f.id.split('/').pop() ?? f.id, x: CX + 295, y });
-    }
-
-    // Bottom-left files: stack leftward from CX
-    const BTM_Y = 510;
-    sides['btm-left'].sort((a, b) => b.cx - a.cx);
-    let prevX = CX - 20;
-    for (const f of sides['btm-left']) {
-      const x = Math.min(prevX - 10, Math.max(100, f.cx - 70));
-      prevX = x - 140;
-      result.push({ id: f.id, type: 'file', label: f.id.split('/').pop() ?? f.id, x, y: BTM_Y });
-    }
-
-    // Bottom-right files: stack rightward from CX
-    sides['btm-right'].sort((a, b) => a.cx - b.cx);
-    prevX = CX + 20;
-    for (const f of sides['btm-right']) {
-      const x = Math.max(prevX + 10, Math.min(800, f.cx + 20));
-      prevX = x + 140;
-      result.push({ id: f.id, type: 'file', label: f.id.split('/').pop() ?? f.id, x, y: BTM_Y });
-    }
-
-    return result;
-  }, [nodes, edges]);
-
-  // Per-node positions (updated when nodes drag)
-  const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
-
-  // Reset positions whenever the underlying data changes
-  useEffect(() => {
-    const initial: Record<string, { x: number; y: number }> = {};
-    positioned.forEach((n) => { initial[n.id] = { x: n.x, y: n.y }; });
-    setNodePositions(initial);
-  }, [positioned]);
-
-  const [selected, setSelected] = useState<PositionedNode | null>(null);
-  const [pan, setPan] = useState({ x: 40, y: 0 });
-  const panRef = useRef({ x: 40, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const lastPos = useRef({ x: 0, y: 0 });
-
-  // Node drag state
-  const draggingNodeId = useRef<string | null>(null);
-  const dragOffset = useRef({ x: 0, y: 0 });
-  const [draggingId, setDraggingId] = useState<string | null>(null); // for cursor
-
-  // Container ref to convert mouse coords → canvas coords
-  const outerRef = useRef<HTMLDivElement>(null);
-
-  // Keep panRef in sync so drag handlers always have the latest pan
-  useEffect(() => { panRef.current = pan; }, [pan]);
-
-  // --- Node drag handlers ---
-  const handleNodeMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-    draggingNodeId.current = nodeId;
-    setDraggingId(nodeId);
-    const rect = outerRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
-    const pos = nodePositions[nodeId] ?? { x: 0, y: 0 };
-    const canvasX = e.clientX - rect.left - panRef.current.x;
-    const canvasY = e.clientY - rect.top - panRef.current.y;
-    dragOffset.current = { x: canvasX - pos.x, y: canvasY - pos.y };
-  }, [nodePositions]);
-
-  // --- Canvas pan handlers ---
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.graph-node')) return;
-    setIsPanning(true);
-    lastPos.current = { x: e.clientX, y: e.clientY };
-  }, []);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (draggingNodeId.current) {
-      const rect = outerRef.current?.getBoundingClientRect() ?? { left: 0, top: 0 };
-      const canvasX = e.clientX - rect.left - panRef.current.x;
-      const canvasY = e.clientY - rect.top - panRef.current.y;
-      const id = draggingNodeId.current;
-      setNodePositions((prev) => ({
-        ...prev,
-        [id]: {
-          x: canvasX - dragOffset.current.x,
-          y: canvasY - dragOffset.current.y,
-        },
-      }));
-      return;
-    }
-    if (!isPanning) return;
-    const newPan = {
-      x: pan.x + (e.clientX - lastPos.current.x),
-      y: pan.y + (e.clientY - lastPos.current.y),
+    // ── Selection helpers ───────────────────────────────────────────────────
+    const resetHighlight = () => {
+      nodeSel.attr('opacity', 1);
+      linkSel.attr('stroke', 'rgba(255,255,255,0.07)');
+      setSelected(null);
     };
-    panRef.current = newPan;
-    setPan(newPan);
-    lastPos.current = { x: e.clientX, y: e.clientY };
-  }, [isPanning, pan]);
 
-  const handleMouseUp = useCallback(() => {
-    draggingNodeId.current = null;
-    setDraggingId(null);
-    setIsPanning(false);
-  }, []);
+    svg.on('click', resetHighlight);
 
-  useEffect(() => {
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => window.removeEventListener('mouseup', handleMouseUp);
-  }, [handleMouseUp]);
+    nodeSel.on('click', (event, d) => {
+      if (d.type !== 'api') return;
+      event.stopPropagation();
+      nodeSel.attr('opacity', (n: SimNode) => n.id === d.id ? 1 : 0.25);
+      linkSel.attr('stroke', (l: SimLink) => {
+        const t = l.target as SimNode;
+        return t.id === d.id ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.03)';
+      });
+      const edgeCount = rawEdges.filter(e => e.target === d.id).length;
+      setSelected({ ...d, edgeCount });
+    });
 
-  // Compute edge center using live nodePositions
-  const getNodeCenter = (nodeId: string, type: 'file' | 'api') => {
-    const pos = nodePositions[nodeId];
-    if (!pos) return { x: 0, y: 0 };
-    if (type === 'file') return { x: pos.x + 65, y: pos.y + 16 };
-    return { x: pos.x + 22, y: pos.y + 22 };
-  };
+    // ── Drag ────────────────────────────────────────────────────────────────
+    const drag = d3.drag<SVGGElement, SimNode>()
+      .on('start', (event, d) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
+      .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+      .on('end', (event, d) => {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null; d.fy = null;
+      });
 
+    nodeSel.filter(d => d.type === 'api').call(drag);
+
+    // ── Tick ────────────────────────────────────────────────────────────────
+    simulation.on('tick', () => {
+      linkSel
+        .attr('x1', d => (d.source as SimNode).x ?? 0)
+        .attr('y1', d => (d.source as SimNode).y ?? 0)
+        .attr('x2', d => (d.target as SimNode).x ?? 0)
+        .attr('y2', d => (d.target as SimNode).y ?? 0);
+      nodeSel.attr('transform', d => `translate(${d.x ?? 0},${d.y ?? 0})`);
+    });
+
+    return () => { simulation.stop(); };
+  }, [apiNodes, rawEdges]);
+
+  // ── Render ──────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 size={24} className="animate-spin text-[#4EAA57]" />
+        <Loader2 size={22} className="animate-spin" style={{ color: '#4EAA57' }} />
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-6 pb-3 flex items-center justify-between">
+    <div className="h-full overflow-auto scrollbar-hide">
+    <div className="min-h-full flex flex-col max-w-[1240px] mx-auto px-8">
+
+      {/* Header */}
+      <div className="pt-14 pb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-[20px] text-white" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600 }}>
+          <h1 className="text-[26px] text-white" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600 }}>
             Dependency Graph
           </h1>
-          <p className="text-[12px] mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
-            File &rarr; API endpoint relationships · {nodes.length} endpoints · Drag nodes · Click for details
+          <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
+            {apiNodes.length} endpoints · drag nodes · scroll to zoom · click to inspect
           </p>
         </div>
-        <div className="relative">
-          <select
-            value={clusterBy}
-            onChange={(e) => setClusterBy(e.target.value)}
-            className="appearance-none bg-black/40 backdrop-blur-sm border border-white/[0.1] rounded-lg px-3 py-1.5 pr-8 text-[11px] text-white focus:outline-none focus:border-[#4EAA57]/40 cursor-pointer"
-            style={{ fontFamily: "'JetBrains Mono', monospace" }}
-          >
-            <option value="provider">Group by Provider</option>
-            <option value="file">Group by File</option>
-            <option value="cost">Group by Cost</option>
-          </select>
-          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'rgba(255,255,255,0.35)' }} />
-        </div>
+
+        <Select
+          value={clusterBy}
+          onChange={setClusterBy}
+          options={[
+            { value: 'provider', label: 'Group by Provider' },
+            { value: 'file',     label: 'Group by File' },
+            { value: 'cost',     label: 'Group by Cost' },
+          ]}
+        />
       </div>
 
-      {nodes.length === 0 && (
-        <div className="flex-1 flex items-center justify-center" style={{ color: 'rgba(255,255,255,0.35)' }}>
-          <p className="text-[12px]">No graph data. Run a scan first.</p>
-        </div>
-      )}
-
-      {nodes.length > 0 && (
-        <div
-          ref={outerRef}
-          className="flex-1 relative overflow-hidden"
-          style={{
-            background: 'radial-gradient(circle at 50% 30%, rgba(78,170,87,0.05) 0%, transparent 70%)',
-            cursor: draggingId ? 'grabbing' : isPanning ? 'grabbing' : 'grab',
-          }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-        >
-          {/* Grid pattern */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-[0.04]">
-            <defs>
-              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#4EAA57" strokeWidth="0.5" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-
-          <div className="absolute inset-0" style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
-            {/* Edges — overflow:visible so lines aren't clipped when nodes are dragged far */}
-            <svg
-              className="absolute inset-0 w-full h-full pointer-events-none"
-              style={{ overflow: 'visible' }}
+      {/* Canvas — centered in remaining space */}
+      <div className="flex-1 flex flex-col justify-center pb-12">
+      <div
+        ref={containerRef}
+        className="relative overflow-hidden bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl"
+        style={{ height: '640px' }}
+      >
+        {apiNodes.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <p
+              className="text-[14px]"
+              style={{ color: 'rgba(255,255,255,0.2)', fontFamily: "'JetBrains Mono', monospace" }}
             >
-              <defs>
-                <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                  <polygon points="0 0, 8 3, 0 6" fill="#4EAA57" opacity="0.4" />
-                </marker>
-              </defs>
-              {edges.map((edge) => {
-                const fromNode = positioned.find((n) => n.id === edge.source);
-                const toNode = positioned.find((n) => n.id === edge.target);
-                if (!fromNode || !toNode) return null;
-                const from = getNodeCenter(edge.source, fromNode.type);
-                const to = getNodeCenter(edge.target, toNode.type);
-                const isHighlighted = selected && (selected.id === edge.source || selected.id === edge.target);
-                return (
-                  <line
-                    key={`${edge.source}-${edge.target}-${edge.line}`}
-                    x1={from.x} y1={from.y}
-                    x2={to.x} y2={to.y}
-                    stroke={isHighlighted ? '#4EAA57' : 'rgba(255,255,255,0.1)'}
-                    strokeWidth={isHighlighted ? 1.5 : 1}
-                    opacity={isHighlighted ? 0.8 : 0.5}
-                    markerEnd="url(#arrowhead)"
-                  />
-                );
-              })}
-            </svg>
-
-            {/* Nodes */}
-            {positioned.map((node) => {
-              const pos = nodePositions[node.id] ?? { x: node.x, y: node.y };
-              const isSelected = selected?.id === node.id;
-              const isConnected = selected && edges.some(
-                (e) => (e.source === selected.id && e.target === node.id) || (e.target === selected.id && e.source === node.id)
-              );
-              const dimmed = selected && !isSelected && !isConnected;
-              const isBeingDragged = draggingId === node.id;
-
-              if (node.type === 'file') {
-                return (
-                  <div
-                    key={node.id}
-                    className="graph-node absolute"
-                    style={{
-                      left: pos.x,
-                      top: pos.y,
-                      opacity: dimmed ? 0.3 : 1,
-                      cursor: isBeingDragged ? 'grabbing' : 'grab',
-                      zIndex: isBeingDragged ? 10 : 1,
-                      userSelect: 'none',
-                    }}
-                    onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-                    onClick={() => setSelected(isSelected ? null : node)}
-                  >
-                    <div
-                      className="px-3 py-1.5 rounded-md border text-[11px] backdrop-blur-sm transition-colors"
-                      style={{
-                        backgroundColor: isSelected ? 'rgba(78,170,87,0.15)' : 'rgba(0,0,0,0.4)',
-                        borderColor: isBeingDragged
-                          ? 'rgba(78,170,87,0.6)'
-                          : isSelected
-                          ? 'rgba(78,170,87,0.4)'
-                          : 'rgba(255,255,255,0.1)',
-                        color: isSelected ? '#fff' : 'rgba(255,255,255,0.5)',
-                        boxShadow: isBeingDragged ? '0 4px 20px rgba(78,170,87,0.2)' : 'none',
-                      }}
-                    >
-                      {node.label}
-                    </div>
-                  </div>
-                );
-              }
-
-              const color = statusColors[node.status ?? 'normal'] || '#4EAA57';
-              return (
-                <div
-                  key={node.id}
-                  className="graph-node absolute"
-                  style={{
-                    left: pos.x,
-                    top: pos.y,
-                    opacity: dimmed ? 0.3 : 1,
-                    cursor: isBeingDragged ? 'grabbing' : 'grab',
-                    zIndex: isBeingDragged ? 10 : 1,
-                    userSelect: 'none',
-                  }}
-                  onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-                  onClick={() => setSelected(isSelected ? null : node)}
-                >
-                  <div
-                    className="w-11 h-11 rounded-full border-2 flex items-center justify-center text-[9px] transition-colors"
-                    style={{
-                      borderColor: isBeingDragged ? color : isSelected ? color : `${color}60`,
-                      backgroundColor: `${color}15`,
-                      boxShadow: isBeingDragged
-                        ? `0 4px 20px ${color}40`
-                        : isSelected
-                        ? `0 0 12px ${color}30`
-                        : 'none',
-                      color,
-                    }}
-                  >
-                    {(node.method ?? '').slice(0, 3)}
-                  </div>
-                </div>
-              );
-            })}
+              No graph data — run a scan first.
+            </p>
           </div>
+        ) : (
+          <svg ref={svgRef} className="w-full h-full block" />
+        )}
 
-          {/* Info Card */}
-          {selected && (
-            <div className="absolute top-4 right-4 w-64 bg-black/60 backdrop-blur-xl border border-white/[0.1] rounded-xl p-4 shadow-xl z-20">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                  {selected.type === 'file' ? 'File' : 'API Endpoint'}
-                </span>
-                <button onClick={() => setSelected(null)} style={{ color: 'rgba(255,255,255,0.45)' }} className="hover:text-white transition-colors">
-                  <X size={14} />
-                </button>
-              </div>
-              {selected.type === 'file' ? (
-                <>
-                  <p className="text-[13px] text-white mb-2">{selected.label}</p>
-                  <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                    {edges.filter((e) => e.source === selected.id).length} outgoing API calls
-                  </p>
-                </>
-              ) : (
-                <>
-                  <code className="text-[12px] text-white block mb-2">{selected.label}</code>
-                  <div className="space-y-1.5 text-[10px]">
-                    <div className="flex justify-between">
-                      <span style={{ color: 'rgba(255,255,255,0.45)' }}>Method</span>
-                      <span className="text-white">{selected.method}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span style={{ color: 'rgba(255,255,255,0.45)' }}>Provider</span>
-                      <span className="text-white capitalize">{selected.provider}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span style={{ color: 'rgba(255,255,255,0.45)' }}>Status</span>
-                      <span style={{ color: statusColors[selected.status ?? 'normal'] }}>
-                        {statusLabels[selected.status ?? 'normal'] ?? selected.status}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span style={{ color: 'rgba(255,255,255,0.45)' }}>Monthly Cost</span>
-                      <span className="text-white">${selected.monthlyCost?.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </>
-              )}
+        {/* Info card — API endpoints only */}
+        {selected?.type === 'api' && (
+          <div
+            className="absolute top-5 right-5 w-80 bg-black/60 backdrop-blur-xl border border-white/[0.1] rounded-xl p-5 z-20 shadow-xl"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <span
+                className="text-[11px] uppercase tracking-widest"
+                style={{ color: 'rgba(255,255,255,0.3)', fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                API Endpoint
+              </span>
+              <button
+                onClick={() => setSelected(null)}
+                className="transition-colors hover:text-white"
+                style={{ color: 'rgba(255,255,255,0.3)' }}
+              >
+                <X size={16} />
+              </button>
             </div>
-          )}
 
-          {/* Legend */}
-          <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm border border-white/[0.08] rounded-lg px-3 py-2">
-            <div className="flex items-center gap-4 text-[9px]" style={{ color: 'rgba(255,255,255,0.45)' }}>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-2 rounded-sm bg-black/40 border border-white/[0.15]" /> File
-              </div>
-              {Object.entries(statusColors).map(([status, color]) => (
-                <div key={status} className="flex items-center gap-1">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: `${color}60`, border: `1px solid ${color}` }} />
-                  {statusLabels[status] ?? status}
+            <div className="space-y-2.5">
+              <p
+                className="text-[13px] text-white break-all mb-4 leading-relaxed"
+                style={{ fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                <span style={{ color: STATUS_COLOR[selected.status ?? 'normal'] }}>
+                  {selected.method}
+                </span>{' '}
+                {selected.label}
+              </p>
+              {([
+                ['Provider',     selected.provider ?? '—'],
+                ['Status',       STATUS_LABEL[selected.status ?? 'normal'] ?? selected.status ?? '—'],
+                ['Calls / day',  selected.callsPerDay?.toLocaleString() ?? '—'],
+                ['Monthly cost', `$${selected.monthlyCost?.toFixed(2) ?? '0.00'}`],
+              ] as [string, string][]).map(([key, val]) => (
+                <div key={key} className="flex justify-between items-center">
+                  <span
+                    className="text-[12px]"
+                    style={{ color: 'rgba(255,255,255,0.3)', fontFamily: "'JetBrains Mono', monospace" }}
+                  >
+                    {key}
+                  </span>
+                  <span
+                    className="text-[12px]"
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      color: key === 'Status'
+                        ? STATUS_COLOR[selected.status ?? 'normal']
+                        : 'rgba(255,255,255,0.75)',
+                    }}
+                  >
+                    {val}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
+        )}
+
+        {/* Legend */}
+        <div className="absolute bottom-5 left-5 bg-black/60 backdrop-blur-sm border border-white/[0.08] rounded-lg px-4 py-2.5">
+          <div
+            className="flex items-center gap-5"
+            style={{ fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            {Object.entries(STATUS_COLOR).map(([status, color]) => (
+              <div
+                key={status}
+                className="flex items-center gap-1.5 text-[11px]"
+                style={{ color: 'rgba(255,255,255,0.3)' }}
+              >
+                <div
+                  className="rounded-full"
+                  style={{
+                    width: 13, height: 13,
+                    background: `${color}18`,
+                    border: `1px solid ${color}85`,
+                  }}
+                />
+                {STATUS_LABEL[status] ?? status}
+              </div>
+            ))}
+          </div>
         </div>
-      )}
+      </div>
+
+    </div>
+    </div>
     </div>
   );
 }

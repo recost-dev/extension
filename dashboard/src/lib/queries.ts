@@ -11,6 +11,7 @@ import type {
   GraphData,
   CostSummary,
   ProviderCost,
+  SustainabilityData,
   PaginationMeta,
 } from "./types";
 
@@ -85,6 +86,7 @@ export function useCreateScan(projectId: string) {
       qc.invalidateQueries({ queryKey: ["endpoints", projectId] });
       qc.invalidateQueries({ queryKey: ["suggestions", projectId] });
       qc.invalidateQueries({ queryKey: ["graph", projectId] });
+      qc.invalidateQueries({ queryKey: ["sustainability", projectId] });
     },
   });
 }
@@ -155,6 +157,16 @@ export function useSuggestions(
         `/projects/${projectId}/suggestions`,
         params as Record<string, string | number | undefined>,
       ),
+    enabled: !!projectId,
+  });
+}
+
+// ── Sustainability ──
+
+export function useSustainability(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["sustainability", projectId],
+    queryFn: () => get<{ data: SustainabilityData }>(`/projects/${projectId}/sustainability`),
     enabled: !!projectId,
   });
 }

@@ -1,15 +1,16 @@
+import type { ElementType } from 'react';
 import { useParams } from 'react-router';
 import { AlertTriangle, AlertCircle, Info, Leaf, RefreshCw, Layers, Zap, Archive, Loader2 } from 'lucide-react';
 import { useSuggestions } from '@/lib/queries';
 import type { Severity, SuggestionType, Suggestion } from '@/lib/types';
 
-const severityConfig: Record<Severity, { color: string; bg: string; icon: React.ElementType; label: string }> = {
+const severityConfig: Record<Severity, { color: string; bg: string; icon: ElementType; label: string }> = {
   high: { color: '#C45A4A', bg: 'bg-[#C45A4A]/10', icon: AlertTriangle, label: 'HIGH IMPACT' },
   medium: { color: '#B8A038', bg: 'bg-[#B8A038]/10', icon: AlertCircle, label: 'MEDIUM IMPACT' },
   low: { color: '#7EA87E', bg: 'bg-[#7EA87E]/10', icon: Info, label: 'LOW IMPACT' },
 };
 
-const typeIcons: Record<SuggestionType, React.ElementType> = {
+const typeIcons: Record<SuggestionType, ElementType> = {
   cache: Archive,
   batch: Layers,
   redundancy: RefreshCw,
@@ -39,28 +40,28 @@ export default function Suggestions() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 size={24} className="animate-spin text-[#4EAA57]" />
+        <Loader2 size={32} className="animate-spin text-[#4EAA57]" />
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-auto scrollbar-hide">
-      <div className="p-6 space-y-5 max-w-[960px] mx-auto">
+      <div className="pt-14 px-8 pb-8 space-y-6 max-w-[1240px] mx-auto">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[20px] text-white" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600 }}>
+            <h1 className="text-[26px] text-white" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600 }}>
               Suggestions
             </h1>
-            <p className="text-[12px] mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
+            <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
               {suggestions.length} optimizations found · Save ${totalSavings.toFixed(2)}/mo
             </p>
           </div>
         </div>
 
         {suggestions.length === 0 && (
-          <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-xl p-8 text-center">
-            <p className="text-[13px]" style={{ color: 'rgba(255,255,255,0.45)' }}>No suggestions found. Your API usage looks clean!</p>
+          <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-10 text-center">
+            <p className="text-[14px]" style={{ color: 'rgba(255,255,255,0.45)' }}>No suggestions found. Your API usage looks clean!</p>
           </div>
         )}
 
@@ -70,45 +71,45 @@ export default function Suggestions() {
           const config = severityConfig[severity];
 
           return (
-            <div key={severity} className="space-y-2">
-              <div className="flex items-center gap-2 mb-2">
-                <config.icon size={13} style={{ color: config.color }} />
-                <span className="text-[11px] tracking-wider" style={{ color: config.color }}>{config.label}</span>
-                <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>({items.length})</span>
+            <div key={severity} className="space-y-3">
+              <div className="flex items-center gap-2.5 mb-2">
+                <config.icon size={16} style={{ color: config.color }} />
+                <span className="text-[13px] tracking-wider" style={{ color: config.color }}>{config.label}</span>
+                <span className="text-[12px]" style={{ color: 'rgba(255,255,255,0.3)' }}>({items.length})</span>
               </div>
 
               {items.map((s) => {
                 const TypeIcon = typeIcons[s.type] ?? Layers;
                 return (
-                  <div key={s.id} className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-xl p-4 hover:border-white/[0.15] transition-colors">
-                    <div className="flex items-start justify-between gap-3">
+                  <div key={s.id} className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-6 hover:border-white/[0.15] transition-colors">
+                    <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <div className={`p-1 rounded ${config.bg}`}>
-                            <TypeIcon size={12} style={{ color: config.color }} />
+                        <div className="flex items-center gap-2.5 mb-2">
+                          <div className={`p-1.5 rounded ${config.bg}`}>
+                            <TypeIcon size={14} style={{ color: config.color }} />
                           </div>
-                          <span className="text-[10px] uppercase tracking-wider" style={{ color: config.color }}>
+                          <span className="text-[12px] uppercase tracking-wider" style={{ color: config.color }}>
                             {typeLabels[s.type] ?? s.type}
                           </span>
                         </div>
-                        <p className="text-[11px] leading-relaxed mb-2.5" style={{ color: 'rgba(255,255,255,0.6)' }}>{s.description}</p>
+                        <p className="text-[13px] leading-relaxed mb-3" style={{ color: 'rgba(255,255,255,0.6)' }}>{s.description}</p>
                         <div className="flex items-center gap-2 flex-wrap">
                           {s.affectedFiles.map((f) => (
-                            <span key={f} className="text-[10px] bg-white/[0.05] px-2 py-0.5 rounded border border-white/[0.08]" style={{ color: 'rgba(255,255,255,0.45)' }}>{f}</span>
+                            <span key={f} className="text-[11px] bg-white/[0.05] px-2.5 py-1 rounded border border-white/[0.08]" style={{ color: 'rgba(255,255,255,0.45)' }}>{f}</span>
                           ))}
                         </div>
                         {s.codeFix && (
-                          <pre className="mt-3 p-3 bg-black/60 rounded-lg border border-white/[0.06] overflow-x-auto">
-                            <code className="text-[10px] leading-relaxed whitespace-pre" style={{ color: 'rgba(255,255,255,0.6)', fontFamily: "'JetBrains Mono', monospace" }}>
+                          <pre className="mt-4 p-4 bg-black/60 rounded-lg border border-white/[0.06] overflow-x-auto">
+                            <code className="text-[12px] leading-relaxed whitespace-pre" style={{ color: 'rgba(255,255,255,0.6)', fontFamily: "'JetBrains Mono', monospace" }}>
                               {s.codeFix}
                             </code>
                           </pre>
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">
-                        <div className="flex items-center gap-1.5 bg-[#4EAA57]/10 px-2.5 py-1 rounded-md border border-[#4EAA57]/20">
-                          <Leaf size={11} className="text-[#4EAA57]" />
-                          <span className="text-[11px] text-[#4EAA57]">${s.estimatedMonthlySavings.toFixed(2)}/mo</span>
+                        <div className="flex items-center gap-1.5 bg-[#4EAA57]/10 px-3 py-1.5 rounded-md border border-[#4EAA57]/20">
+                          <Leaf size={13} className="text-[#4EAA57]" />
+                          <span className="text-[13px] text-[#4EAA57]">${s.estimatedMonthlySavings.toFixed(2)}/mo</span>
                         </div>
                       </div>
                     </div>

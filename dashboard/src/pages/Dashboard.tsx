@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router';
-import { Leaf, Server, Activity, DollarSign, AlertTriangle, TrendingDown, Loader2 } from 'lucide-react';
-import { useProject, useCost, useCostByProvider, useSuggestions, useCreateScan } from '@/lib/queries';
+import { Server, Activity, DollarSign, AlertTriangle, TrendingDown, Loader2, Lightbulb } from 'lucide-react';
+import { useProject, useCost, useCostByProvider, useSuggestions, useCreateScan, useSustainability } from '@/lib/queries';
 import type { ApiCallInput } from '@/lib/types';
 
 function useAnimatedValue(target: number, duration = 800) {
@@ -84,8 +84,8 @@ function EcoGauge({ score }: { score: number }) {
   }, [score]);
 
   return (
-    <div className="relative flex items-center justify-center w-44 h-44">
-      <svg className="w-44 h-44 -rotate-90" viewBox="0 0 128 128">
+    <div className="relative flex items-center justify-center w-[228px] h-[228px]">
+      <svg className="w-[228px] h-[228px] -rotate-90" viewBox="0 0 128 128">
         <circle cx="64" cy="64" r="58" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
         <circle
           cx="64" cy="64" r="58"
@@ -99,8 +99,8 @@ function EcoGauge({ score }: { score: number }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-[32px]" style={{ color, fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(displayScore)}</span>
-        <span className="text-[11px] tracking-wider uppercase" style={{ color: 'rgba(255,255,255,0.45)' }}>Eco Score</span>
+        <span className="text-[42px]" style={{ color, fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(displayScore)}</span>
+        <span className="text-[13px] tracking-wider uppercase" style={{ color: 'rgba(255,255,255,0.45)' }}>Eco Score</span>
       </div>
     </div>
   );
@@ -112,6 +112,7 @@ export default function Dashboard() {
   const { data: costData, isLoading: loadingCost } = useCost(projectId);
   const { data: providerData, isLoading: loadingProviders } = useCostByProvider(projectId);
   const { data: suggestionsData } = useSuggestions(projectId, { limit: 100 });
+  const { data: sustainabilityData } = useSustainability(projectId);
 
   const [showRescan, setShowRescan] = useState(false);
 
@@ -119,6 +120,7 @@ export default function Dashboard() {
   const cost = costData?.data;
   const providers = providerData?.data ?? [];
   const suggestions = suggestionsData?.data ?? [];
+  const sustain = sustainabilityData?.data;
 
   const isLoading = loadingProject || loadingCost;
 
@@ -135,10 +137,20 @@ export default function Dashboard() {
   const totalProviderCost = providers.reduce((sum, p) => sum + p.monthlyCost, 0);
 
   const stats = [
-    { label: 'Endpoints', value: cost?.endpointCount, format: (n: number) => Math.round(n).toString(), icon: Server },
-    { label: 'Daily API Calls', value: cost?.totalCallsPerDay, format: (n: number) => Math.round(n).toLocaleString(undefined, { maximumFractionDigits: 0 }), icon: Activity },
-    { label: 'Monthly Cost', value: cost?.totalMonthlyCost, format: (n: number) => `$${n.toFixed(2)}`, icon: DollarSign },
-    { label: 'High Risk', value: highRisk, format: (n: number) => Math.round(n).toString(), icon: AlertTriangle },
+    { label: 'Endpoints',         value: cost?.endpointCount,    format: (n: number) => Math.round(n).toString(),                                              icon: Server },
+    { label: 'Daily Calls',       value: cost?.totalCallsPerDay, format: (n: number) => Math.round(n).toLocaleString(undefined, { maximumFractionDigits: 0 }), icon: Activity },
+    { label: 'Monthly Cost',      value: cost?.totalMonthlyCost, format: (n: number) => `$${n.toFixed(2)}`,                                                    icon: DollarSign },
+    { label: 'Suggestions',       value: totalSuggestions,       format: (n: number) => Math.round(n).toString(),                                              icon: Lightbulb },
+    { label: 'High Risk',         value: highRisk,               format: (n: number) => Math.round(n).toString(),                                              icon: AlertTriangle },
+    { label: 'Pot. Savings',      value: totalSavings,           format: (n: number) => `$${n.toFixed(2)}/mo`,                                                 icon: TrendingDown },
+  ];
+
+  const sustainabilityStats = [
+    { label: 'Electricity',  value: sustain ? `${sustain.electricity.monthlyKwh.toFixed(2)} kWh` : undefined,         color: '#5CBF65' },
+    { label: 'CO₂',          value: sustain ? `${(sustain.co2.monthlyGrams / 1000).toFixed(2)} kg` : undefined,        color: '#B8A038' },
+    { label: 'Water',        value: sustain ? `${sustain.water.monthlyLiters.toFixed(1)} L` : undefined,               color: '#5AA8C4' },
+    { label: 'AI Calls/Day', value: sustain ? Math.round(sustain.aiCallsPerDay).toLocaleString() : undefined,          color: '#C87F3A' },
+    { label: 'AI Usage',     value: sustain ? `${sustain.aiCallsPercentage.toFixed(1)}%` : undefined,                  color: '#C45A4A' },
   ];
 
   if (isLoading) {
@@ -151,43 +163,46 @@ export default function Dashboard() {
 
   return (
     <div className="h-full overflow-auto scrollbar-hide">
-    <div className="p-6 space-y-5 max-w-[960px] mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="min-h-full flex flex-col max-w-[1240px] mx-auto px-8">
+      {/* Header */}
+      <div className="pt-14 pb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-[20px] text-white" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600 }}>
-            Dashboard
+          <h1 className="text-[26px] text-white" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600 }}>
+            {project?.name ?? '—'}
           </h1>
-          <p className="text-[12px] mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
+          <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
             API sustainability overview
             {summary ? ` · ${summary.scans} scan${summary.scans !== 1 ? 's' : ''}` : ''}
           </p>
         </div>
         <button
           onClick={() => setShowRescan(true)}
-          className="px-3 py-1.5 text-[11px] rounded-md transition-colors"
+          className="px-4 py-2 text-[13px] rounded-md transition-colors"
           style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' }}
         >
           Re-scan Project
         </button>
       </div>
 
-      <div className="grid grid-cols-[auto_1fr] gap-5">
-        <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-xl p-5 flex flex-col items-center justify-center">
+      <div className="flex-1 flex flex-col justify-center pb-12 space-y-6">
+      {/* Gauge + Main Stats */}
+      <div className="grid grid-cols-[auto_1fr] gap-6">
+        <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-7 flex flex-col items-center justify-center">
           <EcoGauge score={ecoScore} />
-          <p className="text-[11px] mt-2 text-center" style={{ color: 'rgba(255,255,255,0.45)' }}>
+          <p className="text-[13px] mt-3 text-center" style={{ color: 'rgba(255,255,255,0.45)' }}>
             {ecoScore >= 70 ? 'Good standing' : ecoScore >= 40 ? 'Needs improvement' : 'Critical'}
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-4">
           {stats.map((stat) => (
-            <div key={stat.label} className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-xl p-4 flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.45)' }}>{stat.label}</span>
-                <stat.icon size={14} className="text-[#4EAA57]/60" />
+            <div key={stat.label} className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-6 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-[13px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.45)' }}>{stat.label}</span>
+                <stat.icon size={16} className="text-[#4EAA57]/60" />
               </div>
               <div>
-                <span className="text-[22px] text-white">
+                <span className="text-[28px] text-white">
                   <AnimatedStatValue value={stat.value} format={stat.format} />
                 </span>
               </div>
@@ -196,38 +211,36 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {totalSavings > 0 && (
-        <div className="bg-[#4EAA57]/10 border border-[#4EAA57]/20 rounded-xl px-5 py-3.5 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#4EAA57]/15 flex items-center justify-center shrink-0">
-            <Leaf size={16} className="text-[#4EAA57]" />
+      {/* Sustainability Breakdown */}
+      <div className="grid grid-cols-5 gap-4">
+        {sustainabilityStats.map((s) => (
+          <div key={s.label} className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[13px] uppercase tracking-wider" style={{ color: 'rgba(255,255,255,0.45)' }}>{s.label}</span>
+              <div className="w-3 h-3 rounded-full" style={{ background: s.color, boxShadow: `0 0 6px ${s.color}60` }} />
+            </div>
+            <span className="text-[28px] text-white">{s.value ?? '—'}</span>
+            <p className="text-[12px] mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>monthly</p>
           </div>
-          <div className="flex-1">
-            <p className="text-[12px] text-white">
-              Implementing all suggestions saves <span className="text-[#4EAA57]">${totalSavings.toFixed(2)}/mo</span>
-            </p>
-            <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              Based on {totalSuggestions} optimization suggestion{totalSuggestions !== 1 ? 's' : ''} across {providers.length} provider{providers.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <TrendingDown size={16} className="text-[#4EAA57] shrink-0" />
-        </div>
-      )}
+        ))}
+      </div>
 
+      {/* Provider Cost Breakdown */}
       {!loadingProviders && providers.length > 0 && (
-        <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-xl p-5">
-          <h3 className="text-[13px] text-white mb-4">Provider Cost Breakdown</h3>
-          <div className="space-y-3">
+        <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-6">
+          <h3 className="text-[16px] text-white mb-5">Provider Cost Breakdown</h3>
+          <div className="space-y-4">
             {providers.map((p, idx) => {
               const percent = totalProviderCost > 0 ? Math.round((p.monthlyCost / totalProviderCost) * 100) : 0;
               const colors = ['#4EAA57', '#5CBF65', '#3D8B44', '#2E6E34', '#1F4F24'];
               return (
-                <div key={p.provider} className="flex items-center gap-3">
-                  <span className="text-[11px] w-20 shrink-0 capitalize" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.provider}</span>
-                  <div className="flex-1 h-5 bg-black/50 rounded-md overflow-hidden relative">
+                <div key={p.provider} className="flex items-center gap-4">
+                  <span className="text-[13px] w-24 shrink-0 capitalize" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.provider}</span>
+                  <div className="flex-1 h-6 bg-black/50 rounded-md overflow-hidden relative">
                     <AnimatedBar percent={percent} backgroundColor={colors[idx % colors.length]} />
                   </div>
-                  <span className="text-[11px] text-white w-16 text-right">${p.monthlyCost.toFixed(2)}</span>
-                  <span className="text-[10px] w-8 text-right" style={{ color: 'rgba(255,255,255,0.4)' }}>{percent}%</span>
+                  <span className="text-[13px] text-white w-20 text-right">${p.monthlyCost.toFixed(2)}</span>
+                  <span className="text-[12px] w-10 text-right" style={{ color: 'rgba(255,255,255,0.4)' }}>{percent}%</span>
                 </div>
               );
             })}
@@ -236,11 +249,11 @@ export default function Dashboard() {
       )}
 
       {!loadingProject && summary && summary.scans === 0 && (
-        <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-xl p-8 text-center">
-          <p className="text-[13px]" style={{ color: 'rgba(255,255,255,0.45)' }}>No scans yet. Run a scan to see analytics.</p>
+        <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-10 text-center">
+          <p className="text-[15px]" style={{ color: 'rgba(255,255,255,0.45)' }}>No scans yet. Run a scan to see analytics.</p>
           <button
             onClick={() => setShowRescan(true)}
-            className="mt-3 px-4 py-2 text-[11px] bg-[#4EAA57]/10 border border-[#4EAA57]/20 rounded-md text-[#4EAA57] hover:bg-[#4EAA57]/20 transition-colors"
+            className="mt-4 px-5 py-2.5 text-[13px] bg-[#4EAA57]/10 border border-[#4EAA57]/20 rounded-md text-[#4EAA57] hover:bg-[#4EAA57]/20 transition-colors"
           >
             Run First Scan
           </button>
@@ -250,6 +263,7 @@ export default function Dashboard() {
       {showRescan && projectId && (
         <RescanDialog projectId={projectId} onClose={() => setShowRescan(false)} />
       )}
+    </div>
     </div>
     </div>
   );
