@@ -149,6 +149,12 @@ const DraggableStat = ({
       onMouseDown={handleMouseDown}
     >
       {children}
+      <span
+        className="text-[9px] font-mono mt-1 px-2 py-0.5 rounded bg-black/60 text-zinc-400"
+        style={{ fontFamily: "'JetBrains Mono', monospace" }}
+      >
+        ({position.left}%, {position.top}%)
+      </span>
     </div>
   );
 };
