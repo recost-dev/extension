@@ -1,11 +1,10 @@
-import { useState } from 'react';
-import { motion as Motion, AnimatePresence } from 'motion/react';
+import { motion as Motion } from 'motion/react';
 import { Particles } from './particles';
 import { AnimatedTree } from './animated-tree';
 import { Navbar } from './navbar';
 import { useTheme } from '../theme-context';
 import { useNavigate } from 'react-router';
-import { Sparkles, Sparkle, ChevronDown, ChevronUp, Lightbulb, Zap, Droplets, Leaf, Globe } from 'lucide-react';
+import { ChevronDown, ChevronUp, Lightbulb, Zap, Droplets, Leaf, Globe } from 'lucide-react';
 import { cn } from '../components/ui/utils';
 
 const FADE = (delay = 0) => ({
@@ -190,7 +189,6 @@ const WindingPath = () => (
 export function LandingPage() {
   const theme = useTheme();
   const navigate = useNavigate();
-  const [showFireflies, setShowFireflies] = useState(true);
 
   return (
     <div className="relative w-full transition-colors duration-1000" style={{ backgroundColor: theme.bg }}>
@@ -229,18 +227,7 @@ export function LandingPage() {
         />
 
         {/* Floating particles */}
-        <AnimatePresence>
-          {showFireflies && (
-            <Motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 1 }}
-            >
-              <Particles />
-            </Motion.div>
-          )}
-        </AnimatePresence>
+        <Particles />
 
         {/* === SVG TREE + STATIC GROUND === */}
         <AnimatedTree />
@@ -357,7 +344,6 @@ export function LandingPage() {
           animate={{ opacity: 0.45 }}
           transition={{ duration: 1, delay: 1.8 }}
         >
-          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '10px', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.15em', textTransform: 'uppercase' }}>scroll</span>
           <Motion.div
             animate={{ y: [0, 8, 0] }}
             transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
@@ -366,21 +352,6 @@ export function LandingPage() {
           </Motion.div>
         </Motion.div>
 
-        {/* UI Controls (Particle Toggle) */}
-        <div className="fixed bottom-6 left-6 z-[100]">
-          <button
-            onClick={() => setShowFireflies(!showFireflies)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-medium transition-all border"
-            style={{
-              backgroundColor: showFireflies ? 'rgba(255,255,255,0.1)' : 'transparent',
-              borderColor: showFireflies ? '#ffffff44' : '#ffffff22',
-              color: showFireflies ? '#ffffff' : '#ffffff66',
-            }}
-          >
-            {showFireflies ? <Sparkles size={12} /> : <Sparkle size={12} />}
-            <span>Fireflies: {showFireflies ? 'ON' : 'OFF'}</span>
-          </button>
-        </div>
       </div>
 
       {/* ===== SUSTAINABILITY SECTION ===== */}
@@ -471,14 +442,14 @@ export function LandingPage() {
           >
             <button
               onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full text-white text-[15px] transition-all hover:-translate-y-0.5"
+              className="inline-flex items-center gap-2 text-white text-[15px] transition-all hover:-translate-y-0.5 hover:opacity-80"
               style={{
-                backgroundColor: 'rgba(255,255,255,0.10)',
-                border: '1px solid rgba(255,255,255,0.25)',
-                backdropFilter: 'blur(8px)',
+                background: 'none',
+                border: 'none',
                 fontFamily: "'Inter', sans-serif",
                 fontWeight: 500,
                 cursor: 'pointer',
+                color: 'rgba(255,255,255,0.5)',
               }}
             >
               <ChevronUp size={16} />

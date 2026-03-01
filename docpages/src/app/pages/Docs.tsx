@@ -252,9 +252,17 @@ function SectionCard({
       className="rounded-2xl border p-8 backdrop-blur-xl scroll-mt-8"
       style={{ backgroundColor: 'rgba(0,0,0,0.5)', borderColor: 'rgba(255,255,255,0.08)' }}
     >
-      <div className="flex items-center gap-2 mb-5">
+      <div className="flex items-start justify-between gap-4 mb-5">
+        <div>
+          <h2 className="text-[22px] text-white mb-1" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 700 }}>
+            {title}
+          </h2>
+          <p className="text-[13px]" style={{ color: theme.btnGradient[0], fontFamily: "'Inter', sans-serif", fontWeight: 500 }}>
+            {subtitle}
+          </p>
+        </div>
         <div
-          className="flex items-center gap-2 px-3 py-1 rounded-full text-[11px] uppercase tracking-widest"
+          className="flex items-center gap-2 px-3 py-1 rounded-full text-[11px] uppercase tracking-widest flex-shrink-0"
           style={{
             background: `${theme.btnGradient[0]}22`,
             color: theme.btnGradient[0],
@@ -266,12 +274,6 @@ function SectionCard({
           {badge}
         </div>
       </div>
-      <h2 className="text-[22px] text-white mb-1" style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700 }}>
-        {title}
-      </h2>
-      <p className="text-[13px] mb-5" style={{ color: theme.btnGradient[0], fontFamily: "'Inter', sans-serif", fontWeight: 500 }}>
-        {subtitle}
-      </p>
       {children}
     </Motion.div>
   );
@@ -558,7 +560,7 @@ export default function Docs() {
         </Link>
         <div className="flex items-center gap-2">
           <Leaf size={18} className="text-[#4EAA57]" strokeWidth={2.5} />
-          <span style={{ fontFamily: "'Playfair Display', serif", fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
+          <span style={{ fontFamily: "'Inter', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
             EcoApi
           </span>
         </div>
@@ -584,7 +586,7 @@ export default function Docs() {
             <Motion.div {...FADE(0)} className="px-4 pt-14 pb-6">
               <h1
                 className="text-[40px] md:text-[52px] text-white mb-3"
-                style={{ fontFamily: "'Playfair Display', serif", fontWeight: 900, lineHeight: 1.05 }}
+                style={{ fontFamily: "'Inter', sans-serif", fontWeight: 900, lineHeight: 1.05 }}
               >
                 API Docs
               </h1>
@@ -1271,7 +1273,7 @@ npm run dev                             # → http://localhost:8787`}</CodeBlock
                       key={stat}
                       style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '10px', padding: '14px' }}
                     >
-                      <p style={{ fontFamily: "'Playfair Display', serif", fontSize: '26px', fontWeight: 700, color: '#fff', lineHeight: 1.1 }}>{stat}</p>
+                      <p style={{ fontFamily: "'Inter', sans-serif", fontSize: '26px', fontWeight: 700, color: '#fff', lineHeight: 1.1 }}>{stat}</p>
                       <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '4px 0' }}>{label}</p>
                       <p style={{ fontFamily: "'Inter', sans-serif", fontSize: '11px', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>{desc}</p>
                     </div>
