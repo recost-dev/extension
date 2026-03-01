@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState } from 'react';
 import { motion as Motion, AnimatePresence } from 'motion/react';
 import { Particles } from './particles';
 import { AnimatedTree } from './animated-tree';
@@ -50,7 +50,6 @@ const FloatingStat = ({
   className,
   delay = 0,
   pulsing = false,
-  noAbsolute = false,
 }: {
   icon: React.ElementType;
   value: string;
@@ -58,18 +57,13 @@ const FloatingStat = ({
   className?: string;
   delay?: number;
   pulsing?: boolean;
-  noAbsolute?: boolean;
 }) => (
   <Motion.div
-    initial={noAbsolute ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.8 }}
+    initial={{ opacity: 0, scale: 0.8 }}
     whileInView={{ opacity: 1, scale: 1 }}
     viewport={{ once: true }}
     transition={{ delay, duration: 0.5 }}
-    className={cn(
-      !noAbsolute && 'absolute z-30',
-      'flex flex-col items-center gap-3 text-center',
-      className
-    )}
+    className={cn('absolute z-30 flex flex-col items-center gap-3 text-center', className)}
   >
     <div className="relative group">
       <div className="absolute inset-0 blur-2xl bg-green-500/20 group-hover:bg-green-500/40 transition-colors duration-500 animate-pulse" />
@@ -98,77 +92,12 @@ const FloatingStat = ({
   </Motion.div>
 );
 
-const DraggableStat = ({
-  position,
-  onPositionChange,
-  containerRef,
-  children,
-}: {
-  position: { left: number; top: number };
-  onPositionChange: (pos: { left: number; top: number }) => void;
-  containerRef: React.RefObject<HTMLDivElement | null>;
-  children: React.ReactNode;
-}) => {
-  const [isDragging, setIsDragging] = useState(false);
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsDragging(true);
-    },
-    []
-  );
-
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDragging || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const left = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-      const top = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-      onPositionChange({ left, top });
-    },
-    [isDragging, containerRef, onPositionChange]
-  );
-
-  const handleMouseUp = useCallback(() => setIsDragging(false), []);
-
-  useEffect(() => {
-    if (!isDragging) return;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
-
-  return (
-    <div
-      className="absolute z-30 flex flex-col items-center -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none"
-      style={{ left: `${position.left}%`, top: `${position.top}%` }}
-      onMouseDown={handleMouseDown}
-    >
-      {children}
-      <span
-        className="text-[9px] font-mono mt-1 px-2 py-0.5 rounded bg-black/60 text-zinc-400"
-        style={{ fontFamily: "'JetBrains Mono', monospace" }}
-      >
-        ({position.left}%, {position.top}%)
-      </span>
-    </div>
-  );
-};
-
-const PulsingBulbStat = ({ className, noAbsolute = false }: { className?: string; noAbsolute?: boolean }) => (
+const PulsingBulbStat = ({ className }: { className?: string }) => (
   <Motion.div
-    initial={noAbsolute ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.8 }}
+    initial={{ opacity: 0, scale: 0.8 }}
     whileInView={{ opacity: 1, scale: 1 }}
     viewport={{ once: true }}
-    className={cn(
-      !noAbsolute && 'absolute z-30',
-      'flex flex-col items-center gap-3 text-center',
-      className
-    )}
+    className={cn('absolute z-30 flex flex-col items-center gap-3 text-center', className)}
   >
     <div className="relative group">
       <div className="absolute inset-0 blur-2xl bg-yellow-500/20 group-hover:bg-yellow-500/40 transition-colors duration-500 animate-pulse" />
@@ -258,20 +187,10 @@ const WindingPath = () => (
 
 // ─── Landing Page ─────────────────────────────────────────────────────────────
 
-const INITIAL_STAT_POSITIONS = {
-  kWh: { left: 35, top: 10 },
-  bulb: { left: 18, top: 35 },
-  calls: { left: 25, top: 70 },
-  co2: { left: 65, top: 15 },
-  water: { left: 85, top: 55 },
-};
-
 export function LandingPage() {
   const theme = useTheme();
   const navigate = useNavigate();
   const [showFireflies, setShowFireflies] = useState(true);
-  const statsContainerRef = useRef<HTMLDivElement>(null);
-  const [statPositions, setStatPositions] = useState(INITIAL_STAT_POSITIONS);
 
   return (
     <div className="relative w-full transition-colors duration-1000" style={{ backgroundColor: theme.bg }}>
@@ -500,7 +419,7 @@ export function LandingPage() {
           </Motion.div>
 
           {/* Main layout: winding path + feature boxes + floating stats */}
-          <div ref={statsContainerRef} className="relative w-full max-w-6xl py-32 min-h-[900px]">
+          <div className="relative w-full max-w-6xl py-32 min-h-[900px]">
             <WindingPath />
 
             {/* Three feature boxes */}
@@ -528,55 +447,19 @@ export function LandingPage() {
               </div>
             </div>
 
-            {/* Floating stat bubbles — draggable for positioning, realistic averages for typical projects */}
-            <DraggableStat
-              position={statPositions.kWh}
-              onPositionChange={(pos) => setStatPositions((p) => ({ ...p, kWh: pos }))}
-              containerRef={statsContainerRef}
-            >
-              <FloatingStat icon={Zap} value="85 kWh" label="Monthly kWh Saved" noAbsolute delay={0.5} pulsing />
-            </DraggableStat>
-            <DraggableStat
-              position={statPositions.bulb}
-              onPositionChange={(pos) => setStatPositions((p) => ({ ...p, bulb: pos }))}
-              containerRef={statsContainerRef}
-            >
-              <PulsingBulbStat noAbsolute />
-            </DraggableStat>
-            <DraggableStat
-              position={statPositions.calls}
-              onPositionChange={(pos) => setStatPositions((p) => ({ ...p, calls: pos }))}
-              containerRef={statsContainerRef}
-            >
-              <FloatingStat icon={Globe} value="12k" label="API Calls Analyzed" noAbsolute delay={0.7} pulsing />
-            </DraggableStat>
-            <DraggableStat
-              position={statPositions.co2}
-              onPositionChange={(pos) => setStatPositions((p) => ({ ...p, co2: pos }))}
-              containerRef={statsContainerRef}
-            >
-              <FloatingStat icon={Leaf} value="33 kg" label="CO2 Offset" noAbsolute delay={0.9} pulsing />
-            </DraggableStat>
-            <DraggableStat
-              position={statPositions.water}
-              onPositionChange={(pos) => setStatPositions((p) => ({ ...p, water: pos }))}
-              containerRef={statsContainerRef}
-            >
-              <FloatingStat icon={Droplets} value="153 L" label="Water Cooling" noAbsolute delay={1.1} pulsing />
-            </DraggableStat>
+            {/* Floating stat bubbles — realistic averages for typical projects */}
+            <FloatingStat icon={Zap} value="85 kWh" label="Monthly kWh Saved" className="left-[47.07%] top-[10.55%] -translate-x-1/2 -translate-y-1/2" delay={0.5} pulsing />
+            <PulsingBulbStat className="left-[13.22%] top-[60.33%] -translate-x-1/2 -translate-y-1/2" />
+            <FloatingStat icon={Globe} value="12k" label="API Calls Analyzed" className="left-[38%] top-[43.22%] -translate-x-1/2 -translate-y-1/2" delay={0.7} pulsing />
+            <FloatingStat icon={Leaf} value="33 kg" label="CO2 Offset" className="left-[61.57%] top-[37.77%] -translate-x-1/2 -translate-y-1/2" delay={0.9} pulsing />
+            <FloatingStat icon={Droplets} value="153 L" label="Water Cooling" className="left-[85.27%] top-[56.66%] -translate-x-1/2 -translate-y-1/2" delay={1.1} pulsing />
           </div>
 
           <p
-            className="text-center text-[13px] mt-12 mb-1"
+            className="text-center text-[13px] mt-12 mb-4"
             style={{ color: 'rgba(255,255,255,0.4)', fontFamily: "'Inter', sans-serif" }}
           >
             The stats above are based on averages per project.
-          </p>
-          <p
-            className="text-center text-[11px] mb-4"
-            style={{ color: 'rgba(255,255,255,0.3)', fontFamily: "'Inter', sans-serif" }}
-          >
-            Drag stats to reposition for screenshot.
           </p>
 
           {/* Back to top */}
