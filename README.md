@@ -1,6 +1,6 @@
-# EcoApi
+# ECO - API Usage Analyzer
 
-REST API for analyzing codebase API usage, estimating cost, detecting inefficiencies, and generating optimization suggestions.
+VSCode extension that scans your workspace for API call patterns, estimates costs, and generates optimization suggestions — all locally, no remote server required.
 
 ![Alt text](docpages/public/landingpage.png)
 
@@ -11,7 +11,7 @@ Developers often ship API-heavy features without visibility into:
 - Redundant or cacheable request patterns
 - Rate-limit and N+1 hotspots
 
-EcoAPI turns parsed API call data into actionable diagnostics:
+ECO turns parsed API call data into actionable diagnostics:
 - Cost analytics
 - Endpoint-level risk/status
 - Optimization suggestions with estimated savings
@@ -20,133 +20,46 @@ EcoAPI turns parsed API call data into actionable diagnostics:
 
 ## Tech Stack
 
-### API
-- **Cloudflare Workers** — serverless runtime
-- **Hono** — web framework
-- **Cloudflare D1** — SQLite database
-- **TypeScript** — strict mode
-
-### Dashboard
-- **React 18** + **React Router v7**
-- **TanStack Query v5**, **Tailwind CSS v4**, **D3.js**, **Radix UI**
-
-### VSCode Extension
-- **TypeScript** extension backend
-- **React** webview UI
-- **AI chat** — OpenAI (default) or Cloudflare AI (optional)
+- **TypeScript** — extension backend
+- **React 18** — sidebar webview UI
+- **Vite** + **esbuild** — bundlers
+- **TanStack Query v5**, **Tailwind CSS v4**, **D3.js**, **Radix UI** — dashboard UI
+- **OpenAI SDK** — optional AI review (`gpt-4.1-mini` default)
 
 ## Project Structure
 
 ```
-api/                        # Cloudflare Workers API
+src/                        # Extension backend
+  extension.ts              # Entry point
+  api-client.ts             # HTTP client for remote ECO API
+  local-server.ts           # Embedded server (dashboard + local analysis)
+  webview-provider.ts       # Sidebar webview provider
+  messages.ts               # IPC message types
+  analysis/types.ts
+  chat/prompts.ts           # AI prompt templates
+  scanner/
+    patterns.ts             # API call detection regex
+    workspace-scanner.ts    # Workspace file scanner
+webview/                    # React sidebar UI
   src/
-    index.ts                # Workers entry point (Hono app)
-    env.ts                  # Shared Env/Variables/AppContext types
-    config/
-      pricing.ts            # Provider pricing & keyword detection
-      sustainability.ts     # Energy/water/CO2 constants per provider
-    middleware/
-      cors.ts
-      content-type.ts
-      logging.ts
-      request-id.ts
-      error-handler.ts
-      rate-limit.ts         # KV-based scan rate limiting
-    models/
-      types.ts              # TypeScript domain types
-    routes/
-      health.ts             # GET /health
-      projects.ts           # Projects, scans, endpoints, suggestions, graph, cost, sustainability
-      providers.ts          # GET /providers
-      chat.ts               # POST /chat (Cloudflare AI / Llama 3.1 8B)
-    services/
-      analysis-service.ts   # Core analysis engine (pure, sync)
-      project-service.ts    # All CRUD via D1 (async)
-      provider-service.ts   # Provider config lookups
-      validation-service.ts # Input validation
-    utils/
-      app-error.ts
-      pagination.ts
-      sort.ts
-  migrations/
-    0001_schema.sql         # D1 table definitions
-    0002_seed.sql           # Demo project seed data
-  wrangler.toml
-  package.json
-  tsconfig.json
-dashboard/                  # React SPA (Cloudflare Pages / local extension server)
-  src/
-    App.tsx                 # Root component with routing
-    theme-context.tsx       # Theme state provider
-    themes.ts               # Theme definitions
+    App.tsx
+    vscode.ts               # VSCode API bridge
     components/
-      Select.tsx
-      animated-tree.tsx
-      particles.tsx
-    layout/
-      Layout.tsx
-    lib/
-      api.ts                # REST client (VITE_API_URL or same-origin for local mode)
-      queries.ts            # TanStack Query hooks
-      types.ts              # TypeScript types matching API responses
-    pages/
-      Dashboard.tsx         # Overview/summary
-      Endpoints.tsx         # Endpoint analysis with filtering
-      Graph.tsx             # D3 network graph (cluster by provider/file/cost)
-      Suggestions.tsx       # Optimization recommendations
-    styles/
-      index.css
-      tailwind.css
-      theme.css
-      fonts.css
-  vite.config.ts
-  package.json
-extension/                  # VSCode extension
+      LandingPage.tsx
+      ScanningPage.tsx
+      ResultsPage.tsx
+      ChatPage.tsx
+dashboard/                  # Full React dashboard (built into dashboard-dist/)
   src/
-    extension.ts            # Extension entry point
-    api-client.ts           # HTTP client for backend
-    local-server.ts         # Embedded HTTP server serving dashboard + local API
-    webview-provider.ts     # Sidebar webview provider
-    messages.ts             # Message types for extension ↔ webview IPC
-    analysis/
-      types.ts              # Analysis type definitions
-    chat/
-      prompts.ts            # AI prompt templates
-    scanner/
-      patterns.ts           # API call detection regex patterns
-      workspace-scanner.ts  # Workspace file scanner
-  webview/                  # React sidebar UI
-    src/
-      App.tsx
-      types.ts
-      vscode.ts             # VSCode API bridge
-      components/
-        LandingPage.tsx
-        ScanningPage.tsx
-        ResultsPage.tsx
-        ChatPage.tsx
-        Markdown.tsx
-        LeafIcon.tsx
-      styles/
-        index.css
-  dashboard-dist/           # Built dashboard (generated by npm run build:dashboard)
-  eco-api-analyzer-0.1.0.vsix
+    pages/                  # Dashboard, Endpoints, Graph, Suggestions
+    lib/                    # API client, TanStack Query hooks, types
+dashboard-dist/             # Built dashboard (generated — do not edit)
 scripts/
-  install-dashboard.sh      # Install dashboard npm dependencies
-  start-extension.sh        # Full extension dev setup (install + build + open VSCode)
+  start-extension.sh        # Full dev setup
+  install-dashboard.sh
 ```
 
-## API
-
-The API is live at **https://api.ecoapi.dev** — no setup required.
-
-Full API documentation is available at **https://ecoapi.dev**.
-
-## VSCode Extension
-
-Runs ECO analysis directly inside your editor — no remote API server needed. Scans your workspace for API call patterns, shows cost/risk diagnostics in the sidebar, and opens the full dashboard locally. AI chat is optional — uses OpenAI by default, or Cloudflare AI (Llama 3.1 8B) if preferred.
-
-### Quick start
+## Quick Start (Dev)
 
 ```bash
 bash scripts/start-extension.sh
@@ -154,11 +67,17 @@ bash scripts/start-extension.sh
 
 Then press **F5** in VSCode to launch the Extension Development Host, and click the **ECO leaf icon** in the Activity Bar.
 
-### Install from .vsix
+## Install from .vsix
 
 1. Command Palette (`Ctrl+Shift+P`) → **"Extensions: Install from VSIX..."**
-2. Select `extension/eco-api-analyzer-0.1.0.vsix`
+2. Select `eco-api-analyzer-0.1.0.vsix`
 3. Reload VSCode, then click the ECO icon in the Activity Bar.
+
+## API
+
+The live ECO API is available at **https://api.ecoapi.dev** — no setup required.
+
+Full API documentation: **https://ecoapi.dev**
 
 ---
 

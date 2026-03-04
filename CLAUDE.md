@@ -1,81 +1,113 @@
-# ECO - API Usage Analyzer
+# ECO - API Usage Analyzer (VSCode Extension)
 
-REST API for analyzing codebase API call patterns, estimating costs, and generating optimization suggestions.
+VSCode extension that scans your workspace for API call patterns, estimates costs, shows diagnostics, and opens a full dashboard locally. Optional AI review via OpenAI.
 
 ## Tech Stack
 
-- **Cloudflare Workers** — hosting and serverless runtime
-- **Hono** — web framework (Workers-compatible, Express-like)
-- **Cloudflare D1** — SQLite database (persistent)
-- **TypeScript** — strict mode
-
-## Setup
-
-1. `cd api && npm install`
-2. Create D1 database: `npx wrangler d1 create eco-db`
-3. Paste the returned `database_id` into `api/wrangler.toml`
-4. Create KV namespace: `npx wrangler kv namespace create rate-limit`
-5. Paste the returned `id` and `preview_id` into `api/wrangler.toml` under `[[kv_namespaces]]`
-6. Apply migrations: `npm run db:migrate:local`
-7. Start dev server: `npm run dev`
-
-## Commands
-
-Run from the `api/` directory:
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start local dev server (`wrangler dev`) |
-| `npm run typecheck` | TypeScript type check (no emit) |
-| `npm run deploy` | Deploy to Cloudflare Workers |
-| `npm run db:migrate:local` | Apply D1 migrations locally |
-| `npm run db:migrate:remote` | Apply D1 migrations to production |
+- **TypeScript** — extension backend (strict mode)
+- **esbuild** — bundler for extension and webview
+- **React 18** — sidebar webview UI
+- **Vite** — dashboard bundler
+- **OpenAI SDK** — AI review (optional, `gpt-4.1-mini` default)
 
 ## Project Structure
 
 ```
-api/
+src/
+  extension.ts            # Extension entry point
+  api-client.ts           # HTTP client for remote ECO API
+  local-server.ts         # Embedded HTTP server (serves dashboard + proxies local analysis)
+  webview-provider.ts     # Sidebar webview provider
+  messages.ts             # IPC message types (extension ↔ webview)
+  analysis/
+    types.ts              # Analysis type definitions
+  chat/
+    prompts.ts            # AI prompt templates
+  scanner/
+    patterns.ts           # API call detection regex patterns
+    workspace-scanner.ts  # Workspace file scanner
+webview/                  # React sidebar UI
   src/
-    index.ts            # Workers entry point (Hono app, export default)
-    env.ts              # Shared Env/Variables/AppContext types
-    config/
-      pricing.ts        # Provider pricing & keyword detection
-    middleware/         # Hono middleware (cors, logging, content-type, error handler)
-    models/
-      types.ts          # TypeScript domain types
-    routes/             # Route handlers (health, projects, providers)
-    services/
-      analysis-service.ts    # Core analysis engine (pure, sync)
-      project-service.ts     # All CRUD via D1 (async)
-      provider-service.ts    # Provider config lookups
-      validation-service.ts  # Input validation
-    utils/              # AppError, pagination, sort helpers
-  migrations/
-    0001_schema.sql     # D1 table definitions
-    0002_seed.sql       # Demo project seed data
-  wrangler.toml
+    App.tsx
+    main.tsx
+    types.ts
+    vscode.ts             # VSCode API bridge
+    components/
+      LandingPage.tsx
+      ScanningPage.tsx
+      ResultsPage.tsx
+      ChatPage.tsx
+      Markdown.tsx
+      LeafIcon.tsx
+    styles/
+      index.css
+dashboard/                # React SPA (full dashboard)
+  src/
+    App.tsx               # Root component with routing
+    theme-context.tsx
+    themes.ts
+    components/
+    layout/
+    lib/
+      api.ts              # REST client
+      queries.ts          # TanStack Query hooks
+      types.ts
+    pages/
+      Dashboard.tsx
+      Endpoints.tsx
+      Graph.tsx
+      Suggestions.tsx
+    styles/
+  vite.config.ts
   package.json
-  tsconfig.json
-eco-extension/          # VSCode extension (see eco-extension/)
+dashboard-dist/           # Built dashboard (output of npm run build:dashboard)
+scripts/
+  install-dashboard.sh    # Install dashboard npm deps
+  start-extension.sh      # Full dev setup (install + build + open VSCode)
+esbuild.mjs               # esbuild config for extension + webview
+package.json
+tsconfig.json
 ```
+
+## Commands
+
+Run from the root (`extension/`) directory:
+
+| Command | Description |
+|---------|-------------|
+| `npm run build` | Full build: dashboard + webview + extension |
+| `npm run build:ext` | Build extension backend only |
+| `npm run build:webview` | Build React sidebar webview |
+| `npm run build:dashboard` | Build dashboard and copy to `dashboard-dist/` |
+| `npm run watch:ext` | Watch extension backend |
+| `npm run watch:webview` | Watch webview |
+| `npm run package` | Package as `.vsix` |
+
+## Dev Setup
+
+```bash
+bash scripts/start-extension.sh
+```
+
+Then press **F5** in VSCode to launch the Extension Development Host.
 
 ## Architecture Notes
 
-- The D1 database binding (`DB`) flows through `c.env.DB` — passed as the first argument to every service function
-- Services are stateless async functions; no module-level state
-- JSON columns store arrays/objects (files, callSites, graph, summary, etc.)
-- `deleteProject` manually cascades: deletes suggestions → endpoints → scans → project in a `db.batch()`
-- `analyzeApiCalls` in `analysis-service.ts` is pure synchronous logic — no DB access
-- `crypto.randomUUID()` is used as a global (no import needed in Workers runtime)
+- The extension embeds a local HTTP server (`local-server.ts`) that serves the built dashboard and handles analysis requests without any remote API
+- Webview ↔ extension IPC uses typed messages defined in `messages.ts`
+- The workspace scanner (`workspace-scanner.ts`) uses regex patterns from `patterns.ts` to detect API calls across supported file types
+- AI review is optional: prompts live in `chat/prompts.ts`, calls go through `openai` SDK; key is stored in VSCode SecretStorage
+- `dashboard-dist/` must exist (built) before the extension can serve the dashboard — `build:dashboard` handles this
 
-## Rate Limiting & Payload Limits
+## VSCode Settings
 
-- **Payload cap**: `apiCalls` arrays are capped at 2000 items — enforced in `validation-service.ts` for both `POST /projects` and `POST /projects/:id/scans`. Returns 422 if exceeded.
-- **Scan rate limit**: `POST /projects/:id/scans` is limited to **10 scans per 60 seconds per project**, enforced via a Cloudflare KV counter in `middleware/rate-limit.ts`. Returns 429 if exceeded.
-- KV binding name: `KV` (configured in `wrangler.toml` under `[[kv_namespaces]]`)
-
-## D1 Schema
-
-Tables: `projects`, `scans`, `endpoints`, `suggestions`
-- See [api/migrations/0001_schema.sql](api/migrations/0001_schema.sql) for full schema
-- Numeric costs stored as `REAL`; arrays/objects stored as JSON `TEXT`
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `eco.scanGlob` | `**/*.{ts,tsx,js,jsx,py,go,java,rb}` | Files to scan |
+| `eco.scanIncludeGlobs` | `""` | Optional allowlist globs (comma-separated) |
+| `eco.excludeGlob` | node_modules, dist, build, etc. | Files to exclude |
+| `eco.aiReview.enabled` | `true` | Enable AI second-pass review |
+| `eco.aiReview.minConfidence` | `0.7` | Min confidence for AI findings |
+| `eco.aiReview.maxFiles` | `25` | Max files sent to AI review |
+| `eco.aiReview.maxCharsPerFile` | `6000` | Max chars per file in AI context |
+| `eco.aiReview.model` | `gpt-4.1-mini` | OpenAI model for AI review |
