@@ -117,7 +117,7 @@
     "build": "npm run build:dashboard && npm run build:webview && npm run build:ext",
     "build:ext": "node esbuild.mjs",
     "build:webview": "cd webview && npm run build",
-    "build:dashboard": "cd dashboard && VITE_LOCAL_MODE=true npm run build && rm -rf ../dashboard-dist && cp -r dist ../dashboard-dist",
+    "build:dashboard": "cd dashboard && npm run build && rm -rf ../dashboard-dist && cp -r dist ../dashboard-dist",
     "watch:ext": "node esbuild.mjs --watch",
     "watch:webview": "cd webview && npm run build -- --watch",
     "package": "npx @vscode/vsce package --no-dependencies"

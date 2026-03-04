@@ -2,7 +2,7 @@
 
 VSCode extension that scans your workspace for API call patterns, estimates costs, and generates optimization suggestions — all locally, no remote server required.
 
-![Alt text](docpages/public/landingpage.png)
+![Alt text](/media/eco-icon.svg)
 
 ## Why This Exists
 

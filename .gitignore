@@ -16,6 +16,7 @@ npm-debug.log*
 # Environment / secrets
 .env
 .env.*
+!dashboard/.env.production
 .dev.vars
 
 # OS
