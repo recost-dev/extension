@@ -62,7 +62,6 @@ dashboard/                # React SPA (full dashboard)
   package.json
 dashboard-dist/           # Built dashboard (output of npm run build:dashboard)
 scripts/
-  install-dashboard.sh    # Install dashboard npm deps
   start-extension.sh      # Full dev setup (install + build + open VSCode)
 esbuild.mjs               # esbuild config for extension + webview
 package.json
@@ -86,7 +85,7 @@ Run from the root (`extension/`) directory:
 ## Local Install (VSIX)
 
 Use the build script — it installs all deps, builds everything, and packages the `.vsix`.
-Confirmed compatible with **Windows** (Git Bash / WSL) and **Linux**. Run in a bash terminal — not PowerShell or CMD:
+Confirmed compatible with **macOS**, **Windows** (Git Bash / WSL), and **Linux**. The setup scripts require bash — run in a bash terminal, not PowerShell or CMD:
 
 ```bash
 bash scripts/build-vsix.sh
@@ -103,6 +102,8 @@ npm run build && npm run package
 ```
 
 ## Dev Setup
+
+Run in a bash terminal (Git Bash / WSL on Windows):
 
 ```bash
 bash scripts/start-extension.sh
