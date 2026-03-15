@@ -16,6 +16,7 @@ export interface EndpointRecord {
   projectId: string;
   scanId: string;
   provider: string;
+  scope?: "internal" | "external" | "unknown";
   method: string;
   url: string;
   files: string[];

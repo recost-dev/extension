@@ -8,6 +8,7 @@ import type { WebviewMessage, HostMessage } from "./messages";
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
+import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
 
 const MODELS = {
   "gpt-4o-mini": { id: "gpt-4o-mini", name: "GPT-4o Mini" },
@@ -242,19 +243,6 @@ function mergeLocalWasteFindings(
   return [...baseSuggestions, ...locals];
 }
 
-function inferProviderFromUrl(url: string): string {
-  if (url.startsWith("/")) return "internal";
-  const dynamicMatch = url.match(/^<dynamic:([^>]+)>$/);
-  if (dynamicMatch) {
-    const token = dynamicMatch[1];
-    if (/base_url|api/i.test(token)) return "dynamic-api";
-    return "dynamic";
-  }
-  const hostMatch = url.match(/^https?:\/\/([^\/]+)/i);
-  if (!hostMatch) return "unknown";
-  return hostMatch[1].replace(/^www\./, "");
-}
-
 const GENERIC_DYNAMIC_TOKENS = new Set(["endpoint", "url", "path", "uri", "route"]);
 const OUTBOUND_LIBRARIES = new Set([
   "fetch",
@@ -349,7 +337,10 @@ function mergeRemoteAndLocalEndpoints(
   projectId: string,
   scanId: string
 ): EndpointRecord[] {
-  const merged = [...remote];
+  const merged = remote.map((endpoint) => ({
+    ...endpoint,
+    scope: endpoint.scope ?? classifyEndpointScope(endpoint.url),
+  }));
   const byMethodUrl = new Map<string, EndpointRecord>();
   for (const endpoint of merged) {
     byMethodUrl.set(buildEndpointKey(endpoint.method, endpoint.url), endpoint);
@@ -380,13 +371,15 @@ function mergeRemoteAndLocalEndpoints(
     }
 
     if (!syntheticByMethodUrl.has(key)) {
+      const canonicalUrl = canonicalizeEndpointUrl(call.url);
       syntheticByMethodUrl.set(key, {
         id: `local-${scanId}-${syntheticByMethodUrl.size + 1}`,
         projectId,
         scanId,
-        provider: inferProviderFromUrl(canonicalizeEndpointUrl(call.url)),
+        provider: detectEndpointProvider(canonicalUrl),
         method: call.method,
-        url: canonicalizeEndpointUrl(call.url),
+        url: canonicalUrl,
+        scope: classifyEndpointScope(canonicalUrl),
         files: [call.file],
         callSites: [{
           file: call.file,
@@ -408,6 +401,8 @@ function mergeRemoteAndLocalEndpoints(
 
     const synthetic = syntheticByMethodUrl.get(key)!;
     synthetic.url = pickDisplayUrl(synthetic.url, call.url);
+    synthetic.scope = classifyEndpointScope(synthetic.url);
+    synthetic.provider = detectEndpointProvider(synthetic.url);
     if (!synthetic.files.includes(call.file)) {
       synthetic.files.push(call.file);
     }

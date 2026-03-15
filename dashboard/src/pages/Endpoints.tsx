@@ -106,6 +106,7 @@ export default function Endpoints() {
           {filtered.map((ep) => {
             const sc = statusConfig[ep.status] ?? statusConfig['normal'];
             const mc = methodColors[ep.method.toUpperCase()] ?? methodColors['GET'];
+            const scope = ep.scope ?? 'unknown';
             return (
               <div key={ep.id} className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-6 hover:border-white/[0.15] transition-colors">
                 <div className="flex items-start justify-between gap-4">
@@ -115,6 +116,7 @@ export default function Endpoints() {
                         {ep.method.toUpperCase()}
                       </span>
                       <code className="text-[14px] text-white truncate">{ep.url}</code>
+                      <span className="text-[11px] bg-white/[0.06] px-2 py-0.5 rounded capitalize" style={{ color: 'rgba(255,255,255,0.45)' }}>{scope}</span>
                       <span className="text-[11px] bg-white/[0.06] px-2 py-0.5 rounded capitalize" style={{ color: 'rgba(255,255,255,0.45)' }}>{ep.provider}</span>
                     </div>
                     <div className="flex items-center gap-4 text-[12px]" style={{ color: 'rgba(255,255,255,0.35)' }}>

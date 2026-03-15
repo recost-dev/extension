@@ -4,7 +4,7 @@ import { matchLine, matchRouteDefinitionLine, isInsideLoop } from "./patterns";
 
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT =
-  /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models)\b/i;
+  /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
 const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
 const HARD_EXCLUDED_SEGMENTS = new Set([
   "node_modules",
@@ -454,6 +454,200 @@ function detectInFile(file: FileContext): LocalWasteFinding[] {
         "low",
         "Waste metrics are emitted (calls per action/minute and projected monthly cost), indicating code paths with explicit high-volume behavior modeling.",
         /calls_per_user_action|projected_monthly_cost/
+      )
+    );
+  }
+
+  if (
+    has(/\b(chat|responses|messages)\.create\(/gi, text) &&
+    has(/\bmodel\s*:\s*['"`][^'"`]+['"`]/gi, text) &&
+    (text.match(/\b(chat|responses|messages)\.create\(/gi) ?? []).length >= 4
+  ) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-repeated-prompt-model-fingerprint",
+        "cache",
+        "medium",
+        "Repeated prompt/model call fingerprints detected; consider prompt or response caching to reduce duplicate inference calls.",
+        /\b(chat|responses|messages)\.create\(/
+      )
+    );
+  }
+
+  if ((text.match(/\b(embed|embeddings|embedContent|embed_content)\s*\(/gi) ?? []).length >= 4) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-repeated-embeddings",
+        "cache",
+        "medium",
+        "Repeated embedding calls detected in one file; verify dedupe/chunk reuse before recalculating embeddings.",
+        /\b(embed|embeddings|embedContent|embed_content)\s*\(/
+      )
+    );
+  }
+
+  if ((text.match(/\b(files\.upload|uploadBytes|storage\.from\([^)]*\)\.upload)\s*\(/gi) ?? []).length >= 3) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-repeated-file-upload",
+        "redundancy",
+        "medium",
+        "Multiple upload calls detected; check whether assets can be reused by ID instead of uploaded repeatedly.",
+        /\b(files\.upload|uploadBytes|storage\.from\([^)]*\)\.upload)\s*\(/
+      )
+    );
+  }
+
+  if (
+    has(/\b(Array\.from\(\{\s*length\s*:\s*\w+|for\s*\(|\.map\()/gi, text) &&
+    has(/\b(chat|responses|messages|embeddings|embedContent|embed_content)\.(create|generate|embed|generateContent)/gi, text) &&
+    !has(/\b(batch|batches|messageBatches|upsert)\b/gi, text)
+  ) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-missing-batch-usage",
+        "batch",
+        "medium",
+        "Looped inference/embedding pattern detected without visible batch API usage; batching may reduce request overhead.",
+        /\b(chat|responses|messages|embeddings|embedContent|embed_content)\.(create|generate|embed|generateContent)/
+      )
+    );
+  }
+
+  if (
+    has(/\b(anthropic|claude|prompt[_-]?cache|cache[_-]?control)\b/gi, text) &&
+    has(/\bmessages\.create\(/gi, text) &&
+    !has(/\bcache[_-]?control|ephemeral|cache\b/gi, text)
+  ) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-missing-prompt-caching",
+        "cache",
+        "low",
+        "Anthropic-style message creation detected without obvious prompt caching hints; prompt caching may reduce repeated token cost.",
+        /\bmessages\.create\(/
+      )
+    );
+  }
+
+  if (
+    has(/\b(for|while|forEach|\.map|\.flatMap)\b[\s\S]{0,300}\b(image|audio|video|multimodal|input_image|input_audio|upload)\b/gi, text) &&
+    has(/\b(create|generate|stream|upload)\s*\(/gi, text)
+  ) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-multimodal-loop-fanout",
+        "n_plus_one",
+        "high",
+        "Multimodal payload creation appears inside loop-driven code paths, which can multiply bandwidth and model invocation costs.",
+        /\b(image|audio|video|multimodal|input_image|input_audio|upload)\b/
+      )
+    );
+  }
+
+  if ((text.match(/new\s+(OpenAI|Anthropic|CohereClient|Mistral|Stripe|VertexAI|GoogleGenAI)\s*\(/g) ?? []).length >= 3) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-repeated-sdk-client-init",
+        "redundancy",
+        "medium",
+        "Multiple SDK client initializations detected in one file; reusing singleton clients can reduce connection/setup overhead.",
+        /new\s+(OpenAI|Anthropic|CohereClient|Mistral|Stripe|VertexAI|GoogleGenAI)\s*\(/
+      )
+    );
+  }
+
+  if (has(/Promise\.all\([\s\S]{0,200}Array\.from\(\{\s*length\s*:\s*(\d{2,}|[A-Za-z_]\w*)\s*\}/gi, text) && !has(/p-limit|bottleneck|concurrency|semaphore/gi, text)) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-large-promise-all-no-limit",
+        "rate_limit",
+        "high",
+        "Large Promise.all fanout detected without visible concurrency controls; this is prone to burst limits and downstream saturation.",
+        /Promise\.all\(/
+      )
+    );
+  }
+
+  if (has(/setInterval\(\s*[^,]+,\s*(\d|[1-9]\d|[1-4]\d{2})\s*\)/gi, text)) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-tight-polling-interval",
+        "rate_limit",
+        "high",
+        "Very short polling interval detected (<500ms), which can rapidly amplify request volume.",
+        /setInterval\(/
+      )
+    );
+  }
+
+  if (
+    has(/\b(graphql|apollo|urql|relay)\b/gi, text) &&
+    has(/\bforEach|\.map|Promise\.all\b/gi, text) &&
+    has(/\b(query|mutate|request|fetchQuery|commitMutation)\s*\(/gi, text)
+  ) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-graphql-fanout",
+        "n_plus_one",
+        "medium",
+        "GraphQL operations appear inside fanout constructs; review resolver/query shape and batching strategy for overfetch/N+1 risk.",
+        /\b(query|mutate|request|fetchQuery|commitMutation)\s*\(/
+      )
+    );
+  }
+
+  if (
+    has(/\b(getDoc|getDocs|onSnapshot|onValue)\s*\(/gi, text) &&
+    has(/\bforEach|\.map|Promise\.all\b/gi, text)
+  ) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-firestore-fanout",
+        "n_plus_one",
+        "medium",
+        "Firestore read/listener calls in fanout patterns detected; consider query consolidation and listener scope reduction.",
+        /\b(getDoc|getDocs|onSnapshot|onValue)\s*\(/
+      )
+    );
+  }
+
+  if ((text.match(/\b(onSnapshot|onValue|requestSubscription|\.subscribe\()\s*/gi) ?? []).length >= 3) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-repeated-listeners",
+        "rate_limit",
+        "medium",
+        "Multiple listener/subscription registrations detected; verify teardown and dedupe to avoid duplicate live streams.",
+        /\b(onSnapshot|onValue|requestSubscription|\.subscribe\()\s*/
+      )
+    );
+  }
+
+  if (
+    has(/\bstripe\.(paymentIntents|checkout\.sessions|customers|subscriptions)\.create\(/gi, text) &&
+    (text.match(/\b(create|retry|attempt|idempotency)\b/gi) ?? []).length >= 4
+  ) {
+    findings.push(
+      makeFinding(
+        file,
+        "local-stripe-create-retry-risk",
+        "rate_limit",
+        "medium",
+        "Stripe create patterns are near retry-heavy logic; confirm idempotency key usage to prevent duplicate charge/subscription creation.",
+        /\bstripe\.(paymentIntents|checkout\.sessions|customers|subscriptions)\.create\(/
       )
     );
   }

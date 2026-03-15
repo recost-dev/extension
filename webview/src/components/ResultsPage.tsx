@@ -337,6 +337,7 @@ function SeverityGroup({
 
 function EndpointsList({ endpoints, topBorder }: { endpoints: EndpointRecord[]; topBorder: boolean }) {
   const [open, setOpen] = useState(false);
+  const scopeBadge = (ep: EndpointRecord): string => ep.scope ?? "unknown";
 
   return (
     <div style={topBorder ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}>
@@ -372,6 +373,19 @@ function EndpointsList({ endpoints, topBorder }: { endpoints: EndpointRecord[]; 
               title={ep.url}
             >
               {ep.url}
+            </span>
+            <span
+              style={{
+                background: "var(--vscode-editorGroupHeader-tabsBackground)",
+                color: "var(--vscode-descriptionForeground)",
+                fontSize: "10px",
+                padding: "1px 5px",
+                borderRadius: "10px",
+                flexShrink: 0,
+                border: "1px solid var(--vscode-panel-border)",
+              }}
+            >
+              {scopeBadge(ep)}
             </span>
             <span
               style={{
