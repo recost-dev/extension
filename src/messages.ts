@@ -11,7 +11,10 @@ export type WebviewMessage =
   | { type: "modelChanged"; model: string }
   | { type: "applyFix"; code: string; file: string; line?: number }
   | { type: "openFile"; file: string; line?: number }
-  | { type: "runSimulation"; input: SimulatorInput };
+  | { type: "runSimulation"; input: SimulatorInput }
+  | { type: "storeEcoApiKey"; key: string }
+  | { type: "clearEcoApiKey" }
+  | { type: "getEcoApiKeyStatus" };
 
 export interface SuggestionContext {
   type: string;
@@ -42,4 +45,8 @@ export type HostMessage =
   | { type: "apiKeyCleared" }
   | { type: "error"; message: string }
   | { type: "simulationResult"; result: SimulatorResult }
-  | { type: "simulationError"; message: string };
+  | { type: "simulationError"; message: string }
+  | { type: "ecoApiKeyStored" }
+  | { type: "ecoApiKeyError"; message: string }
+  | { type: "ecoApiKeyCleared" }
+  | { type: "ecoApiKeyStatus"; isSet: boolean };

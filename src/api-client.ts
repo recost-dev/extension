@@ -6,10 +6,13 @@ interface ApiError {
   error?: { message?: string };
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiFetch<T>(path: string, init?: RequestInit, ecoApiKey?: string): Promise<T> {
+  const authHeaders: Record<string, string> = ecoApiKey
+    ? { "Authorization": `Bearer ${ecoApiKey}` }
+    : {};
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...authHeaders, ...init?.headers },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as ApiError;
@@ -21,11 +24,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function createProject(name: string): Promise<string> {
+export async function createProject(name: string, ecoApiKey?: string): Promise<string> {
   const { data } = await apiFetch<{ data: { id: string } }>("/projects", {
     method: "POST",
     body: JSON.stringify({ name }),
-  });
+  }, ecoApiKey);
   return data.id;
 }
 
@@ -34,10 +37,11 @@ export interface ScanResult {
   summary: ScanSummary;
 }
 
-export async function submitScan(projectId: string, apiCalls: ApiCallInput[]): Promise<ScanResult> {
+export async function submitScan(projectId: string, apiCalls: ApiCallInput[], ecoApiKey?: string): Promise<ScanResult> {
   const { data } = await apiFetch<{ data: { id: string; summary: ScanSummary } }>(
     `/projects/${projectId}/scans`,
-    { method: "POST", body: JSON.stringify({ apiCalls }) }
+    { method: "POST", body: JSON.stringify({ apiCalls }) },
+    ecoApiKey
   );
   return { scanId: data.id, summary: data.summary };
 }

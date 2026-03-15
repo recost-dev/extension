@@ -28,7 +28,18 @@ export function activate(context: vscode.ExtensionContext) {
     provider.sendNeedsApiKey();
   });
 
-  context.subscriptions.push(openPanelCommand, scanCommand, clearApiKeyCommand, updateApiKeyCommand);
+  const setEcoApiKeyCommand = vscode.commands.registerCommand("eco.setEcoApiKey", async () => {
+    const value = await vscode.window.showInputBox({
+      prompt: "Enter your EcoAPI Admin API Key",
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (value) {
+      await context.secrets.store("eco.ecoApiKey", value);
+    }
+  });
+
+  context.subscriptions.push(openPanelCommand, scanCommand, clearApiKeyCommand, updateApiKeyCommand, setEcoApiKeyCommand);
 }
 
 export function deactivate() {}

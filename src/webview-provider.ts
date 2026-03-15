@@ -530,6 +530,15 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       case "runSimulation":
         this.handleRunSimulation(message.input);
         break;
+      case "storeEcoApiKey":
+        await this.handleStoreEcoApiKey(message.key);
+        break;
+      case "clearEcoApiKey":
+        await this.handleClearEcoApiKey();
+        break;
+      case "getEcoApiKeyStatus":
+        await this.handleGetEcoApiKeyStatus();
+        break;
     }
   }
 
@@ -614,7 +623,8 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       // Ensure we have a project on the remote API
-      let projectId = await this.getOrCreateProject();
+      const ecoApiKey = await this.getEcoApiKey();
+      let projectId = await this.getOrCreateProject(ecoApiKey);
 
       // Submit scan and fetch results
       const remoteApiCalls = apiCalls.filter(shouldSubmitRemote);
@@ -626,15 +636,15 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       try {
         let scanResult;
         try {
-          scanResult = await submitScan(projectId, remoteApiCalls);
+          scanResult = await submitScan(projectId, remoteApiCalls, ecoApiKey);
         } catch (err: unknown) {
           // Project may have been deleted, create a fresh one and retry once.
           if ((err as { status?: number }).status === 404) {
-            const freshId = await createProject(this.getWorkspaceName());
+            const freshId = await createProject(this.getWorkspaceName(), ecoApiKey);
             this.projectId = freshId;
             projectId = freshId;
             await this.context.globalState.update("eco.projectId", freshId);
-            scanResult = await submitScan(projectId, remoteApiCalls);
+            scanResult = await submitScan(projectId, remoteApiCalls, ecoApiKey);
           } else {
             throw err;
           }
@@ -1082,11 +1092,11 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async getOrCreateProject(): Promise<string> {
+  private async getOrCreateProject(ecoApiKey?: string): Promise<string> {
     if (this.projectId) {
       return this.projectId;
     }
-    const id = await createProject(this.getWorkspaceName());
+    const id = await createProject(this.getWorkspaceName(), ecoApiKey);
     this.projectId = id;
     await this.context.globalState.update("eco.projectId", id);
     return id;
@@ -1108,6 +1118,34 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       const message = err instanceof Error ? err.message : "Failed to store API key";
       this.postMessage({ type: "apiKeyError", message });
     }
+  }
+
+  private async getEcoApiKey(): Promise<string | undefined> {
+    return this.context.secrets.get("eco.ecoApiKey");
+  }
+
+  private async handleStoreEcoApiKey(key: string) {
+    if (!key.trim()) {
+      this.postMessage({ type: "ecoApiKeyError", message: "API key must not be empty." });
+      return;
+    }
+    try {
+      await this.context.secrets.store("eco.ecoApiKey", key);
+      this.postMessage({ type: "ecoApiKeyStored" });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to store EcoAPI key";
+      this.postMessage({ type: "ecoApiKeyError", message });
+    }
+  }
+
+  private async handleClearEcoApiKey() {
+    await this.context.secrets.delete("eco.ecoApiKey");
+    this.postMessage({ type: "ecoApiKeyCleared" });
+  }
+
+  private async handleGetEcoApiKeyStatus() {
+    const key = await this.context.secrets.get("eco.ecoApiKey");
+    this.postMessage({ type: "ecoApiKeyStatus", isSet: !!key });
   }
 
   private buildMessages(text: string, limitContext = false) {

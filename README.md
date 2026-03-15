@@ -91,9 +91,35 @@ cd extension
 npm run build && npm run package
 ```
 
+## API Keys
+
+### EcoAPI Admin Key (required for scanning)
+
+The extension calls two protected endpoints when you run a scan:
+- `POST /projects` — creates a new project the first time you scan a codebase
+- `POST /projects/:id/scans` — submits the scan results
+
+Both require an admin API key. To set it:
+
+1. Open the command palette: `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS)
+2. Run: **EcoAPI: Set Admin API Key**
+3. Enter the key when prompted — it is stored in VS Code's encrypted secret storage, never in any file
+
+You only need to do this once per machine. The key is used automatically on every scan.
+
+> **Note:** Reading data (analytics, endpoints, suggestions, cost breakdowns) does not require a key — only scanning does.
+
+### OpenAI Key (optional)
+
+Used for AI-powered scan review and chat. Set via the extension UI or:
+
+1. `Ctrl+Shift+P` → **ECO: Set OpenAI API Key**
+
+---
+
 ## API
 
-The live ECO API is available at **https://api.ecoapi.dev** — no setup required.
+The live ECO API is available at **https://api.ecoapi.dev** — no setup required for read operations.
 
 Full API documentation: **https://ecoapi.dev**
 
