@@ -4,6 +4,10 @@
   "description": "Scan your codebase for API call patterns, estimate costs, and get optimization suggestions.",
   "version": "0.1.0",
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ecoapi-dev/extension"
+  },
   "publisher": "eco",
   "icon": "media/eco-icon.png",
   "engines": {
