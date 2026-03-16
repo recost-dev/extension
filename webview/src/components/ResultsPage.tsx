@@ -24,6 +24,7 @@ const typeLabels: Record<string, string> = {
   batch: "batch",
   redundancy: "redundancy",
   rate_limit: "rate-limit",
+  concurrency_control: "concurrency",
 };
 
 function extractCode(raw: string): { code: string; language: string } {
