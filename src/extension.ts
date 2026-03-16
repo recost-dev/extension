@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
+import { getDefaultChatSelection, getProviderAdapter } from "./chat";
 import { EcoSidebarProvider } from "./webview-provider";
+
+async function getSelectedProviderId(context: vscode.ExtensionContext): Promise<string> {
+  return context.globalState.get<string>("eco.selectedChatProvider") ?? getDefaultChatSelection().provider;
+}
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new EcoSidebarProvider(context);
@@ -20,12 +25,25 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   const clearApiKeyCommand = vscode.commands.registerCommand("eco.clearApiKey", async () => {
-    await context.secrets.delete("eco.openaiApiKey");
-    provider.sendApiKeyCleared();
+    const providerId = await getSelectedProviderId(context);
+    const adapter = getProviderAdapter(providerId);
+    if (adapter.auth.secretStorageKey) {
+      await context.secrets.delete(adapter.auth.secretStorageKey);
+    }
+    if (providerId === "openai") {
+      await context.secrets.delete("eco.openaiApiKey");
+    }
+    provider.sendApiKeyCleared(providerId);
   });
 
-  const updateApiKeyCommand = vscode.commands.registerCommand("eco.updateApiKey", () => {
-    provider.sendNeedsApiKey();
+  const updateApiKeyCommand = vscode.commands.registerCommand("eco.updateApiKey", async () => {
+    const providerId = await getSelectedProviderId(context);
+    const adapter = getProviderAdapter(providerId);
+    if (!adapter.auth.required) {
+      vscode.window.showInformationMessage(`${adapter.displayName} does not require an API key.`);
+      return;
+    }
+    provider.sendNeedsApiKey(providerId);
   });
 
   const setEcoApiKeyCommand = vscode.commands.registerCommand("eco.setEcoApiKey", async () => {

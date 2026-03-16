@@ -3,32 +3,23 @@ import * as path from "path";
 import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt } from "./scanner/workspace-scanner";
 import { createProject, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
 import { buildSystemPrompt } from "./chat/prompts";
+import {
+  buildProviderOptions,
+  executeChat,
+  findModelMetadata,
+  getDefaultChatSelection,
+  getProviderAdapter,
+  ChatAdapterError,
+  type ChatProviderId,
+  type NormalizedChatMessage,
+  type NormalizedChatRequest,
+} from "./chat";
 import { LocalServer } from "./local-server";
 import type { WebviewMessage, HostMessage } from "./messages";
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
-
-const MODELS = {
-  "gpt-4o-mini": { id: "gpt-4o-mini", name: "GPT-4o Mini" },
-  "gpt-4o": { id: "gpt-4o", name: "GPT-4o" },
-  "gpt-4.1-mini": { id: "gpt-4.1-mini", name: "GPT-4.1 Mini" },
-  "gpt-4.1": { id: "gpt-4.1", name: "GPT-4.1" },
-  "o3-mini": { id: "o3-mini", name: "o3 Mini" },
-  "o1": { id: "o1", name: "o1" },
-  "o3": { id: "o3", name: "o3" },
-} as const;
-
-type ModelId = keyof typeof MODELS;
-
-function isOpenAIModel(model: string): boolean {
-  return model in MODELS;
-}
-
-function isReasoningModel(model: string): boolean {
-  return model.startsWith("o1") || model.startsWith("o3");
-}
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -474,6 +465,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     );
 
     this.projectId = this.context.globalState.get<string>("eco.projectId") ?? null;
+    void this.sendChatConfig();
   }
 
 
@@ -481,12 +473,45 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: "triggerScan" } as HostMessage);
   }
 
-  public sendApiKeyCleared() {
-    this.postMessage({ type: "apiKeyCleared" });
+  private getSelectedChatProvider(): ChatProviderId {
+    return (this.context.globalState.get<string>("eco.selectedChatProvider") as ChatProviderId | undefined)
+      ?? getDefaultChatSelection().provider;
   }
 
-  public sendNeedsApiKey() {
-    this.postMessage({ type: "needsApiKey" });
+  private getSelectedChatModel(): string {
+    return this.context.globalState.get<string>("eco.selectedChatModel") ?? getDefaultChatSelection().model;
+  }
+
+  private async getStoredProviderApiKey(providerId: string): Promise<string | undefined> {
+    const adapter = getProviderAdapter(providerId);
+    const secretKey = adapter.auth.secretStorageKey;
+    if (secretKey) {
+      const key = await this.context.secrets.get(secretKey);
+      if (key?.trim()) return key.trim();
+    }
+    if (providerId === "openai") {
+      const legacy = await this.context.secrets.get("eco.openaiApiKey");
+      if (legacy?.trim()) return legacy.trim();
+    }
+    return undefined;
+  }
+
+  private async sendChatConfig(providerId = this.getSelectedChatProvider(), model = this.getSelectedChatModel()) {
+    this.postMessage({
+      type: "chatConfig",
+      providers: buildProviderOptions(),
+      selectedProvider: providerId,
+      selectedModel: model,
+    });
+  }
+
+  public sendApiKeyCleared(providerId = this.getSelectedChatProvider()) {
+    this.postMessage({ type: "apiKeyCleared", provider: providerId });
+  }
+
+  public sendNeedsApiKey(providerId = this.getSelectedChatProvider(), message?: string) {
+    const adapter = getProviderAdapter(providerId);
+    this.postMessage({ type: "needsApiKey", provider: providerId, envKeyName: adapter.auth.envKeyName, message });
   }
 
   public postMessage(message: HostMessage) {
@@ -502,18 +527,20 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         await this.handleRunAiReview();
         break;
       case "chat":
-        await this.handleChat(message.text, message.model);
+        await this.handleChat(message.text, message.provider, message.model);
         break;
       case "setApiKey":
-        await this.handleSetApiKey(message.key);
+        await this.handleSetApiKey(message.provider, message.key);
         break;
       case "modelChanged": {
-        await this.context.globalState.update("eco.selectedModel", message.model);
-        // Only gate on API key when switching to an OpenAI model
-        if (isOpenAIModel(message.model)) {
-          const apiKey = await this.context.secrets.get("eco.openaiApiKey");
-          if (!apiKey) {
-            this.postMessage({ type: "needsApiKey" });
+        await this.context.globalState.update("eco.selectedChatProvider", message.provider);
+        await this.context.globalState.update("eco.selectedChatModel", message.model);
+        await this.sendChatConfig(message.provider as ChatProviderId, message.model);
+        const adapter = getProviderAdapter(message.provider);
+        if (adapter.auth.required) {
+          const apiKey = await this.getStoredProviderApiKey(message.provider);
+          if (!apiKey && !process.env[adapter.auth.envKeyName ?? ""]) {
+            this.sendNeedsApiKey(message.provider, `${adapter.displayName} requires an API key.`);
           }
         }
         break;
@@ -1004,7 +1031,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
     const apiKey = await this.context.secrets.get("eco.openaiApiKey");
     if (!apiKey) {
-      this.postMessage({ type: "needsApiKey", message: "Set your OpenAI API key to run AI review." });
+      this.sendNeedsApiKey("openai", "Set your OpenAI API key to run AI review.");
       return;
     }
 
@@ -1042,7 +1069,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
       if (response.status === 401) {
         await this.context.secrets.delete("eco.openaiApiKey");
-        this.postMessage({ type: "needsApiKey", message: "Invalid API key. Please enter a valid key." });
+        this.sendNeedsApiKey("openai", "Invalid API key. Please enter a valid key.");
         return;
       }
       if (!response.ok) {
@@ -1106,17 +1133,29 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     return vscode.workspace.workspaceFolders?.[0]?.name ?? "eco-workspace";
   }
 
-  private async handleSetApiKey(key: string) {
-    if (!key.startsWith("sk-")) {
-      this.postMessage({ type: "apiKeyError", message: 'API key must start with "sk-".' });
+  private async handleSetApiKey(providerId: string, key: string) {
+    const adapter = getProviderAdapter(providerId);
+    if (!key.trim()) {
+      this.postMessage({ type: "apiKeyError", provider: providerId, message: "API key must not be empty." });
+      return;
+    }
+    if (providerId === "openai" && !/^sk-/.test(key.trim())) {
+      this.postMessage({ type: "apiKeyError", provider: providerId, message: 'OpenAI API keys must start with "sk-".' });
+      return;
+    }
+    if (!adapter.auth.secretStorageKey) {
+      this.postMessage({ type: "apiKeyError", provider: providerId, message: `${adapter.displayName} does not use stored API keys in this extension.` });
       return;
     }
     try {
-      await this.context.secrets.store("eco.openaiApiKey", key);
-      this.postMessage({ type: "apiKeyStored" });
+      await this.context.secrets.store(adapter.auth.secretStorageKey, key.trim());
+      if (providerId === "openai") {
+        await this.context.secrets.store("eco.openaiApiKey", key.trim());
+      }
+      this.postMessage({ type: "apiKeyStored", provider: providerId });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to store API key";
-      this.postMessage({ type: "apiKeyError", message });
+      this.postMessage({ type: "apiKeyError", provider: providerId, message });
     }
   }
 
@@ -1148,161 +1187,84 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     this.postMessage({ type: "ecoApiKeyStatus", isSet: !!key });
   }
 
-  private buildMessages(text: string, limitContext = false) {
+  private buildMessages(text: string, limitContext = false): NormalizedChatMessage[] {
     const suggestions = limitContext ? this.lastSuggestions.slice(0, 5) : this.lastSuggestions;
     const endpoints = limitContext ? this.lastEndpoints.slice(0, 8) : this.lastEndpoints;
     return [
-      { role: "system" as const, content: buildSystemPrompt(this.lastSummary, suggestions, endpoints) },
+      { role: "system", content: buildSystemPrompt(this.lastSummary, suggestions, endpoints) },
       ...this.chatHistory,
-      { role: "user" as const, content: text },
+      { role: "user", content: text },
     ];
   }
 
-  private async handleChat(text: string, model: string) {
-    if (isOpenAIModel(model)) {
-      await this.handleOpenAIChat(text, model);
-    } else {
-      await this.handleCloudflareChat(text);
-    }
+  private async executeProviderRequest(request: NormalizedChatRequest) {
+    return executeChat({
+      request,
+      secrets: this.context.secrets,
+      onChunk: async (chunk) => {
+        if (chunk.delta) {
+          this.postMessage({ type: "chatStreaming", chunk: chunk.delta });
+        }
+      },
+    });
   }
 
-  private async handleCloudflareChat(text: string) {
+  private async handleChat(text: string, providerId: string, model: string) {
+    const provider = getProviderAdapter(providerId);
+    const modelMeta = findModelMetadata(providerId, model);
+    const messages = this.buildMessages(text, providerId === "eco");
+    const baseRequest: NormalizedChatRequest = {
+      provider: providerId,
+      model,
+      messages,
+      temperature: providerId === "eco" ? undefined : 0.7,
+      stream: provider.supportsStreaming && (modelMeta?.supportsStreaming ?? provider.supportsStreaming),
+    };
+
     try {
-      const response = await fetch("https://api.ecoapi.dev/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: this.buildMessages(text, true) }),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: { message: "Unknown API error" } }));
-        const errMsg = (errData as { error?: { message?: string } })?.error?.message ?? "Chat request failed";
-        this.postMessage({ type: "chatError", message: errMsg });
-        return;
-      }
-
-      const data = await response.json() as { data?: { response?: string } };
-      const fullContent = data?.data?.response;
-
-      if (fullContent === undefined || fullContent === null) {
-        this.postMessage({ type: "chatError", message: "No response from AI. The service may be temporarily unavailable." });
-        return;
+      let response;
+      const requiresFallback = providerId === "openai" && modelMeta?.reasoning;
+      if (requiresFallback) {
+        try {
+          response = await this.executeProviderRequest({ ...baseRequest, stream: false });
+        } catch (error) {
+          const chatError = error as ChatAdapterError;
+          if (chatError?.status === 400) {
+            response = await this.executeProviderRequest({
+              ...baseRequest,
+              stream: false,
+              messages: messages.filter((message) => message.role !== "system"),
+            });
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        response = await this.executeProviderRequest(baseRequest);
       }
 
       this.chatHistory.push({ role: "user", content: text });
-      this.chatHistory.push({ role: "assistant", content: fullContent });
-
-      this.postMessage({ type: "chatDone", fullContent });
-    } catch {
-      this.postMessage({ type: "chatError", message: "Network error. Check your connection." });
-    }
-  }
-
-  private async handleOpenAIChat(text: string, model: string) {
-    const apiKey = await this.context.secrets.get("eco.openaiApiKey");
-
-    if (!apiKey) {
-      this.postMessage({ type: "needsApiKey" });
-      return;
-    }
-
-    const modelId: ModelId = (model in MODELS) ? (model as ModelId) : "gpt-4o-mini";
-
-    const messages = this.buildMessages(text);
-    const modelName = MODELS[modelId].id;
-    const reasoning = isReasoningModel(modelName);
-
-    const candidatePayloads: Array<{ stream: boolean; body: Record<string, unknown> }> = reasoning
-      ? [
-          { stream: false, body: { model: modelName, messages } },
-          { stream: false, body: { model: modelName, messages: messages.filter((m) => m.role !== "system") } },
-        ]
-      : [
-          { stream: true, body: { model: modelName, messages, temperature: 0.7, stream: true } },
-        ];
-
-    try {
-      let lastErrMsg = "API request failed";
-
-      for (let i = 0; i < candidatePayloads.length; i += 1) {
-        const candidate = candidatePayloads[i];
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(candidate.body),
-        });
-
-        if (response.status === 401) {
+      this.chatHistory.push({ role: "assistant", content: response.content });
+      this.postMessage({ type: "chatDone", fullContent: response.content });
+    } catch (error) {
+      const chatError = error as ChatAdapterError;
+      if (chatError?.code === "bad_auth") {
+        const adapter = getProviderAdapter(providerId);
+        if (adapter.auth.secretStorageKey) {
+          await this.context.secrets.delete(adapter.auth.secretStorageKey);
+        }
+        if (providerId === "openai") {
           await this.context.secrets.delete("eco.openaiApiKey");
-          this.postMessage({ type: "needsApiKey", message: "Invalid API key. Please enter a valid key." });
-          return;
         }
-
-        if (response.status === 429) {
-          this.postMessage({ type: "chatError", message: "Rate limited. Wait a moment and try again." });
-          return;
-        }
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({ error: { message: "Unknown API error" } }));
-          lastErrMsg = (errData as { error?: { message?: string } })?.error?.message ?? "API request failed";
-
-          const shouldRetry = reasoning && response.status === 400 && i < candidatePayloads.length - 1;
-          if (shouldRetry) {
-            continue;
-          }
-
-          this.postMessage({ type: "chatError", message: lastErrMsg });
-          return;
-        }
-
-        let fullContent = "";
-        if (candidate.stream) {
-          const reader = response.body!.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = line.slice(6);
-              if (data === "[DONE]") break;
-              try {
-                const parsed = JSON.parse(data) as { choices: { delta: { content?: string } }[] };
-                const chunk = parsed.choices[0]?.delta?.content ?? "";
-                if (chunk) {
-                  fullContent += chunk;
-                  this.postMessage({ type: "chatStreaming", chunk });
-                }
-              } catch {
-                // Malformed SSE line, skip
-              }
-            }
-          }
-        } else {
-          const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-          fullContent = data.choices?.[0]?.message?.content ?? "";
-        }
-
-        this.chatHistory.push({ role: "user", content: text });
-        this.chatHistory.push({ role: "assistant", content: fullContent });
-        this.postMessage({ type: "chatDone", fullContent });
+        this.sendNeedsApiKey(providerId, chatError.message);
         return;
       }
-
-      this.postMessage({ type: "chatError", message: lastErrMsg });
-    } catch {
-      this.postMessage({ type: "chatError", message: "Network error. Check your connection." });
+      if (chatError?.code === "missing_api_key") {
+        this.sendNeedsApiKey(providerId, chatError.message);
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Network error. Check your connection.";
+      this.postMessage({ type: "chatError", message });
     }
   }
 

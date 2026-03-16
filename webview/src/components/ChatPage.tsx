@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
-import { postMessage, getVsCodeApi } from "../vscode";
-import type { SuggestionContext, HostMessage } from "../types";
+import { getVsCodeApi, postMessage } from "../vscode";
+import type { ChatProviderOption, HostMessage, SuggestionContext } from "../types";
 
 interface ChatPageProps {
   context: SuggestionContext | null;
@@ -17,37 +17,18 @@ interface Message {
   };
 }
 
-const MODEL_GROUPS = [
-  {
-    label: "ECO AI",
-    models: [
-      { id: "eco-ai", name: "Llama 3.1 (Free)" },
-    ],
-  },
-  {
-    label: "GPT",
-    models: [
-      { id: "gpt-4o-mini", name: "GPT-4o Mini" },
-      { id: "gpt-4o", name: "GPT-4o" },
-      { id: "gpt-4.1-mini", name: "GPT-4.1 Mini" },
-      { id: "gpt-4.1", name: "GPT-4.1" },
-    ],
-  },
-  {
-    label: "Reasoning",
-    models: [
-      { id: "o3-mini", name: "o3 Mini" },
-      { id: "o1", name: "o1" },
-      { id: "o3", name: "o3" },
-    ],
-  },
-];
-
-const AVAILABLE_MODEL_IDS = MODEL_GROUPS.flatMap((group) => group.models.map((m) => m.id));
-
-function isGptModel(model: string): boolean {
-  return model.startsWith("gpt-");
+interface SelectionState {
+  provider: string;
+  model: string;
 }
+
+interface PendingRequest {
+  text: string;
+  provider: string;
+  model: string;
+}
+
+const DEFAULT_SELECTION: SelectionState = { provider: "eco", model: "eco-ai" };
 
 function toCodeFocusedPrompt(text: string): string {
   return `${text}
@@ -80,15 +61,23 @@ function getApplyFixKey(applyFix: { code: string; file: string; line?: number })
   return `${applyFix.file}:${applyFix.line ?? 0}:${applyFix.code}`;
 }
 
-function getSavedModel(): string {
-  const state = getVsCodeApi().getState() as { model?: string } | null;
-  const saved = state?.model ?? "eco-ai";
-  return AVAILABLE_MODEL_IDS.includes(saved) ? saved : "eco-ai";
+function getSavedSelection(): SelectionState {
+  const state = getVsCodeApi().getState() as { chatSelection?: SelectionState } | null;
+  return state?.chatSelection ?? DEFAULT_SELECTION;
 }
 
-function saveModel(model: string) {
+function saveSelection(selection: SelectionState) {
   const state = getVsCodeApi().getState() as Record<string, unknown> | null;
-  getVsCodeApi().setState({ ...(state ?? {}), model });
+  getVsCodeApi().setState({ ...(state ?? {}), chatSelection: selection });
+}
+
+function getModelName(providers: ChatProviderOption[], selection: SelectionState): string {
+  const provider = providers.find((entry) => entry.id === selection.provider);
+  return provider?.models.find((model) => model.id === selection.model)?.displayName ?? selection.model;
+}
+
+function providerNeedsKey(providers: ChatProviderOption[], providerId: string): boolean {
+  return Boolean(providers.find((provider) => provider.id === providerId)?.envKeyName);
 }
 
 export function ChatPage({ context }: ChatPageProps) {
@@ -96,41 +85,40 @@ export function ChatPage({ context }: ChatPageProps) {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
-  const [model, setModel] = useState(getSavedModel);
+  const [selection, setSelection] = useState<SelectionState>(getSavedSelection);
+  const [providers, setProviders] = useState<ChatProviderOption[]>([]);
   const [appliedFixKeys, setAppliedFixKeys] = useState<Set<string>>(new Set());
   const [showModelDropdown, setShowModelDropdown] = useState(false);
-
-  // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingMessage, setOnboardingMessage] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [apiKeyErrorMsg, setApiKeyErrorMsg] = useState("");
+  const [onboardingProvider, setOnboardingProvider] = useState<string>(selection.provider);
+  const [onboardingEnvKey, setOnboardingEnvKey] = useState<string | undefined>(undefined);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Track which context was last auto-sent so switching tabs doesn't re-trigger it,
-  // but clicking "Ask AI" on a new suggestion does.
   const autoSentContextRef = useRef<SuggestionContext | null>(null);
   const contextRef = useRef<SuggestionContext | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
-  // Text of a message that was sent but bounced back with needsApiKey
-  const pendingMessageRef = useRef<string | null>(null);
-  // Whether the pending message is already in the messages list
-  const pendingAddedToUI = useRef(false);
+  const pendingRequestRef = useRef<PendingRequest | null>(null);
+
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.id === selection.provider),
+    [providers, selection.provider]
+  );
+  const selectedModelName = getModelName(providers, selection);
+  const selectedProviderName = selectedProvider?.displayName ?? selection.provider;
 
   useEffect(() => {
     contextRef.current = context;
   }, [context]);
 
-  // On mount: send modelChanged so the extension persists the model and checks API key
   useEffect(() => {
-    postMessage({ type: "modelChanged", model });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    saveSelection(selection);
+    postMessage({ type: "modelChanged", provider: selection.provider, model: selection.model });
+  }, [selection]);
 
-  // Auto-send when context changes to a new suggestion (e.g. "Ask AI" clicked).
-  // If the onboarding card is showing (no API key yet), queue the message so it
-  // retries automatically once the key is saved.
   useEffect(() => {
     if (context && context !== autoSentContextRef.current) {
       autoSentContextRef.current = context;
@@ -139,22 +127,41 @@ export function ChatPage({ context }: ChatPageProps) {
       const locationHint = targetFile ? ` Target location: ${targetFile}${targetLine}.` : "";
       const autoText = `Analyze this ${context.type} issue and suggest a fix: ${context.description}.${locationHint} Include the proposed code in a fenced code block.`;
       if (showOnboarding) {
-        // Key not entered yet ??add message to UI now, store for retry after key entry
         setMessages((prev) => [...prev, { role: "user", content: autoText }]);
-        pendingMessageRef.current = isGptModel(model) ? autoText : toCodeFocusedPrompt(autoText);
-        pendingAddedToUI.current = true;
+        pendingRequestRef.current = {
+          text: onboardingProvider === "eco" ? toCodeFocusedPrompt(autoText) : autoText,
+          provider: onboardingProvider,
+          model: selection.model,
+        };
       } else {
         sendChatRequest(autoText, true);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context]);
+  }, [context, showOnboarding, onboardingProvider, selection.model]);
 
-  // Listen for host messages
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const msg = event.data as HostMessage;
       switch (msg.type) {
+        case "chatConfig": {
+          setProviders(msg.providers);
+          setSelection((prev) => {
+            const provider = msg.providers.find((entry) => entry.id === prev.provider)
+              ? prev.provider
+              : msg.selectedProvider;
+            const providerEntry = msg.providers.find((entry) => entry.id === provider);
+            const model = providerEntry?.models.some((entry) => entry.id === prev.model)
+              ? prev.model
+              : (provider === msg.selectedProvider ? msg.selectedModel : providerEntry?.models[0]?.id ?? msg.selectedModel);
+            if (prev.provider === provider && prev.model === model) {
+              return prev;
+            }
+            const next = { provider, model };
+            saveSelection(next);
+            return next;
+          });
+          break;
+        }
         case "chatStreaming":
           setStreamingContent((prev) => prev + msg.chunk);
           break;
@@ -173,25 +180,22 @@ export function ChatPage({ context }: ChatPageProps) {
               content.trim();
             const applyFix = file && code ? { file, line, code } : undefined;
 
-            return [...prev, { role: "ai", content: content, applyFix }];
+            return [...prev, { role: "ai", content, applyFix }];
           });
-          pendingMessageRef.current = null;
-          pendingAddedToUI.current = false;
+          pendingRequestRef.current = null;
           break;
 
         case "chatError":
           setIsLoading(false);
           setStreamingContent("");
-          setMessages((prev) => [
-            ...prev,
-            { role: "ai", content: `**Error:** ${msg.message}` },
-          ]);
-          pendingMessageRef.current = null;
-          pendingAddedToUI.current = false;
+          setMessages((prev) => [...prev, { role: "ai", content: `**Error:** ${msg.message}` }]);
+          pendingRequestRef.current = null;
           break;
 
         case "needsApiKey":
           setIsLoading(false);
+          setOnboardingProvider(msg.provider);
+          setOnboardingEnvKey(msg.envKeyName);
           setOnboardingMessage(msg.message ?? "");
           setShowOnboarding(true);
           break;
@@ -201,39 +205,39 @@ export function ChatPage({ context }: ChatPageProps) {
           setApiKeyInput("");
           setApiKeyErrorMsg("");
           setOnboardingMessage("");
-          // Retry the pending message if there is one
-          const pending = pendingMessageRef.current;
-          if (pending) {
-            pendingMessageRef.current = null;
-            // Message already in UI, just send the request
+          const pending = pendingRequestRef.current;
+          if (pending && pending.provider === msg.provider) {
+            pendingRequestRef.current = null;
             setIsLoading(true);
-            postMessage({ type: "chat", text: pending, model });
+            postMessage({ type: "chat", text: pending.text, provider: pending.provider, model: pending.model });
           }
           break;
         }
 
         case "apiKeyError":
+          setOnboardingProvider(msg.provider);
           setApiKeyErrorMsg(msg.message);
           break;
 
         case "apiKeyCleared":
-          setShowOnboarding(true);
-          setOnboardingMessage("");
+          if (msg.provider) {
+            setOnboardingProvider(msg.provider);
+            setOnboardingEnvKey(providers.find((provider) => provider.id === msg.provider)?.envKeyName);
+          }
+          if (msg.provider === selection.provider || !msg.provider) {
+            setShowOnboarding(providerNeedsKey(providers, msg.provider ?? selection.provider));
+          }
           break;
       }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  // model is needed in the apiKeyStored handler
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model]);
+  }, [providers, selection.provider]);
 
-  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading, streamingContent]);
 
-  // Close model dropdown on outside click
   useEffect(() => {
     if (!showModelDropdown) return;
     const handler = (e: MouseEvent) => {
@@ -245,16 +249,14 @@ export function ChatPage({ context }: ChatPageProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [showModelDropdown]);
 
-  // Send a chat request, optionally adding the user message to the UI first
   const sendChatRequest = (text: string, addToUI = true) => {
-    const textForModel = isGptModel(model) ? text : toCodeFocusedPrompt(text);
+    const textForModel = selection.provider === "eco" ? toCodeFocusedPrompt(text) : text;
     if (addToUI) {
       setMessages((prev) => [...prev, { role: "user", content: text }]);
-      pendingAddedToUI.current = true;
     }
-    pendingMessageRef.current = textForModel;
+    pendingRequestRef.current = { text: textForModel, provider: selection.provider, model: selection.model };
     setIsLoading(true);
-    postMessage({ type: "chat", text: textForModel, model });
+    postMessage({ type: "chat", text: textForModel, provider: selection.provider, model: selection.model });
   };
 
   const handleSend = () => {
@@ -280,25 +282,32 @@ export function ChatPage({ context }: ChatPageProps) {
     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
   };
 
-  const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newModel = e.target.value;
-    setModel(newModel);
-    saveModel(newModel);
-    postMessage({ type: "modelChanged", model: newModel });
-    if (newModel === "eco-ai") {
+  const handleSelectionChange = (provider: string, model: string) => {
+    setSelection({ provider, model });
+    if (!providerNeedsKey(providers, provider)) {
       setShowOnboarding(false);
+      setOnboardingMessage("");
+      setApiKeyErrorMsg("");
     }
   };
 
   const handleSubmitApiKey = () => {
     const key = apiKeyInput.trim();
     if (!key) return;
-    postMessage({ type: "setApiKey", key });
-    setApiKeyInput(""); // clear immediately ??never hold key in state after sending
+    postMessage({ type: "setApiKey", provider: onboardingProvider, key });
+    setApiKeyInput("");
   };
 
   const handleApiKeyInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleSubmitApiKey();
+  };
+
+  const handleBackToChat = () => {
+    pendingRequestRef.current = null;
+    setShowOnboarding(false);
+    setApiKeyInput("");
+    setApiKeyErrorMsg("");
+    setOnboardingMessage("");
   };
 
   const handleApplyFix = (applyFix: { code: string; file: string; line?: number }) => {
@@ -313,7 +322,6 @@ export function ChatPage({ context }: ChatPageProps) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      {/* Context pill */}
       {context && !showOnboarding && (
         <div
           style={{
@@ -332,7 +340,6 @@ export function ChatPage({ context }: ChatPageProps) {
       )}
 
       {showOnboarding ? (
-        /* Onboarding card */
         <div className="eco-scroll-invisible" style={{ flex: 1, padding: "16px", overflowY: "auto", minHeight: 0 }}>
           <div
             style={{
@@ -351,14 +358,19 @@ export function ChatPage({ context }: ChatPageProps) {
               </p>
             )}
             <p style={{ margin: 0, color: "var(--vscode-foreground)", fontSize: "var(--vscode-font-size)" }}>
-              Enter your OpenAI API key to enable AI chat
+              Enter your {providers.find((provider) => provider.id === onboardingProvider)?.displayName ?? onboardingProvider} API key to enable chat.
             </p>
+            {onboardingEnvKey && (
+              <p style={{ margin: 0, fontSize: "11px", color: "var(--vscode-descriptionForeground)" }}>
+                Preferred: set <code>{onboardingEnvKey}</code>. Stored keys are used as a fallback.
+              </p>
+            )}
             <input
               type="password"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
               onKeyDown={handleApiKeyInputKeyDown}
-              placeholder="sk-..."
+              placeholder="Paste API key"
               style={{
                 background: "var(--vscode-input-background)",
                 color: "var(--vscode-input-foreground)",
@@ -376,28 +388,42 @@ export function ChatPage({ context }: ChatPageProps) {
                 {apiKeyErrorMsg}
               </p>
             )}
-            <button
-              onClick={handleSubmitApiKey}
-              style={{
-                background: "var(--vscode-button-background)",
-                color: "var(--vscode-button-foreground)",
-                border: "none",
-                borderRadius: "3px",
-                padding: "6px 14px",
-                fontSize: "var(--vscode-font-size)",
-                cursor: "pointer",
-                alignSelf: "flex-start",
-              }}
-            >
-              Save Key
-            </button>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                onClick={handleSubmitApiKey}
+                style={{
+                  background: "var(--vscode-button-background)",
+                  color: "var(--vscode-button-foreground)",
+                  border: "none",
+                  borderRadius: "3px",
+                  padding: "6px 14px",
+                  fontSize: "var(--vscode-font-size)",
+                  cursor: "pointer",
+                }}
+              >
+                Save Key
+              </button>
+              <button
+                onClick={handleBackToChat}
+                style={{
+                  background: "transparent",
+                  color: "var(--vscode-foreground)",
+                  border: "1px solid var(--vscode-input-border)",
+                  borderRadius: "3px",
+                  padding: "6px 14px",
+                  fontSize: "var(--vscode-font-size)",
+                  cursor: "pointer",
+                }}
+              >
+                Back to Chat
+              </button>
+            </div>
             <p style={{ margin: 0, fontSize: "11px", color: "var(--vscode-descriptionForeground)" }}>
-              Your key is stored securely in your system keychain and never sent to our servers.
+              Your key is stored securely in your system keychain and never sent to EcoAPI servers.
             </p>
           </div>
         </div>
       ) : (
-        /* Messages */
         <div
           className="eco-scroll-invisible"
           style={{
@@ -419,13 +445,7 @@ export function ChatPage({ context }: ChatPageProps) {
                 alignItems: msg.role === "user" ? "flex-end" : "flex-start",
               }}
             >
-              <span
-                style={{
-                  fontSize: "10px",
-                  color: "var(--vscode-descriptionForeground)",
-                  marginBottom: "4px",
-                }}
-              >
+              <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", marginBottom: "4px" }}>
                 {msg.role === "user" ? "you" : "eco"}
               </span>
 
@@ -482,18 +502,9 @@ export function ChatPage({ context }: ChatPageProps) {
             </div>
           ))}
 
-          {/* Streaming / loading indicator */}
           {isLoading && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", maxWidth: "100%", width: "100%" }}>
-              <span
-                style={{
-                  fontSize: "10px",
-                  color: "var(--vscode-descriptionForeground)",
-                  marginBottom: "4px",
-                }}
-              >
-                eco
-              </span>
+              <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", marginBottom: "4px" }}>eco</span>
               {streamingContent ? (
                 <div style={{ maxWidth: "100%", width: "100%" }}>
                   <Markdown content={streamingContent} />
@@ -515,15 +526,8 @@ export function ChatPage({ context }: ChatPageProps) {
         </div>
       )}
 
-      {/* Input box — hidden while onboarding */}
       {!showOnboarding && (
-        <div
-          style={{
-            padding: "8px 12px",
-            borderTop: "1px solid var(--vscode-panel-border)",
-            flexShrink: 0,
-          }}
-        >
+        <div style={{ padding: "8px 12px", borderTop: "1px solid var(--vscode-panel-border)", flexShrink: 0 }}>
           <div
             style={{
               display: "flex",
@@ -538,13 +542,12 @@ export function ChatPage({ context }: ChatPageProps) {
               position: "relative",
             }}
           >
-            {/* Textarea */}
             <textarea
               ref={textareaRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a follow-up..."
+              placeholder={`Ask a follow-up with ${selectedProviderName}...`}
               disabled={isLoading}
               rows={1}
               style={{
@@ -562,28 +565,49 @@ export function ChatPage({ context }: ChatPageProps) {
               }}
             />
 
-            {/* Model selector */}
             <div ref={modelDropdownRef} style={{ position: "relative", flexShrink: 0 }}>
               <button
                 className="eco-chat-icon-btn"
                 onClick={() => !isLoading && setShowModelDropdown((v) => !v)}
-                title="Select model"
+                title={`${selectedProviderName} · ${selectedModelName}`}
                 style={{
                   background: showModelDropdown ? "rgba(76,175,80,0.25)" : "transparent",
                   cursor: isLoading ? "not-allowed" : "pointer",
                   opacity: isLoading ? 0.4 : 1,
                   color: "#ffffff",
+                  minWidth: "auto",
+                  paddingInline: "8px",
                 }}
-                onMouseEnter={(e) => { if (!isLoading) (e.currentTarget as HTMLButtonElement).style.background = "rgba(76,175,80,0.25)"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = showModelDropdown ? "rgba(76,175,80,0.25)" : "transparent"; }}
               >
-                {/* Robot/model icon */}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M8 1a1.5 1.5 0 0 1 1.5 1.5V3h2A1.5 1.5 0 0 1 13 4.5v7A1.5 1.5 0 0 1 11.5 13h-7A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3h2v-.5A1.5 1.5 0 0 1 8 1zm0 1a.5.5 0 0 0-.5.5V3h1v-.5A.5.5 0 0 0 8 2zM5.75 7a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm4.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM6 10.5a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H6z"/>
-                </svg>
-                {/* Chevron */}
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "999px",
+                    background: "rgba(76,175,80,0.18)",
+                    border: "1px solid rgba(76,175,80,0.45)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 1a1.5 1.5 0 0 1 1.5 1.5V3h2A1.5 1.5 0 0 1 13 4.5v7A1.5 1.5 0 0 1 11.5 13h-7A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3h2v-.5A1.5 1.5 0 0 1 8 1zm0 1a.5.5 0 0 0-.5.5V3h1v-.5A.5.5 0 0 0 8 2zM5.75 7a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm4.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM6 10.5a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H6z" />
+                  </svg>
+                </span>
+                <span style={{ fontSize: "11px", maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {selectedModelName}
+                </span>
                 <svg
-                  width="8" height="8" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  width="8"
+                  height="8"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   style={{ transform: showModelDropdown ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 150ms ease" }}
                 >
                   <polyline points="3,11 8,5 13,11" />
@@ -600,17 +624,16 @@ export function ChatPage({ context }: ChatPageProps) {
                     border: "1px solid var(--vscode-dropdown-border, var(--vscode-panel-border))",
                     borderRadius: "8px",
                     boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
-                    minWidth: "160px",
+                    minWidth: "240px",
+                    maxHeight: "320px",
+                    overflowY: "auto",
                     zIndex: 100,
-                    overflow: "hidden",
                     padding: "4px 0",
                   }}
                 >
-                  {MODEL_GROUPS.map((group, gi) => (
-                    <div key={group.label}>
-                      {gi > 0 && (
-                        <div style={{ height: "1px", background: "var(--vscode-panel-border)", margin: "3px 0" }} />
-                      )}
+                  {providers.map((provider, index) => (
+                    <div key={provider.id}>
+                      {index > 0 && <div style={{ height: "1px", background: "var(--vscode-panel-border)", margin: "3px 0" }} />}
                       <div
                         style={{
                           padding: "4px 10px 2px",
@@ -621,55 +644,54 @@ export function ChatPage({ context }: ChatPageProps) {
                           textTransform: "uppercase",
                         }}
                       >
-                        {group.label}
+                        {provider.displayName}
                       </div>
-                      {group.models.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => {
-                            handleModelChange({ target: { value: m.id } } as React.ChangeEvent<HTMLSelectElement>);
-                            setShowModelDropdown(false);
-                          }}
-                          onMouseEnter={(e) => {
-                            if (model !== m.id) {
-                              (e.currentTarget as HTMLButtonElement).style.background = "var(--vscode-list-hoverBackground)";
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (model !== m.id) {
-                              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                            }
-                          }}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            width: "100%",
-                            padding: "5px 10px",
-                            background: model === m.id ? "rgba(0,0,0,0.25)" : "transparent",
-                            color: "var(--vscode-foreground)",
-                            border: "none",
-                            cursor: "pointer",
-                            fontSize: "12px",
-                            fontFamily: "var(--vscode-font-family)",
-                            textAlign: "left",
-                            transition: "background 120ms ease",
-                          }}
-                        >
-                          {model === m.id
-                            ? <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="2,9 6,13 14,3" /></svg>
-                            : <span style={{ display: "inline-block", width: "11px", flexShrink: 0 }} />
-                          }
-                          <span>{m.name}</span>
-                        </button>
-                      ))}
+                      {provider.models.map((modelOption) => {
+                        const selected = selection.provider === provider.id && selection.model === modelOption.id;
+                        return (
+                          <button
+                            key={`${provider.id}:${modelOption.id}`}
+                            onClick={() => {
+                              handleSelectionChange(provider.id, modelOption.id);
+                              setShowModelDropdown(false);
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              width: "100%",
+                              padding: "6px 10px",
+                              background: selected ? "rgba(0,0,0,0.25)" : "transparent",
+                              color: "var(--vscode-foreground)",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "12px",
+                              fontFamily: "var(--vscode-font-family)",
+                              textAlign: "left",
+                            }}
+                          >
+                            {selected ? (
+                              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                <polyline points="2,9 6,13 14,3" />
+                              </svg>
+                            ) : (
+                              <span style={{ display: "inline-block", width: "11px", flexShrink: 0 }} />
+                            )}
+                            <span style={{ display: "flex", flexDirection: "column" }}>
+                              <span>{modelOption.displayName}</span>
+                              <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)" }}>
+                                {provider.displayName}{modelOption.supportsStreaming ? " · streaming" : ""}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Send button — no disabled attr to avoid VSCode webview CSS hiding it */}
             <button
               className="eco-chat-icon-btn"
               onClick={handleSend}
@@ -682,7 +704,6 @@ export function ChatPage({ context }: ChatPageProps) {
                 color: "#ffffff",
               }}
             >
-              {/* Arrow with stem */}
               <svg width="14" height="14" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
                 <polygon points="1,5 7,5 7,2 11,6 7,10 7,7 1,7" fill="#ffffff" />
               </svg>
@@ -693,4 +714,3 @@ export function ChatPage({ context }: ChatPageProps) {
     </div>
   );
 }
-
