@@ -77,8 +77,8 @@ html, body, #root {
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
+  background: #2e7d32;
+  color: #ffffff;
   border: none;
   border-radius: 2px;
   cursor: pointer;
@@ -88,7 +88,7 @@ html, body, #root {
 }
 
 .eco-btn-primary:hover {
-  background: var(--vscode-button-hoverBackground);
+  background: #388e3c;
 }
 
 .eco-btn-icon {
@@ -417,6 +417,17 @@ html, body, #root {
 
 .eco-chat-icon-btn .codicon {
   color: #ffffff;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .eco-scroll-invisible {
