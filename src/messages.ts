@@ -1,14 +1,14 @@
 import type { EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
+import type { ChatProviderOption } from "./chat";
 import type { SimulatorInput, SimulatorResult } from "./simulator/types";
 
-// Webview -> Host messages
 export type WebviewMessage =
   | { type: "startScan" }
   | { type: "runAiReview" }
   | { type: "openDashboard" }
-  | { type: "chat"; text: string; model: string }
-  | { type: "setApiKey"; key: string }
-  | { type: "modelChanged"; model: string }
+  | { type: "chat"; provider: string; model: string; text: string }
+  | { type: "setApiKey"; provider: string; key: string }
+  | { type: "modelChanged"; provider: string; model: string }
   | { type: "applyFix"; code: string; file: string; line?: number }
   | { type: "openFile"; file: string; line?: number }
   | { type: "runSimulation"; input: SimulatorInput }
@@ -27,7 +27,6 @@ export interface SuggestionContext {
   targetLine?: number;
 }
 
-// Host -> Webview messages
 export type HostMessage =
   | { type: "triggerScan" }
   | { type: "scanProgress"; file: string; index: number; total: number; endpointsSoFar: number }
@@ -39,10 +38,11 @@ export type HostMessage =
   | { type: "chatStreaming"; chunk: string }
   | { type: "chatDone"; fullContent: string }
   | { type: "chatError"; message: string }
-  | { type: "needsApiKey"; message?: string }
-  | { type: "apiKeyStored" }
-  | { type: "apiKeyError"; message: string }
-  | { type: "apiKeyCleared" }
+  | { type: "chatConfig"; providers: ChatProviderOption[]; selectedProvider: string; selectedModel: string }
+  | { type: "needsApiKey"; provider: string; envKeyName?: string; message?: string }
+  | { type: "apiKeyStored"; provider: string }
+  | { type: "apiKeyError"; provider: string; message: string }
+  | { type: "apiKeyCleared"; provider?: string }
   | { type: "error"; message: string }
   | { type: "simulationResult"; result: SimulatorResult }
   | { type: "simulationError"; message: string }

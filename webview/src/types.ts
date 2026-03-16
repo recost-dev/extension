@@ -1,5 +1,3 @@
-// Mirrors the types from the extension host for use in the webview
-
 export type EndpointStatus =
   | "normal"
   | "redundant"
@@ -62,7 +60,23 @@ export interface SuggestionContext {
   targetLine?: number;
 }
 
-// ─── Simulator types (mirrors src/simulator/types.ts) ─────────────────────────
+export interface ChatModelOption {
+  id: string;
+  displayName: string;
+  providerId: string;
+  supportsStreaming: boolean;
+}
+
+export interface ChatProviderOption {
+  id: string;
+  displayName: string;
+  envKeyName?: string;
+  baseUrl: string;
+  defaultChatEndpoint: string;
+  authHeaderFormat: string;
+  supportsStreaming: boolean;
+  models: ChatModelOption[];
+}
 
 export type InputMode = "user-centric" | "volume-centric";
 
@@ -117,7 +131,6 @@ export const SCALE_PRESETS = [
   { label: "100K", dau: 100_000, volume: 1_000_000 },
 ] as const;
 
-// Host -> Webview messages
 export type HostMessage =
   | { type: "triggerScan" }
   | { type: "scanProgress"; file: string; index: number; total: number; endpointsSoFar: number }
@@ -129,10 +142,11 @@ export type HostMessage =
   | { type: "chatStreaming"; chunk: string }
   | { type: "chatDone"; fullContent: string }
   | { type: "chatError"; message: string }
-  | { type: "needsApiKey"; message?: string }
-  | { type: "apiKeyStored" }
-  | { type: "apiKeyError"; message: string }
-  | { type: "apiKeyCleared" }
+  | { type: "chatConfig"; providers: ChatProviderOption[]; selectedProvider: string; selectedModel: string }
+  | { type: "needsApiKey"; provider: string; envKeyName?: string; message?: string }
+  | { type: "apiKeyStored"; provider: string }
+  | { type: "apiKeyError"; provider: string; message: string }
+  | { type: "apiKeyCleared"; provider?: string }
   | { type: "error"; message: string }
   | { type: "simulationResult"; result: SimulatorResult }
   | { type: "simulationError"; message: string };
