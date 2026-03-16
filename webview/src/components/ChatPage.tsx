@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
 import { getVsCodeApi, postMessage } from "../vscode";
-import type { ChatProviderOption, HostMessage, SuggestionContext } from "../types";
+import type { ChatProviderOption, HostMessage, ScanSummary, SuggestionContext } from "../types";
 
 interface ChatPageProps {
   context: SuggestionContext | null;
+  summary?: ScanSummary;
+  endpointCount?: number;
 }
 
 interface Message {
@@ -80,8 +82,31 @@ function providerNeedsKey(providers: ChatProviderOption[], providerId: string): 
   return Boolean(providers.find((provider) => provider.id === providerId)?.envKeyName);
 }
 
-export function ChatPage({ context }: ChatPageProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+function hasShownWelcome(): boolean {
+  const state = getVsCodeApi().getState() as { chatWelcomeShown?: boolean } | null;
+  return state?.chatWelcomeShown === true;
+}
+
+function markWelcomeShown() {
+  const state = getVsCodeApi().getState() as Record<string, unknown> | null;
+  getVsCodeApi().setState({ ...(state ?? {}), chatWelcomeShown: true });
+}
+
+function buildWelcomeMessage(endpointCount: number, monthlyCost: number): string {
+  if (endpointCount > 0) {
+    return `Looks like you have **${endpointCount} API endpoint${endpointCount === 1 ? "" : "s"}** (~$${monthlyCost.toFixed(2)}/mo). Ask me anything about your usage, costs, or how to cut them down.`;
+  }
+  return `No API endpoints turned up in this scan. Try adjusting your scan settings, or ask me anything about API costs and efficiency.`;
+}
+
+export function ChatPage({ context, summary, endpointCount = 0 }: ChatPageProps) {
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (!hasShownWelcome()) {
+      markWelcomeShown();
+      return [{ role: "ai", content: buildWelcomeMessage(endpointCount, summary?.totalMonthlyCost ?? 0) }];
+    }
+    return [];
+  });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
