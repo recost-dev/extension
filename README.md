@@ -22,7 +22,7 @@ ECO turns parsed API call data into actionable diagnostics:
 - **React 18** — sidebar webview UI
 - **Vite** + **esbuild** — bundlers
 - **TanStack Query v5**, **Tailwind CSS v4**, **D3.js**, **Radix UI** — dashboard UI
-- **OpenAI SDK** — optional AI review (`gpt-4.1-mini` default)
+- **Multi-provider AI chat** — ECO AI (free, default), OpenAI, Anthropic, Gemini, xAI, Cohere, Mistral, Perplexity
 
 ## Project Structure
 
@@ -34,7 +34,13 @@ src/                        # Extension backend
   webview-provider.ts       # Sidebar webview provider
   messages.ts               # IPC message types
   analysis/types.ts
-  chat/prompts.ts           # AI prompt templates
+  chat/
+    prompts.ts              # AI prompt templates
+    types.ts                # Shared chat types
+    provider-registry.ts    # Provider registry & auth resolution
+    index.ts                # executeChat() dispatcher
+    errors.ts               # ChatAdapterError
+    providers/              # Per-provider adapters (eco, openai, anthropic, gemini, xai, cohere, mistral, perplexity)
   scanner/
     patterns.ts             # API call detection regex
     workspace-scanner.ts    # Workspace file scanner
@@ -109,11 +115,21 @@ You only need to do this once per machine. The key is used automatically on ever
 
 > **Note:** Reading data (analytics, endpoints, suggestions, cost breakdowns) does not require a key — only scanning does.
 
-### OpenAI Key (optional)
+### AI Chat Keys (optional)
 
-Used for AI-powered scan review and chat. Set via the extension UI or:
+The Chat tab supports multiple AI providers. **ECO AI is free and requires no key** — it is the default. For other providers, enter your API key via the extension UI when prompted, or set the corresponding environment variable:
 
-1. `Ctrl+Shift+P` → **ECO: Set OpenAI API Key**
+| Provider | Environment variable |
+|----------|---------------------|
+| OpenAI | `OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| Google Gemini | `GEMINI_API_KEY` |
+| xAI | `XAI_API_KEY` |
+| Cohere | `COHERE_API_KEY` |
+| Mistral | `MISTRAL_API_KEY` |
+| Perplexity | `PPLX_API_KEY` |
+
+Environment variables can be set in your shell profile or in a `.env` file in your project root. Keys entered via the UI are stored in VS Code's encrypted secret storage.
 
 ---
 

@@ -622,7 +622,7 @@ export function ResultsPage({
       </div>
 
       <div className="eco-panel-view" style={{ flex: 1, display: tab === "chat" ? "flex" : "none", flexDirection: "column", minHeight: 0 }}>
-        <ChatPage context={chatContext} />
+        <ChatPage context={chatContext} summary={summary} endpointCount={endpoints.length} />
       </div>
 
       <div className="eco-panel-view" style={{ flex: 1, display: tab === "simulate" ? "flex" : "none", flexDirection: "column", minHeight: 0 }}>
