@@ -108,6 +108,21 @@ function mapStatusToSuggestionType(status: EndpointRecord["status"]): Suggestion
   }
 }
 
+const LOCAL_PRICING: Record<string, number> = {
+  stripe: 0.01,
+  openai: 0.006,
+  twilio: 0.0075,
+  sendgrid: 0.001,
+  "aws-s3": 0.0004,
+  "google-maps": 0.005,
+};
+const DEFAULT_PER_CALL_COST = 0.0001;
+
+function estimateLocalMonthlyCost(provider: string, callsPerDay: number): number {
+  const perCall = LOCAL_PRICING[provider] ?? DEFAULT_PER_CALL_COST;
+  return Math.round(callsPerDay * perCall * 30 * 100) / 100;
+}
+
 function chooseSeverity(status: EndpointRecord["status"], monthlyCost: number): Suggestion["severity"] {
   if (status === "n_plus_one_risk" || status === "redundant") {
     return monthlyCost >= 100 ? "high" : "medium";
@@ -398,7 +413,10 @@ function mergeRemoteAndLocalEndpoints(
           frequency: call.frequency,
         }],
         callsPerDay: call.frequency === "per-request" ? 100 : call.library === "route-def" ? 0 : 1,
-        monthlyCost: 0,
+        monthlyCost: estimateLocalMonthlyCost(
+          detectEndpointProvider(canonicalizeEndpointUrl(call.url)),
+          call.frequency === "per-request" ? 100 : call.library === "route-def" ? 0 : 1
+        ),
         status:
           call.frequency === "per-request"
             ? "n_plus_one_risk"
@@ -635,7 +653,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         const summary: ScanSummary = {
           totalEndpoints: endpoints.length,
           totalCallsPerDay: endpoints.reduce((sum, ep) => sum + ep.callsPerDay, 0),
-          totalMonthlyCost: 0,
+          totalMonthlyCost: endpoints.reduce((sum, ep) => sum + ep.monthlyCost, 0),
           highRiskCount: mergedSuggestions.filter((s) => s.severity === "high").length,
         };
 
@@ -669,7 +687,23 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       // Ensure we have a project on the remote API
-      const ecoApiKey = await this.getEcoApiKey();
+      let ecoApiKey = await this.getEcoApiKey();
+      if (!ecoApiKey) {
+        const entered = await vscode.window.showInputBox({
+          title: "EcoAPI Key Required",
+          prompt: "Enter your EcoAPI key to sync scan results and unlock in-depth cost estimates (provider pricing, per-endpoint breakdown, monthly projections)",
+          placeHolder: "eco-...",
+          password: true,
+          ignoreFocusOut: true,
+        });
+        if (entered?.trim()) {
+          await this.context.secrets.store("eco.ecoApiKey", entered.trim());
+          ecoApiKey = entered.trim();
+        } else {
+          publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+          return;
+        }
+      }
       let projectId = await this.getOrCreateProject(ecoApiKey);
 
       // Submit scan and fetch results
