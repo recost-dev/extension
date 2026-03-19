@@ -6,7 +6,7 @@ export type EndpointStatus =
   | "n_plus_one_risk"
   | "rate_limit_risk";
 
-export type SuggestionType = "cache" | "batch" | "redundancy" | "n_plus_one" | "rate_limit";
+export type SuggestionType = "cache" | "batch" | "redundancy" | "n_plus_one" | "rate_limit" | "concurrency_control";
 export type Severity = "high" | "medium" | "low";
 
 export interface EndpointRecord {

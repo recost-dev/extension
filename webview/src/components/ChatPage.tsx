@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
 import { getVsCodeApi, postMessage } from "../vscode";
-import type { ChatProviderOption, HostMessage, SuggestionContext } from "../types";
+import type { ChatProviderOption, HostMessage, ScanSummary, SuggestionContext } from "../types";
 
 interface ChatPageProps {
   context: SuggestionContext | null;
+  summary?: ScanSummary;
+  endpointCount?: number;
 }
 
 interface Message {
@@ -80,8 +82,31 @@ function providerNeedsKey(providers: ChatProviderOption[], providerId: string): 
   return Boolean(providers.find((provider) => provider.id === providerId)?.envKeyName);
 }
 
-export function ChatPage({ context }: ChatPageProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+function hasShownWelcome(): boolean {
+  const state = getVsCodeApi().getState() as { chatWelcomeShown?: boolean } | null;
+  return state?.chatWelcomeShown === true;
+}
+
+function markWelcomeShown() {
+  const state = getVsCodeApi().getState() as Record<string, unknown> | null;
+  getVsCodeApi().setState({ ...(state ?? {}), chatWelcomeShown: true });
+}
+
+function buildWelcomeMessage(endpointCount: number, monthlyCost: number): string {
+  if (endpointCount > 0) {
+    return `Looks like you have **${endpointCount} API endpoint${endpointCount === 1 ? "" : "s"}** (~$${monthlyCost.toFixed(2)}/mo). Ask me anything about your usage, costs, or how to cut them down.`;
+  }
+  return `No API endpoints turned up in this scan. Try adjusting your scan settings, or ask me anything about API costs and efficiency.`;
+}
+
+export function ChatPage({ context, summary, endpointCount = 0 }: ChatPageProps) {
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (!hasShownWelcome()) {
+      markWelcomeShown();
+      return [{ role: "ai", content: buildWelcomeMessage(endpointCount, summary?.totalMonthlyCost ?? 0) }];
+    }
+    return [];
+  });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
@@ -362,7 +387,7 @@ export function ChatPage({ context }: ChatPageProps) {
             </p>
             {onboardingEnvKey && (
               <p style={{ margin: 0, fontSize: "11px", color: "var(--vscode-descriptionForeground)" }}>
-                Preferred: set <code>{onboardingEnvKey}</code>. Stored keys are used as a fallback.
+                Tip: set <code>{onboardingEnvKey}</code> as an environment variable in your shell or <code>.env</code> file in your project root — no key entry needed.
               </p>
             )}
             <input
@@ -372,7 +397,7 @@ export function ChatPage({ context }: ChatPageProps) {
               onKeyDown={handleApiKeyInputKeyDown}
               placeholder="Paste API key"
               style={{
-                background: "var(--vscode-input-background)",
+                background: "color-mix(in srgb, var(--vscode-input-background) 60%, black 40%)",
                 color: "var(--vscode-input-foreground)",
                 border: "1px solid var(--vscode-input-border)",
                 borderRadius: "3px",
@@ -392,14 +417,16 @@ export function ChatPage({ context }: ChatPageProps) {
               <button
                 onClick={handleSubmitApiKey}
                 style={{
-                  background: "var(--vscode-button-background)",
-                  color: "var(--vscode-button-foreground)",
+                  background: "#2e7d32",
+                  color: "#ffffff",
                   border: "none",
                   borderRadius: "3px",
                   padding: "6px 14px",
                   fontSize: "var(--vscode-font-size)",
                   cursor: "pointer",
                 }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#388e3c"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#2e7d32"; }}
               >
                 Save Key
               </button>
@@ -575,30 +602,15 @@ export function ChatPage({ context }: ChatPageProps) {
                   cursor: isLoading ? "not-allowed" : "pointer",
                   opacity: isLoading ? 0.4 : 1,
                   color: "#ffffff",
-                  minWidth: "auto",
-                  paddingInline: "8px",
                 }}
+                onMouseEnter={(e) => { if (!isLoading) (e.currentTarget as HTMLButtonElement).style.background = "rgba(76,175,80,0.25)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = showModelDropdown ? "rgba(76,175,80,0.25)" : "transparent"; }}
               >
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "22px",
-                    height: "22px",
-                    borderRadius: "999px",
-                    background: "rgba(76,175,80,0.18)",
-                    border: "1px solid rgba(76,175,80,0.45)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M8 1a1.5 1.5 0 0 1 1.5 1.5V3h2A1.5 1.5 0 0 1 13 4.5v7A1.5 1.5 0 0 1 11.5 13h-7A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3h2v-.5A1.5 1.5 0 0 1 8 1zm0 1a.5.5 0 0 0-.5.5V3h1v-.5A.5.5 0 0 0 8 2zM5.75 7a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm4.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM6 10.5a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H6z" />
-                  </svg>
-                </span>
-                <span style={{ fontSize: "11px", maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {selectedModelName}
-                </span>
+                {/* Robot/model icon */}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8 1a1.5 1.5 0 0 1 1.5 1.5V3h2A1.5 1.5 0 0 1 13 4.5v7A1.5 1.5 0 0 1 11.5 13h-7A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3h2v-.5A1.5 1.5 0 0 1 8 1zm0 1a.5.5 0 0 0-.5.5V3h1v-.5A.5.5 0 0 0 8 2zM5.75 7a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm4.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM6 10.5a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H6z"/>
+                </svg>
+                {/* Chevron */}
                 <svg
                   width="8"
                   height="8"
@@ -616,6 +628,7 @@ export function ChatPage({ context }: ChatPageProps) {
 
               {showModelDropdown && (
                 <div
+                  className="eco-scroll-invisible"
                   style={{
                     position: "absolute",
                     bottom: "calc(100% + 8px)",
@@ -661,7 +674,7 @@ export function ChatPage({ context }: ChatPageProps) {
                               gap: "6px",
                               width: "100%",
                               padding: "6px 10px",
-                              background: selected ? "rgba(0,0,0,0.25)" : "transparent",
+                              background: selected ? "rgba(76,175,80,0.2)" : "transparent",
                               color: "var(--vscode-foreground)",
                               border: "none",
                               cursor: "pointer",
@@ -669,6 +682,8 @@ export function ChatPage({ context }: ChatPageProps) {
                               fontFamily: "var(--vscode-font-family)",
                               textAlign: "left",
                             }}
+                            onMouseEnter={(e) => { if (!selected) (e.currentTarget as HTMLButtonElement).style.background = "rgba(76,175,80,0.12)"; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = selected ? "rgba(76,175,80,0.2)" : "transparent"; }}
                           >
                             {selected ? (
                               <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>

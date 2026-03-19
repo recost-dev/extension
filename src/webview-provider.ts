@@ -129,6 +129,18 @@ function estimateSavings(status: EndpointRecord["status"], monthlyCost: number):
   return Number((monthlyCost * multiplier).toFixed(2));
 }
 
+function confidenceFromEndpointStatus(endpoint: EndpointRecord): number {
+  const base =
+    endpoint.status === "n_plus_one_risk" ? 0.78 :
+    endpoint.status === "redundant" ? 0.72 :
+    endpoint.status === "rate_limit_risk" ? 0.7 :
+    endpoint.status === "cacheable" ? 0.66 :
+    endpoint.status === "batchable" ? 0.66 :
+    0.55;
+  const perRequestBoost = endpoint.callSites.some((site) => site.frequency === "per-request") ? 0.07 : 0;
+  return clampConfidence(base + perRequestBoost);
+}
+
 function buildAggressiveDescription(endpoint: EndpointRecord, type: Suggestion["type"]): string {
   const firstSite = endpoint.callSites[0];
   const location = firstSite ? ` (${firstSite.file}:${firstSite.line})` : "";
@@ -176,6 +188,8 @@ function buildAggressiveSuggestions(endpoints: EndpointRecord[], suggestions: Su
       description: buildAggressiveDescription(endpoint, type),
       codeFix: "",
       source: "local-rule",
+      confidence: confidenceFromEndpointStatus(endpoint),
+      evidence: endpoint.callSites.slice(0, 3).map((site) => `Observed callsite: ${site.file}:${site.line}`),
     });
   }
 
@@ -196,6 +210,8 @@ function mergeLocalWasteFindings(
 
   const locals: Suggestion[] = [];
   for (const finding of localFindings) {
+    if (finding.confidence < 0.5) continue;
+
     const key = `${finding.description}::${finding.affectedFile}`;
     if (existingByDescAndFile.has(key)) continue;
     existingByDescAndFile.add(key);
@@ -208,6 +224,7 @@ function mergeLocalWasteFindings(
       finding.type === "n_plus_one" ? 0.35 :
       finding.type === "cache" ? 0.25 :
       finding.type === "batch" ? 0.2 :
+      finding.type === "concurrency_control" ? 0.22 :
       0.2;
     const severityWeight =
       finding.severity === "high" ? 1 :
@@ -228,6 +245,8 @@ function mergeLocalWasteFindings(
       description: finding.description,
       codeFix: "",
       source: "local-rule",
+      confidence: finding.confidence,
+      evidence: finding.evidence,
     });
   }
 
