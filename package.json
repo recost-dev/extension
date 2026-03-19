@@ -60,6 +60,10 @@
       {
         "command": "eco.setEcoApiKey",
         "title": "EcoAPI: Set Admin API Key"
+      },
+      {
+        "command": "eco.changeApiKey",
+        "title": "EcoAPI: Change API Key"
       }
     ],
     "menus": {
