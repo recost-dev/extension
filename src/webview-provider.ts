@@ -829,8 +829,45 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       minConfidence: config.get<number>("aiReview.minConfidence", 0.7),
       maxFiles: config.get<number>("aiReview.maxFiles", 25),
       maxCharsPerFile: config.get<number>("aiReview.maxCharsPerFile", 6000),
-      model: config.get<string>("aiReview.model", "gpt-4.1-mini"),
+      fallbackModel: config.get<string>("aiReview.model", "gpt-4.1-mini"),
     };
+  }
+
+  private resolveAiReviewSelection(fallbackModel: string): { providerId: ChatProviderId; model: string } {
+    const providerId = this.getSelectedChatProvider();
+    const provider = getProviderAdapter(providerId);
+    const selectedModel = this.getSelectedChatModel();
+    if (provider.models.some((entry) => entry.id === selectedModel)) {
+      return { providerId, model: selectedModel };
+    }
+    if (providerId === "openai" && provider.models.some((entry) => entry.id === fallbackModel)) {
+      return { providerId, model: fallbackModel };
+    }
+    return { providerId, model: provider.models[0]?.id ?? fallbackModel };
+  }
+
+  private async executeAiReviewRequest(request: NormalizedChatRequest) {
+    const modelMeta = findModelMetadata(request.provider, request.model);
+    const requiresFallback = request.provider === "openai" && modelMeta?.reasoning;
+    if (!requiresFallback) {
+      return executeChat({ request, secrets: this.context.secrets });
+    }
+    try {
+      return await executeChat({ request: { ...request, stream: false }, secrets: this.context.secrets });
+    } catch (error) {
+      const chatError = error as ChatAdapterError;
+      if (chatError?.status !== 400) {
+        throw error;
+      }
+      return executeChat({
+        request: {
+          ...request,
+          stream: false,
+          messages: request.messages.filter((message) => message.role !== "system"),
+        },
+        secrets: this.context.secrets,
+      });
+    }
   }
 
   private redactSensitiveText(value: string): string {
@@ -1116,7 +1153,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async handleRunAiReview() {
-    const { enabled, minConfidence, maxFiles, maxCharsPerFile, model } = this.getAiReviewConfig();
+    const { enabled, minConfidence, maxFiles, maxCharsPerFile, fallbackModel } = this.getAiReviewConfig();
     if (!enabled) {
       this.postMessage({ type: "aiReviewError", message: "AI review is disabled in settings." });
       return;
@@ -1126,13 +1163,9 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const apiKey = await this.context.secrets.get("eco.openaiApiKey");
-    if (!apiKey) {
-      this.sendNeedsApiKey("openai", "Set your OpenAI API key to run AI review.");
-      return;
-    }
-
     try {
+      const { providerId, model } = this.resolveAiReviewSelection(fallbackModel);
+      const provider = getProviderAdapter(providerId);
       this.postMessage({ type: "aiReviewProgress", stage: "Collecting files..." });
       const input = await this.buildAiReviewInputContext(maxFiles, maxCharsPerFile);
       if (input.files.length === 0) {
@@ -1140,44 +1173,25 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      this.postMessage({ type: "aiReviewProgress", stage: "Calling model..." });
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          temperature: 0.1,
-          response_format: { type: "json_object" },
-          messages: [
-            {
-              role: "system",
-              content: "You are a strict API efficiency reviewer. Return only JSON.",
-            },
-            {
-              role: "user",
-              content: this.buildAiReviewPrompt(input),
-            },
-          ],
-        }),
+      this.postMessage({ type: "aiReviewProgress", stage: `Calling ${provider.displayName}...` });
+      const response = await this.executeAiReviewRequest({
+        provider: providerId,
+        model,
+        temperature: providerId === "eco" ? undefined : 0.1,
+        stream: false,
+        messages: [
+          {
+            role: "system",
+            content: "You are a strict API efficiency reviewer. Return only JSON.",
+          },
+          {
+            role: "user",
+            content: this.buildAiReviewPrompt(input),
+          },
+        ],
       });
 
-      if (response.status === 401) {
-        await this.context.secrets.delete("eco.openaiApiKey");
-        this.sendNeedsApiKey("openai", "Invalid API key. Please enter a valid key.");
-        return;
-      }
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: { message: "AI review request failed" } }));
-        const errMsg = (errData as { error?: { message?: string } })?.error?.message ?? "AI review request failed";
-        this.postMessage({ type: "aiReviewError", message: errMsg });
-        return;
-      }
-
-      const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-      const raw = data.choices?.[0]?.message?.content ?? "";
+      const raw = response.content ?? "";
       this.postMessage({ type: "aiReviewProgress", stage: "Validating findings..." });
       const validFiles = new Set(input.files.map((file) => file.path));
       const { accepted, filtered } = this.parseAndValidateAiFindings(raw, validFiles, minConfidence);
@@ -1199,7 +1213,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       this.lastSummary = updatedSummary;
 
       this.logAiReview(
-        `files=${input.files.length} raw=${accepted.length + filtered} accepted=${merged.added} filtered=${filtered + merged.filtered}`
+        `provider=${providerId} model=${model} files=${input.files.length} raw=${accepted.length + filtered} accepted=${merged.added} filtered=${filtered + merged.filtered}`
       );
 
       this.postMessage({
@@ -1210,6 +1224,23 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       });
       this.postMessage({ type: "aiReviewComplete", added: merged.added, filtered: filtered + merged.filtered });
     } catch (err: unknown) {
+      const chatError = err as ChatAdapterError;
+      const { providerId } = this.resolveAiReviewSelection(fallbackModel);
+      if (chatError?.code === "bad_auth") {
+        const adapter = getProviderAdapter(providerId);
+        if (adapter.auth.secretStorageKey) {
+          await this.context.secrets.delete(adapter.auth.secretStorageKey);
+        }
+        if (providerId === "openai") {
+          await this.context.secrets.delete("eco.openaiApiKey");
+        }
+        this.sendNeedsApiKey(providerId, chatError.message);
+        return;
+      }
+      if (chatError?.code === "missing_api_key") {
+        this.sendNeedsApiKey(providerId, chatError.message);
+        return;
+      }
       const message = err instanceof Error ? err.message : "AI review failed";
       this.logAiReview(`error=${message}`);
       this.postMessage({ type: "aiReviewError", message });

@@ -596,7 +596,7 @@ export function ChatPage({ context, summary, endpointCount = 0 }: ChatPageProps)
               <button
                 className="eco-chat-icon-btn"
                 onClick={() => !isLoading && setShowModelDropdown((v) => !v)}
-                title={`${selectedProviderName} · ${selectedModelName}`}
+                title={`${selectedProviderName} · ${selectedModelName}. This model is used for both Chat and Run AI Review. OpenAI is recommended for the most reliable review results.`}
                 style={{
                   background: showModelDropdown ? "rgba(76,175,80,0.25)" : "transparent",
                   cursor: isLoading ? "not-allowed" : "pointer",

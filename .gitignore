@@ -19,6 +19,9 @@ npm-debug.log*
 !dashboard/.env.production
 .dev.vars
 
+# Build artifacts
+*.vsix
+
 # OS
 .DS_Store
 Thumbs.db

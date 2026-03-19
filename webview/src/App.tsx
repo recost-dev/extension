@@ -3,7 +3,7 @@ import { LandingPage } from "./components/LandingPage";
 import { ScanningPage } from "./components/ScanningPage";
 import { ResultsPage } from "./components/ResultsPage";
 import { postMessage } from "./vscode";
-import type { Suggestion, ScanSummary, EndpointRecord, HostMessage } from "./types";
+import type { Suggestion, ScanSummary, EndpointRecord, HostMessage, ChatProviderOption } from "./types";
 
 type Screen = "landing" | "scanning" | "results";
 
@@ -30,6 +30,7 @@ export default function App() {
   const [aiReviewStage, setAiReviewStage] = useState<string>("");
   const [aiReviewError, setAiReviewError] = useState<string>("");
   const [aiReviewStats, setAiReviewStats] = useState<{ added: number; filtered: number } | null>(null);
+  const [configuredAiReviewModel, setConfiguredAiReviewModel] = useState<string>("current chat model");
 
   const handleStartScan = useCallback(() => {
     setScanFiles([]);
@@ -107,6 +108,20 @@ export default function App() {
           setAiReviewError(msg.message);
           break;
 
+        case "chatConfig": {
+          const provider = msg.providers.find((entry): entry is ChatProviderOption => entry.id === msg.selectedProvider);
+          const model = provider?.models.find((entry) => entry.id === msg.selectedModel);
+          const label = [provider?.displayName, model?.displayName].filter(Boolean).join(" · ");
+          setConfiguredAiReviewModel(label || msg.selectedModel);
+          break;
+        }
+
+        case "needsApiKey":
+          setAiReviewRunning(false);
+          setAiReviewStage("");
+          setAiReviewError(msg.message ?? "API key required.");
+          break;
+
         case "error":
           if (screen === "scanning") {
             setScanError(msg.message);
@@ -141,6 +156,7 @@ export default function App() {
           aiReviewStage={aiReviewStage}
           aiReviewError={aiReviewError}
           aiReviewStats={aiReviewStats}
+          configuredAiReviewModel={configuredAiReviewModel}
         />
       )}
     </div>

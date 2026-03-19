@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Markdown } from "./Markdown";
 import { ChatPage } from "./ChatPage";
 import { SimulatePage } from "./SimulatePage";
@@ -14,6 +14,7 @@ interface ResultsPageProps {
   aiReviewStage: string;
   aiReviewError: string;
   aiReviewStats: { added: number; filtered: number } | null;
+  configuredAiReviewModel: string;
 }
 
 type Tab = "findings" | "chat" | "simulate";
@@ -433,6 +434,7 @@ export function ResultsPage({
   aiReviewStage,
   aiReviewError,
   aiReviewStats,
+  configuredAiReviewModel,
 }: ResultsPageProps) {
   const [tab, setTab] = useState<Tab>("findings");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -442,6 +444,17 @@ export function ResultsPage({
     MEDIUM: true,
     LOW: true,
   });
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data as { type?: string };
+      if (msg.type === "needsApiKey") {
+        setTab("chat");
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   const toggleCard = (id: string) => {
     setExpanded((prev) => {
@@ -500,7 +513,7 @@ export function ResultsPage({
           className="eco-btn-icon"
           onClick={onRunAiReview}
           disabled={aiReviewRunning}
-          title="Run AI Review"
+          title={`Run AI Review with ${configuredAiReviewModel}`}
           style={{
             marginLeft: "8px",
             padding: "0 8px",
