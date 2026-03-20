@@ -33,7 +33,7 @@ export interface EndpointCallSite {
     library: string;
     frequency?: string;
 }
-export type SuggestionType = "cache" | "batch" | "redundancy" | "n_plus_one" | "rate_limit";
+export type SuggestionType = "cache" | "batch" | "redundancy" | "n_plus_one" | "rate_limit" | "concurrency_control";
 export type Severity = "high" | "medium" | "low";
 export interface Suggestion {
     id: string;

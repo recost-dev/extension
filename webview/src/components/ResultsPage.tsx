@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Markdown } from "./Markdown";
-import { ChatPage } from "./ChatPage";
-import { SimulatePage } from "./SimulatePage";
 import type { Suggestion, ScanSummary, SuggestionContext, EndpointRecord } from "../types";
 import { postMessage } from "../vscode";
 
@@ -9,15 +7,12 @@ interface ResultsPageProps {
   suggestions: Suggestion[];
   summary: ScanSummary;
   endpoints: EndpointRecord[];
-  onRunAiReview: () => void;
   aiReviewRunning: boolean;
   aiReviewStage: string;
   aiReviewError: string;
   aiReviewStats: { added: number; filtered: number } | null;
-  configuredAiReviewModel: string;
+  onAskAI: (context: SuggestionContext) => void;
 }
-
-type Tab = "findings" | "chat" | "simulate";
 
 const typeLabels: Record<string, string> = {
   n_plus_one: "n+1",
@@ -150,10 +145,7 @@ function CodeFix({ codeFix, file, line }: { codeFix: string; file?: string; line
             </button>
           )}
           <button className="eco-btn-icon" onClick={handleCopy} title="Copy">
-            <span
-              className={`codicon ${copied ? "codicon-check" : "codicon-copy"}`}
-              style={{ fontSize: "12px" }}
-            />
+            <span className={`codicon ${copied ? "codicon-check" : "codicon-copy"}`} style={{ fontSize: "12px" }} />
           </button>
         </div>
       </div>
@@ -198,27 +190,13 @@ function SuggestionCard({
         <TypeBadge type={suggestion.type} />
         <SourceBadge source={suggestion.source} />
         {typeof suggestion.confidence === "number" && suggestion.source === "ai" && (
-          <span
-            style={{
-              color: "var(--vscode-descriptionForeground)",
-              fontSize: "10px",
-              flexShrink: 0,
-              whiteSpace: "nowrap",
-            }}
-          >
+          <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px", flexShrink: 0, whiteSpace: "nowrap" }}>
             {Math.round(suggestion.confidence * 100)}%
           </span>
         )}
         <span style={{ flex: 1, lineHeight: 1.4, overflow: "hidden" }}>{descShort}</span>
         {suggestion.estimatedMonthlySavings > 0 && (
-          <span
-            style={{
-              color: "var(--vscode-charts-green, #4caf50)",
-              fontSize: "11px",
-              flexShrink: 0,
-              whiteSpace: "nowrap",
-            }}
-          >
+          <span style={{ color: "var(--vscode-charts-green, #4caf50)", fontSize: "11px", flexShrink: 0, whiteSpace: "nowrap" }}>
             ${suggestion.estimatedMonthlySavings.toFixed(2)}/mo
           </span>
         )}
@@ -252,9 +230,7 @@ function SuggestionCard({
             </div>
           )}
 
-          {suggestion.codeFix && (
-            <CodeFix codeFix={suggestion.codeFix} file={target.file} line={target.line} />
-          )}
+          {suggestion.codeFix && <CodeFix codeFix={suggestion.codeFix} file={target.file} line={target.line} />}
 
           <button
             className="eco-btn-icon"
@@ -312,13 +288,7 @@ function SeverityGroup({
 
   return (
     <div>
-      <button
-        className="eco-severity-header"
-        onClick={onToggleGroup}
-        style={{
-          color,
-        }}
-      >
+      <button className="eco-severity-header" onClick={onToggleGroup} style={{ color }}>
         <span>{label}</span>
         <span style={{ fontSize: "10px", opacity: 0.9 }}>{suggestions.length}</span>
       </button>
@@ -350,56 +320,16 @@ function EndpointsList({ endpoints, topBorder }: { endpoints: EndpointRecord[]; 
       {open &&
         endpoints.map((ep) => (
           <div key={ep.id} className="eco-endpoint-row">
-            <span
-              style={{
-                background: "var(--vscode-badge-background)",
-                color: "var(--vscode-badge-foreground)",
-                fontSize: "10px",
-                padding: "1px 4px",
-                borderRadius: "2px",
-                fontWeight: 700,
-                flexShrink: 0,
-                letterSpacing: "0.04em",
-              }}
-            >
+            <span style={{ background: "var(--vscode-badge-background)", color: "var(--vscode-badge-foreground)", fontSize: "10px", padding: "1px 4px", borderRadius: "2px", fontWeight: 700, flexShrink: 0, letterSpacing: "0.04em" }}>
               {ep.method}
             </span>
-            <span
-              style={{
-                flex: 1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                fontSize: "11px",
-              }}
-              title={ep.url}
-            >
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11px" }} title={ep.url}>
               {ep.url}
             </span>
-            <span
-              style={{
-                background: "var(--vscode-editorGroupHeader-tabsBackground)",
-                color: "var(--vscode-descriptionForeground)",
-                fontSize: "10px",
-                padding: "1px 5px",
-                borderRadius: "10px",
-                flexShrink: 0,
-                border: "1px solid var(--vscode-panel-border)",
-              }}
-            >
+            <span style={{ background: "var(--vscode-editorGroupHeader-tabsBackground)", color: "var(--vscode-descriptionForeground)", fontSize: "10px", padding: "1px 5px", borderRadius: "10px", flexShrink: 0, border: "1px solid var(--vscode-panel-border)" }}>
               {scopeBadge(ep)}
             </span>
-            <span
-              style={{
-                background: "var(--vscode-editorGroupHeader-tabsBackground)",
-                color: "var(--vscode-descriptionForeground)",
-                fontSize: "10px",
-                padding: "1px 5px",
-                borderRadius: "10px",
-                flexShrink: 0,
-                border: "1px solid var(--vscode-panel-border)",
-              }}
-            >
+            <span style={{ background: "var(--vscode-editorGroupHeader-tabsBackground)", color: "var(--vscode-descriptionForeground)", fontSize: "10px", padding: "1px 5px", borderRadius: "10px", flexShrink: 0, border: "1px solid var(--vscode-panel-border)" }}>
               {ep.provider}
             </span>
             <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px", flexShrink: 0 }}>
@@ -429,32 +359,18 @@ export function ResultsPage({
   suggestions,
   summary,
   endpoints,
-  onRunAiReview,
   aiReviewRunning,
   aiReviewStage,
   aiReviewError,
   aiReviewStats,
-  configuredAiReviewModel,
+  onAskAI,
 }: ResultsPageProps) {
-  const [tab, setTab] = useState<Tab>("findings");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [chatContext, setChatContext] = useState<SuggestionContext | null>(null);
   const [openGroups, setOpenGroups] = useState<Record<"HIGH" | "MEDIUM" | "LOW", boolean>>({
     HIGH: true,
     MEDIUM: true,
     LOW: true,
   });
-
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      const msg = event.data as { type?: string };
-      if (msg.type === "needsApiKey") {
-        setTab("chat");
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, []);
 
   const toggleCard = (id: string) => {
     setExpanded((prev) => {
@@ -470,8 +386,7 @@ export function ResultsPage({
     const files = target.file
       ? [target.file, ...suggestion.affectedFiles.filter((f) => f !== target.file)]
       : suggestion.affectedFiles;
-
-    setChatContext({
+    onAskAI({
       type: suggestion.type,
       description: suggestion.description,
       files,
@@ -481,7 +396,6 @@ export function ResultsPage({
       targetFile: target.file,
       targetLine: target.line,
     });
-    setTab("chat");
   };
 
   const high = suggestions.filter((s) => s.severity === "high");
@@ -490,156 +404,88 @@ export function ResultsPage({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div className="eco-tabs">
-        <button
-          className={`eco-tab${tab === "findings" ? " active" : ""}`}
-          onClick={() => setTab("findings")}
-        >
-          Findings
-        </button>
-        <button
-          className={`eco-tab${tab === "chat" ? " active" : ""}`}
-          onClick={() => setTab("chat")}
-        >
-          Chat
-        </button>
-        <button
-          className={`eco-tab${tab === "simulate" ? " active" : ""}`}
-          onClick={() => setTab("simulate")}
-        >
-          Simulate
-        </button>
-        <button
-          className="eco-btn-icon"
-          onClick={onRunAiReview}
-          disabled={aiReviewRunning}
-          title={`Run AI Review with ${configuredAiReviewModel}`}
-          style={{
-            marginLeft: "8px",
-            padding: "0 8px",
-            fontSize: "11px",
-            display: "flex",
-            alignItems: "center",
-            gap: "3px",
-            opacity: aiReviewRunning ? 0.7 : 1,
-          }}
-        >
-          {aiReviewRunning ? "Reviewing..." : "Run AI Review"}
-        </button>
-        <button
-          className="eco-btn-icon"
-          onClick={() => postMessage({ type: "openDashboard" })}
-          title="Open Dashboard"
-          style={{ marginLeft: "auto", padding: "0 12px 0 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "3px" }}
-        >
-          Dashboard
-        </button>
+      <div
+        style={{
+          padding: "5px 12px",
+          borderBottom: "1px solid var(--vscode-panel-border)",
+          flexShrink: 0,
+          color: "var(--vscode-descriptionForeground)",
+          fontSize: "11px",
+        }}
+      >
+        {summary.totalEndpoints} endpoints
+        <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+        {suggestions.length} suggestions
+        <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+        ${summary.totalMonthlyCost.toFixed(2)}/mo
+        {summary.highRiskCount > 0 && (
+          <>
+            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+            <span style={{ color: "var(--vscode-editorError-foreground)" }}>{summary.highRiskCount} high</span>
+          </>
+        )}
+        {aiReviewRunning && (
+          <>
+            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+            <span>{aiReviewStage || "Running AI review..."}</span>
+          </>
+        )}
+        {!aiReviewRunning && aiReviewStats && (
+          <>
+            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+            <span>AI added {aiReviewStats.added}, filtered {aiReviewStats.filtered}</span>
+          </>
+        )}
+        {!aiReviewRunning && aiReviewError && (
+          <>
+            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+            <span style={{ color: "var(--vscode-editorError-foreground)" }}>{aiReviewError}</span>
+          </>
+        )}
       </div>
 
-      <div className="eco-panel-view" style={{ flex: 1, overflow: "hidden", display: tab === "findings" ? "flex" : "none", flexDirection: "column", minHeight: 0 }}>
-        <div
-          style={{
-            padding: "5px 12px",
-            borderBottom: "1px solid var(--vscode-panel-border)",
-            flexShrink: 0,
-            color: "var(--vscode-descriptionForeground)",
-            fontSize: "11px",
-          }}
-        >
-          {summary.totalEndpoints} endpoints
-          <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-          {suggestions.length} suggestions
-          <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-          ${summary.totalMonthlyCost.toFixed(2)}/mo
-          {summary.highRiskCount > 0 && (
-            <>
-              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-              <span style={{ color: "var(--vscode-editorError-foreground)" }}>
-                {summary.highRiskCount} high
-              </span>
-            </>
-          )}
-          {aiReviewRunning && (
-            <>
-              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-              <span>{aiReviewStage || "Running AI review..."}</span>
-            </>
-          )}
-          {!aiReviewRunning && aiReviewStats && (
-            <>
-              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-              <span>AI added {aiReviewStats.added}, filtered {aiReviewStats.filtered}</span>
-            </>
-          )}
-          {!aiReviewRunning && aiReviewError && (
-            <>
-              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-              <span style={{ color: "var(--vscode-editorError-foreground)" }}>{aiReviewError}</span>
-            </>
-          )}
-        </div>
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+        {suggestions.length === 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
+            <span className="codicon codicon-check" style={{ fontSize: "24px" }} />
+            <span>No issues found</span>
+          </div>
+        ) : (
+          <>
+            <SeverityGroup
+              label="HIGH"
+              suggestions={high}
+              open={openGroups.HIGH}
+              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
+              expanded={expanded}
+              onToggle={toggleCard}
+              onAskAI={handleAskAI}
+              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+            />
+            <SeverityGroup
+              label="MEDIUM"
+              suggestions={medium}
+              open={openGroups.MEDIUM}
+              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
+              expanded={expanded}
+              onToggle={toggleCard}
+              onAskAI={handleAskAI}
+              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+            />
+            <SeverityGroup
+              label="LOW"
+              suggestions={low}
+              open={openGroups.LOW}
+              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
+              expanded={expanded}
+              onToggle={toggleCard}
+              onAskAI={handleAskAI}
+              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+            />
+          </>
+        )}
 
-        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-          {suggestions.length === 0 ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "40px 16px",
-                gap: "8px",
-                color: "var(--vscode-descriptionForeground)",
-              }}
-            >
-              <span className="codicon codicon-check" style={{ fontSize: "24px" }} />
-              <span>No issues found</span>
-            </div>
-          ) : (
-            <>
-              <SeverityGroup
-                label="HIGH"
-                suggestions={high}
-                open={openGroups.HIGH}
-                onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
-                expanded={expanded}
-                onToggle={toggleCard}
-                onAskAI={handleAskAI}
-                resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-              />
-              <SeverityGroup
-                label="MEDIUM"
-                suggestions={medium}
-                open={openGroups.MEDIUM}
-                onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
-                expanded={expanded}
-                onToggle={toggleCard}
-                onAskAI={handleAskAI}
-                resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-              />
-              <SeverityGroup
-                label="LOW"
-                suggestions={low}
-                open={openGroups.LOW}
-                onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
-                expanded={expanded}
-                onToggle={toggleCard}
-                onAskAI={handleAskAI}
-                resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-              />
-            </>
-          )}
-
-          {endpoints.length > 0 && <EndpointsList endpoints={endpoints} topBorder={suggestions.length === 0} />}
-        </div>
-      </div>
-
-      <div className="eco-panel-view" style={{ flex: 1, display: tab === "chat" ? "flex" : "none", flexDirection: "column", minHeight: 0 }}>
-        <ChatPage context={chatContext} summary={summary} endpointCount={endpoints.length} />
-      </div>
-
-      <div className="eco-panel-view" style={{ flex: 1, display: tab === "simulate" ? "flex" : "none", flexDirection: "column", minHeight: 0 }}>
-        <SimulatePage endpoints={endpoints} />
+        {endpoints.length > 0 && <EndpointsList endpoints={endpoints} topBorder={suggestions.length === 0} />}
       </div>
     </div>
   );

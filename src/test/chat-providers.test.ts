@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { ChatAdapterError } from "../chat/errors";
 import { executeChat, getProviderAdapter, listProviderAdapters, resolveProviderAuth } from "../chat";
+import { buildKeyStatusSummary, listKeyServices, maskKeyPreview } from "../key-management";
 
 function test(name: string, fn: () => void | Promise<void>): void {
   Promise.resolve()
@@ -87,6 +88,21 @@ test("unsupported model errors are normalized", () => {
   );
 });
 
+test("openai-compatible providers validate against their own model lists", () => {
+  const adapter = getProviderAdapter("mistral");
+  const built = adapter.toRequestBody(
+    {
+      provider: "mistral",
+      model: "mistral-small-latest",
+      messages: [{ role: "user", content: "Hello" }],
+      stream: false,
+    },
+    "test-key"
+  );
+  assert.equal(built.url, "https://api.mistral.ai/v1/chat/completions");
+  assert.equal((built.body as Record<string, unknown>).model, "mistral-small-latest");
+});
+
 test("missing auth resolves to normalized error", async () => {
   delete process.env.OPENAI_API_KEY;
   await assert.rejects(
@@ -123,4 +139,40 @@ test("eco adapter preserves current response shape", async () => {
     fetchImpl: async () => new Response(JSON.stringify({ data: { response: "eco reply" } }), { status: 200 }),
   });
   assert.equal(response.content, "eco reply");
+});
+
+test("key services include ecoapi and supported providers", () => {
+  const ids = listKeyServices().map((service) => service.serviceId);
+  assert.deepEqual(ids, ["ecoapi", "openai", "anthropic", "gemini", "xai", "cohere", "mistral", "perplexity"]);
+});
+
+test("key status summary prefers environment over secret", async () => {
+  process.env.GEMINI_API_KEY = "env-gemini-key";
+  const gemini = listKeyServices().find((service) => service.serviceId === "gemini");
+  assert.ok(gemini);
+  const summary = await buildKeyStatusSummary(
+    gemini,
+    { get: async () => "stored-gemini-key" }
+  );
+  assert.equal(summary.source, "env");
+  assert.equal(summary.state, "from_environment");
+  assert.equal(summary.maskedPreview, "env-...-key");
+  delete process.env.GEMINI_API_KEY;
+});
+
+test("key status summary reports saved for stored secrets", async () => {
+  const openai = listKeyServices().find((service) => service.serviceId === "openai");
+  assert.ok(openai);
+  const summary = await buildKeyStatusSummary(
+    openai,
+    { get: async (key) => (key === "eco.providerApiKey.openai" ? "sk-test-secret" : undefined) }
+  );
+  assert.equal(summary.source, "secret");
+  assert.equal(summary.state, "saved");
+  assert.equal(summary.maskedPreview, "sk-t...cret");
+});
+
+test("maskKeyPreview returns stable preview", () => {
+  assert.equal(maskKeyPreview("abc12345"), "ab...45");
+  assert.equal(maskKeyPreview("sk-super-secret"), "sk-s...cret");
 });

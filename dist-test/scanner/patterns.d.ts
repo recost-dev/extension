@@ -4,4 +4,5 @@ export declare function matchNormalizedLine(line: string): ApiCallMatch[];
 export declare function matchLine(line: string): HttpCallMatch[];
 export declare function matchNormalizedRouteDefinitionLine(line: string): ApiCallMatch[];
 export declare function matchRouteDefinitionLine(line: string): HttpCallMatch[];
+export declare function getLoopDepth(lines: string[], currentIndex: number): number;
 export declare function isInsideLoop(lines: string[], currentIndex: number): boolean;

@@ -15,11 +15,20 @@ import {
   type NormalizedChatRequest,
 } from "./chat";
 import { LocalServer } from "./local-server";
-import type { WebviewMessage, HostMessage } from "./messages";
+import type { WebviewMessage, HostMessage, KeyServiceId, KeyStatusSummary } from "./messages";
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
+import {
+  buildKeyStatusSummary,
+  getKeyService,
+  listKeyServices,
+  maskKeyPreview,
+  readStoredSecret,
+  validateServiceKey,
+  type KeyValidationSnapshot,
+} from "./key-management";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -519,6 +528,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   // Chat state
   private chatHistory: ChatMessage[] = [];
   private readonly outputChannel: vscode.OutputChannel;
+  private readonly keyValidationState = new Map<KeyServiceId, KeyValidationSnapshot>();
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -547,11 +557,27 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
     this.projectId = this.context.globalState.get<string>("eco.projectId") ?? null;
     void this.sendChatConfig();
+    void this.sendAllKeyStatuses();
   }
 
 
   public startScan() {
     this._view?.webview.postMessage({ type: "triggerScan" } as HostMessage);
+  }
+
+  public openKeys(focusServiceId?: KeyServiceId) {
+    this.postMessage({ type: "navigate", screen: "keys", focusServiceId });
+    void this.sendAllKeyStatuses(focusServiceId);
+  }
+
+  public async clearManagedKey(serviceId: KeyServiceId) {
+    await this.clearServiceKey(serviceId);
+    this.openKeys(serviceId);
+  }
+
+  public async saveManagedKey(serviceId: KeyServiceId, value: string) {
+    await this.setServiceKey(serviceId, value);
+    this.openKeys(serviceId);
   }
 
   private getSelectedChatProvider(): ChatProviderId {
@@ -563,18 +589,14 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     return this.context.globalState.get<string>("eco.selectedChatModel") ?? getDefaultChatSelection().model;
   }
 
+  private getKeyServiceIdForProvider(providerId: string): KeyServiceId | undefined {
+    return listKeyServices().find((service) => service.providerId === providerId)?.serviceId;
+  }
+
   private async getStoredProviderApiKey(providerId: string): Promise<string | undefined> {
-    const adapter = getProviderAdapter(providerId);
-    const secretKey = adapter.auth.secretStorageKey;
-    if (secretKey) {
-      const key = await this.context.secrets.get(secretKey);
-      if (key?.trim()) return key.trim();
-    }
-    if (providerId === "openai") {
-      const legacy = await this.context.secrets.get("eco.openaiApiKey");
-      if (legacy?.trim()) return legacy.trim();
-    }
-    return undefined;
+    const serviceId = this.getKeyServiceIdForProvider(providerId);
+    if (!serviceId) return undefined;
+    return readStoredSecret(getKeyService(serviceId), this.context.secrets);
   }
 
   private async sendChatConfig(providerId = this.getSelectedChatProvider(), model = this.getSelectedChatModel()) {
@@ -586,17 +608,102 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  public sendApiKeyCleared(providerId = this.getSelectedChatProvider()) {
-    this.postMessage({ type: "apiKeyCleared", provider: providerId });
-  }
-
-  public sendNeedsApiKey(providerId = this.getSelectedChatProvider(), message?: string) {
-    const adapter = getProviderAdapter(providerId);
-    this.postMessage({ type: "needsApiKey", provider: providerId, envKeyName: adapter.auth.envKeyName, message });
-  }
-
   public postMessage(message: HostMessage) {
     this._view?.webview.postMessage(message);
+  }
+
+  private async buildAllKeyStatuses(): Promise<KeyStatusSummary[]> {
+    const services = listKeyServices();
+    return Promise.all(
+      services.map((service) =>
+        buildKeyStatusSummary(service, this.context.secrets, this.keyValidationState.get(service.serviceId))
+      )
+    );
+  }
+
+  private async sendAllKeyStatuses(focusServiceId?: KeyServiceId) {
+    this.postMessage({ type: "allKeyStatuses", statuses: await this.buildAllKeyStatuses(), focusServiceId });
+  }
+
+  private async sendKeyStatusUpdate(serviceId: KeyServiceId, focusServiceId?: KeyServiceId) {
+    const service = getKeyService(serviceId);
+    const status = await buildKeyStatusSummary(service, this.context.secrets, this.keyValidationState.get(serviceId));
+    this.postMessage({ type: "keyStatusUpdated", status, focusServiceId });
+  }
+
+  private async clearServiceKey(serviceId: KeyServiceId) {
+    const service = getKeyService(serviceId);
+    if (service.secretStorageKey) {
+      await this.context.secrets.delete(service.secretStorageKey);
+    }
+    if (serviceId === "openai") {
+      await this.context.secrets.delete("eco.openaiApiKey");
+    }
+    this.keyValidationState.delete(serviceId);
+    await this.sendKeyStatusUpdate(serviceId);
+  }
+
+  private async setServiceKey(serviceId: KeyServiceId, value: string) {
+    const service = getKeyService(serviceId);
+    const trimmed = value.trim();
+    if (!trimmed) {
+      this.postMessage({ type: "keyActionError", serviceId, message: "API key must not be empty." });
+      return;
+    }
+    if (!service.secretStorageKey) {
+      this.postMessage({ type: "keyActionError", serviceId, message: `${service.displayName} does not use stored API keys in this extension.` });
+      return;
+    }
+    if (serviceId === "openai" && !/^sk-/.test(trimmed)) {
+      this.postMessage({ type: "keyActionError", serviceId, message: 'OpenAI API keys must start with "sk-".' });
+      return;
+    }
+    await this.context.secrets.store(service.secretStorageKey, trimmed);
+    if (serviceId === "openai") {
+      await this.context.secrets.store("eco.openaiApiKey", trimmed);
+    }
+    this.keyValidationState.delete(serviceId);
+    await this.sendKeyStatusUpdate(serviceId);
+    await this.testServiceKey(serviceId);
+  }
+
+  private async testServiceKey(serviceId: KeyServiceId) {
+    const service = getKeyService(serviceId);
+    const current = await buildKeyStatusSummary(service, this.context.secrets, this.keyValidationState.get(serviceId));
+    if (current.source === "missing") {
+      this.postMessage({ type: "keyActionError", serviceId, message: `${service.displayName} key is missing.` });
+      return;
+    }
+    this.postMessage({
+      type: "keyStatusUpdated",
+      status: { ...current, state: "checking", message: undefined },
+      focusServiceId: serviceId,
+    });
+    try {
+      const envValue = service.envKeyName ? process.env[service.envKeyName]?.trim() : undefined;
+      const storedValue = await readStoredSecret(service, this.context.secrets);
+      const value = envValue ?? storedValue;
+      if (!value) {
+        this.postMessage({ type: "keyActionError", serviceId, message: `${service.displayName} key is missing.` });
+        return;
+      }
+      const validation = await validateServiceKey(service, value);
+      this.keyValidationState.set(serviceId, validation);
+      await this.sendKeyStatusUpdate(serviceId, serviceId);
+    } catch (error) {
+      const previous = this.keyValidationState.get(serviceId);
+      await this.sendKeyStatusUpdate(serviceId, serviceId);
+      const message = error instanceof Error ? error.message : `Unable to test ${service.displayName} key.`;
+      if (previous) {
+        this.postMessage({ type: "keyActionError", serviceId, message });
+      } else {
+        this.postMessage({
+          type: "keyStatusUpdated",
+          status: { ...current, message, maskedPreview: current.maskedPreview ?? maskKeyPreview(undefined) },
+          focusServiceId: serviceId,
+        });
+      }
+    }
   }
 
   private async handleMessage(message: WebviewMessage) {
@@ -610,20 +717,11 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       case "chat":
         await this.handleChat(message.text, message.provider, message.model);
         break;
-      case "setApiKey":
-        await this.handleSetApiKey(message.provider, message.key);
-        break;
       case "modelChanged": {
         await this.context.globalState.update("eco.selectedChatProvider", message.provider);
         await this.context.globalState.update("eco.selectedChatModel", message.model);
         await this.sendChatConfig(message.provider as ChatProviderId, message.model);
-        const adapter = getProviderAdapter(message.provider);
-        if (adapter.auth.required) {
-          const apiKey = await this.getStoredProviderApiKey(message.provider);
-          if (!apiKey && !process.env[adapter.auth.envKeyName ?? ""]) {
-            this.sendNeedsApiKey(message.provider, `${adapter.displayName} requires an API key.`);
-          }
-        }
+        await this.sendAllKeyStatuses();
         break;
       }
       case "applyFix":
@@ -638,14 +736,22 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       case "runSimulation":
         this.handleRunSimulation(message.input);
         break;
-      case "storeEcoApiKey":
-        await this.handleStoreEcoApiKey(message.key);
+      case "getAllKeyStatuses":
+        await this.sendAllKeyStatuses();
         break;
-      case "clearEcoApiKey":
-        await this.handleClearEcoApiKey();
+      case "setKey":
+        await this.setServiceKey(message.serviceId, message.value);
         break;
-      case "getEcoApiKeyStatus":
-        await this.handleGetEcoApiKeyStatus();
+      case "clearKey":
+        await this.clearServiceKey(message.serviceId);
+        break;
+      case "testKey":
+        await this.testServiceKey(message.serviceId);
+        break;
+      case "navigate":
+        if (message.screen === "keys") {
+          this.openKeys(message.focusServiceId);
+        }
         break;
     }
   }
@@ -733,20 +839,13 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       // Ensure we have a project on the remote API
       let ecoApiKey = await this.getEcoApiKey();
       if (!ecoApiKey) {
-        const entered = await vscode.window.showInputBox({
-          title: "EcoAPI Key Required",
-          prompt: "Enter your EcoAPI key to sync scan results and unlock in-depth cost estimates (provider pricing, per-endpoint breakdown, monthly projections)",
-          placeHolder: "eco-...",
-          password: true,
-          ignoreFocusOut: true,
+        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+        this.openKeys("ecoapi");
+        this.postMessage({
+          type: "error",
+          message: "EcoAPI key missing. Showing local-only results. Open Keys to connect EcoAPI sync.",
         });
-        if (entered?.trim()) {
-          await this.context.secrets.store("eco.ecoApiKey", entered.trim());
-          ecoApiKey = entered.trim();
-        } else {
-          publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
-          return;
-        }
+        return;
       }
       let projectId = await this.getOrCreateProject(ecoApiKey);
 
@@ -805,6 +904,16 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Remote analysis failed";
+        const status = (err as { status?: number }).status;
+        if (status === 401 || status === 403) {
+          this.keyValidationState.set("ecoapi", {
+            state: "invalid",
+            message,
+            lastCheckedAt: new Date().toISOString(),
+          });
+          await this.sendKeyStatusUpdate("ecoapi", "ecoapi");
+          this.openKeys("ecoapi");
+        }
         publishLocalOnlyResults(this.projectId ?? projectId ?? "local", `local-${Date.now()}`);
         this.postMessage({
           type: "error",
@@ -1226,19 +1335,27 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     } catch (err: unknown) {
       const chatError = err as ChatAdapterError;
       const { providerId } = this.resolveAiReviewSelection(fallbackModel);
+      const serviceId = this.getKeyServiceIdForProvider(providerId);
       if (chatError?.code === "bad_auth") {
-        const adapter = getProviderAdapter(providerId);
-        if (adapter.auth.secretStorageKey) {
-          await this.context.secrets.delete(adapter.auth.secretStorageKey);
+        if (serviceId) {
+          this.keyValidationState.set(serviceId, {
+            state: "invalid",
+            message: chatError.message,
+            lastCheckedAt: new Date().toISOString(),
+          });
+          await this.sendKeyStatusUpdate(serviceId, serviceId);
         }
-        if (providerId === "openai") {
-          await this.context.secrets.delete("eco.openaiApiKey");
-        }
-        this.sendNeedsApiKey(providerId, chatError.message);
+        this.openKeys(serviceId);
+        this.postMessage({ type: "aiReviewError", message: chatError.message });
         return;
       }
       if (chatError?.code === "missing_api_key") {
-        this.sendNeedsApiKey(providerId, chatError.message);
+        if (serviceId) {
+          this.keyValidationState.delete(serviceId);
+          await this.sendKeyStatusUpdate(serviceId, serviceId);
+        }
+        this.openKeys(serviceId);
+        this.postMessage({ type: "aiReviewError", message: chatError.message });
         return;
       }
       const message = err instanceof Error ? err.message : "AI review failed";
@@ -1261,58 +1378,8 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     return vscode.workspace.workspaceFolders?.[0]?.name ?? "eco-workspace";
   }
 
-  private async handleSetApiKey(providerId: string, key: string) {
-    const adapter = getProviderAdapter(providerId);
-    if (!key.trim()) {
-      this.postMessage({ type: "apiKeyError", provider: providerId, message: "API key must not be empty." });
-      return;
-    }
-    if (providerId === "openai" && !/^sk-/.test(key.trim())) {
-      this.postMessage({ type: "apiKeyError", provider: providerId, message: 'OpenAI API keys must start with "sk-".' });
-      return;
-    }
-    if (!adapter.auth.secretStorageKey) {
-      this.postMessage({ type: "apiKeyError", provider: providerId, message: `${adapter.displayName} does not use stored API keys in this extension.` });
-      return;
-    }
-    try {
-      await this.context.secrets.store(adapter.auth.secretStorageKey, key.trim());
-      if (providerId === "openai") {
-        await this.context.secrets.store("eco.openaiApiKey", key.trim());
-      }
-      this.postMessage({ type: "apiKeyStored", provider: providerId });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to store API key";
-      this.postMessage({ type: "apiKeyError", provider: providerId, message });
-    }
-  }
-
   private async getEcoApiKey(): Promise<string | undefined> {
-    return this.context.secrets.get("eco.ecoApiKey");
-  }
-
-  private async handleStoreEcoApiKey(key: string) {
-    if (!key.trim()) {
-      this.postMessage({ type: "ecoApiKeyError", message: "API key must not be empty." });
-      return;
-    }
-    try {
-      await this.context.secrets.store("eco.ecoApiKey", key);
-      this.postMessage({ type: "ecoApiKeyStored" });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to store EcoAPI key";
-      this.postMessage({ type: "ecoApiKeyError", message });
-    }
-  }
-
-  private async handleClearEcoApiKey() {
-    await this.context.secrets.delete("eco.ecoApiKey");
-    this.postMessage({ type: "ecoApiKeyCleared" });
-  }
-
-  private async handleGetEcoApiKeyStatus() {
-    const key = await this.context.secrets.get("eco.ecoApiKey");
-    this.postMessage({ type: "ecoApiKeyStatus", isSet: !!key });
+    return readStoredSecret(getKeyService("ecoapi"), this.context.secrets);
   }
 
   private buildMessages(text: string, limitContext = false): NormalizedChatMessage[] {
@@ -1376,19 +1443,27 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       this.postMessage({ type: "chatDone", fullContent: response.content });
     } catch (error) {
       const chatError = error as ChatAdapterError;
+      const serviceId = this.getKeyServiceIdForProvider(providerId);
       if (chatError?.code === "bad_auth") {
-        const adapter = getProviderAdapter(providerId);
-        if (adapter.auth.secretStorageKey) {
-          await this.context.secrets.delete(adapter.auth.secretStorageKey);
+        if (serviceId) {
+          this.keyValidationState.set(serviceId, {
+            state: "invalid",
+            message: chatError.message,
+            lastCheckedAt: new Date().toISOString(),
+          });
+          await this.sendKeyStatusUpdate(serviceId, serviceId);
         }
-        if (providerId === "openai") {
-          await this.context.secrets.delete("eco.openaiApiKey");
-        }
-        this.sendNeedsApiKey(providerId, chatError.message);
+        this.openKeys(serviceId);
+        this.postMessage({ type: "chatError", message: chatError.message });
         return;
       }
       if (chatError?.code === "missing_api_key") {
-        this.sendNeedsApiKey(providerId, chatError.message);
+        if (serviceId) {
+          this.keyValidationState.delete(serviceId);
+          await this.sendKeyStatusUpdate(serviceId, serviceId);
+        }
+        this.openKeys(serviceId);
+        this.postMessage({ type: "chatError", message: chatError.message });
         return;
       }
       const message = error instanceof Error ? error.message : "Network error. Check your connection.";
@@ -1579,4 +1654,3 @@ function getNonce(): string {
   }
   return text;
 }
-

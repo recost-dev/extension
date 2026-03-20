@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getDefaultChatSelection, getProviderAdapter } from "./chat";
+import type { KeyServiceId } from "./messages";
 import { EcoSidebarProvider } from "./webview-provider";
 import { validateApiKey } from "./api-client";
 
@@ -8,6 +9,10 @@ const GET_KEY_URL = "https://ecoapi.dev/dashboard/account";
 
 async function getSelectedProviderId(context: vscode.ExtensionContext): Promise<string> {
   return context.globalState.get<string>("eco.selectedChatProvider") ?? getDefaultChatSelection().provider;
+}
+function toProviderServiceId(providerId: string): KeyServiceId | undefined {
+  if (providerId === "eco") return undefined;
+  return providerId as KeyServiceId;
 }
 
 async function updateStatusBar(
@@ -26,7 +31,6 @@ async function updateStatusBar(
       statusBar.text = `$(check) EcoAPI: ${user.email}`;
       statusBar.tooltip = `Connected as ${user.email}`;
     } else {
-      // null = 404 = dev mode
       statusBar.text = "$(check) EcoAPI: Connected";
       statusBar.tooltip = "EcoAPI key configured";
     }
@@ -71,9 +75,9 @@ async function promptAndValidateKey(
         "Could not reach EcoAPI to validate key. Please check your connection and try again."
       );
     }
-    // Do NOT store key on any failure
   }
 }
+
 
 export function activate(context: vscode.ExtensionContext) {
   // Status bar
@@ -104,12 +108,10 @@ export function activate(context: vscode.ExtensionContext) {
     const providerId = await getSelectedProviderId(context);
     const adapter = getProviderAdapter(providerId);
     if (adapter.auth.secretStorageKey) {
-      await context.secrets.delete(adapter.auth.secretStorageKey);
+      await provider.clearManagedKey(toProviderServiceId(providerId) ?? "openai");
+    } else {
+      vscode.window.showInformationMessage(`${adapter.displayName} does not require an API key.`);
     }
-    if (providerId === "openai") {
-      await context.secrets.delete("eco.openaiApiKey");
-    }
-    provider.sendApiKeyCleared(providerId);
   });
 
   const updateApiKeyCommand = vscode.commands.registerCommand("eco.updateApiKey", async () => {
@@ -119,7 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(`${adapter.displayName} does not require an API key.`);
       return;
     }
-    provider.sendNeedsApiKey(providerId);
+    provider.openKeys(toProviderServiceId(providerId));
   });
 
   const setEcoApiKeyCommand = vscode.commands.registerCommand("eco.setEcoApiKey", async () => {

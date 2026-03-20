@@ -61,6 +61,16 @@ html, body, #root {
   background: var(--vscode-tab-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
+.eco-tab:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.eco-tab:disabled:hover {
+  color: var(--vscode-tab-inactiveForeground);
+  background: transparent;
+}
+
 .eco-tab.active {
   color: var(--vscode-tab-activeForeground);
   background: var(--vscode-tab-activeBackground);
@@ -80,7 +90,7 @@ html, body, #root {
   background: #2e7d32;
   color: #ffffff;
   border: none;
-  border-radius: 2px;
+  border-radius: 6px;
   cursor: pointer;
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
@@ -89,6 +99,24 @@ html, body, #root {
 
 .eco-btn-primary:hover {
   background: #388e3c;
+}
+
+.eco-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.eco-btn-secondary:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
 .eco-btn-icon {

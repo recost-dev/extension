@@ -78,6 +78,40 @@ export interface ChatProviderOption {
   models: ChatModelOption[];
 }
 
+export type KeyServiceId =
+  | "ecoapi"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "xai"
+  | "cohere"
+  | "mistral"
+  | "perplexity";
+
+export type KeyStatusState =
+  | "missing"
+  | "saved"
+  | "valid"
+  | "invalid"
+  | "from_environment"
+  | "checking";
+
+export type KeyStatusSource = "missing" | "secret" | "env";
+
+export interface KeyStatusSummary {
+  serviceId: KeyServiceId;
+  displayName: string;
+  kind: "ecoapi" | "provider";
+  providerId?: string;
+  envKeyName?: string;
+  source: KeyStatusSource;
+  state: KeyStatusState;
+  message?: string;
+  maskedPreview?: string;
+  lastCheckedAt?: string;
+  supportsTest: boolean;
+}
+
 export type InputMode = "user-centric" | "volume-centric";
 
 export interface SimulatorInput {
@@ -143,10 +177,10 @@ export type HostMessage =
   | { type: "chatDone"; fullContent: string }
   | { type: "chatError"; message: string }
   | { type: "chatConfig"; providers: ChatProviderOption[]; selectedProvider: string; selectedModel: string }
-  | { type: "needsApiKey"; provider: string; envKeyName?: string; message?: string }
-  | { type: "apiKeyStored"; provider: string }
-  | { type: "apiKeyError"; provider: string; message: string }
-  | { type: "apiKeyCleared"; provider?: string }
+  | { type: "allKeyStatuses"; statuses: KeyStatusSummary[]; focusServiceId?: KeyServiceId }
+  | { type: "keyStatusUpdated"; status: KeyStatusSummary; focusServiceId?: KeyServiceId }
+  | { type: "keyActionError"; serviceId: KeyServiceId; message: string }
+  | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "error"; message: string }
   | { type: "simulationResult"; result: SimulatorResult }
   | { type: "simulationError"; message: string };
