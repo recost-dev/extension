@@ -1,9 +1,15 @@
 import * as vscode from "vscode";
 import { getDefaultChatSelection, getProviderAdapter } from "./chat";
+import type { KeyServiceId } from "./messages";
 import { EcoSidebarProvider } from "./webview-provider";
 
 async function getSelectedProviderId(context: vscode.ExtensionContext): Promise<string> {
   return context.globalState.get<string>("eco.selectedChatProvider") ?? getDefaultChatSelection().provider;
+}
+
+function toProviderServiceId(providerId: string): KeyServiceId | undefined {
+  if (providerId === "eco") return undefined;
+  return providerId as KeyServiceId;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -28,12 +34,10 @@ export function activate(context: vscode.ExtensionContext) {
     const providerId = await getSelectedProviderId(context);
     const adapter = getProviderAdapter(providerId);
     if (adapter.auth.secretStorageKey) {
-      await context.secrets.delete(adapter.auth.secretStorageKey);
+      await provider.clearManagedKey(toProviderServiceId(providerId) ?? "openai");
+    } else {
+      vscode.window.showInformationMessage(`${adapter.displayName} does not require an API key.`);
     }
-    if (providerId === "openai") {
-      await context.secrets.delete("eco.openaiApiKey");
-    }
-    provider.sendApiKeyCleared(providerId);
   });
 
   const updateApiKeyCommand = vscode.commands.registerCommand("eco.updateApiKey", async () => {
@@ -43,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
       vscode.window.showInformationMessage(`${adapter.displayName} does not require an API key.`);
       return;
     }
-    provider.sendNeedsApiKey(providerId);
+    provider.openKeys(toProviderServiceId(providerId));
   });
 
   const setEcoApiKeyCommand = vscode.commands.registerCommand("eco.setEcoApiKey", async () => {
@@ -53,7 +57,7 @@ export function activate(context: vscode.ExtensionContext) {
       ignoreFocusOut: true,
     });
     if (value) {
-      await context.secrets.store("eco.ecoApiKey", value);
+      await provider.saveManagedKey("ecoapi", value);
     }
   });
 

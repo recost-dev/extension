@@ -22,6 +22,24 @@ export const mistralAdapter: ChatProviderAdapter = {
       throw new ChatAdapterError("unsupported_model", `Unsupported Mistral model: ${request.model}`, { provider: "mistral" });
     }
   },
+  toRequestBody(request, apiKey) {
+    mistralAdapter.validateRequest(request);
+    const body: Record<string, unknown> = {
+      model: request.model,
+      messages: request.messages,
+    };
+    if (typeof request.temperature === "number") body.temperature = request.temperature;
+    if (typeof request.maxTokens === "number") body.max_tokens = request.maxTokens;
+    if (request.stream) body.stream = true;
+    return {
+      url: `${mistralAdapter.baseUrl}${mistralAdapter.defaultChatEndpoint}`,
+      headers: {
+        "Content-Type": "application/json",
+        ...mistralAdapter.authHeaders(apiKey ?? ""),
+      },
+      body,
+    };
+  },
   mapHttpError(context: HttpErrorContext) {
     if (context.status === 401 || context.status === 403) {
       return new ChatAdapterError("bad_auth", "Mistral authentication failed. Check MISTRAL_API_KEY or saved credentials.", { provider: "mistral", status: context.status });

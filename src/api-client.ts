@@ -32,6 +32,10 @@ export async function createProject(name: string, ecoApiKey?: string): Promise<s
   return data.id;
 }
 
+export async function validateEcoApiKey(ecoApiKey: string): Promise<void> {
+  await apiFetch("/projects?limit=1", undefined, ecoApiKey);
+}
+
 export interface ScanResult {
   scanId: string;
   summary: ScanSummary;

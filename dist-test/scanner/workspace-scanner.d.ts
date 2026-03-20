@@ -1,12 +1,5 @@
 import { ApiCallInput } from "../analysis/types";
-export interface LocalWasteFinding {
-    id: string;
-    type: "cache" | "batch" | "redundancy" | "n_plus_one" | "rate_limit";
-    severity: "high" | "medium" | "low";
-    description: string;
-    affectedFile: string;
-    line?: number;
-}
+import { type LocalWasteFinding } from "./local-waste-detector";
 export interface ScanProgress {
     file: string;
     index: number;

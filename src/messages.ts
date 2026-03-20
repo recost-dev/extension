@@ -2,19 +2,54 @@ import type { EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 import type { ChatProviderOption } from "./chat";
 import type { SimulatorInput, SimulatorResult } from "./simulator/types";
 
+export type KeyServiceId =
+  | "ecoapi"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "xai"
+  | "cohere"
+  | "mistral"
+  | "perplexity";
+
+export type KeyStatusState =
+  | "missing"
+  | "saved"
+  | "valid"
+  | "invalid"
+  | "from_environment"
+  | "checking";
+
+export type KeyStatusSource = "missing" | "secret" | "env";
+
+export interface KeyStatusSummary {
+  serviceId: KeyServiceId;
+  displayName: string;
+  kind: "ecoapi" | "provider";
+  providerId?: string;
+  envKeyName?: string;
+  source: KeyStatusSource;
+  state: KeyStatusState;
+  message?: string;
+  maskedPreview?: string;
+  lastCheckedAt?: string;
+  supportsTest: boolean;
+}
+
 export type WebviewMessage =
   | { type: "startScan" }
   | { type: "runAiReview" }
   | { type: "openDashboard" }
   | { type: "chat"; provider: string; model: string; text: string }
-  | { type: "setApiKey"; provider: string; key: string }
   | { type: "modelChanged"; provider: string; model: string }
   | { type: "applyFix"; code: string; file: string; line?: number }
   | { type: "openFile"; file: string; line?: number }
   | { type: "runSimulation"; input: SimulatorInput }
-  | { type: "storeEcoApiKey"; key: string }
-  | { type: "clearEcoApiKey" }
-  | { type: "getEcoApiKeyStatus" };
+  | { type: "getAllKeyStatuses" }
+  | { type: "setKey"; serviceId: KeyServiceId; value: string }
+  | { type: "clearKey"; serviceId: KeyServiceId }
+  | { type: "testKey"; serviceId: KeyServiceId }
+  | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId };
 
 export interface SuggestionContext {
   type: string;
@@ -39,14 +74,10 @@ export type HostMessage =
   | { type: "chatDone"; fullContent: string }
   | { type: "chatError"; message: string }
   | { type: "chatConfig"; providers: ChatProviderOption[]; selectedProvider: string; selectedModel: string }
-  | { type: "needsApiKey"; provider: string; envKeyName?: string; message?: string }
-  | { type: "apiKeyStored"; provider: string }
-  | { type: "apiKeyError"; provider: string; message: string }
-  | { type: "apiKeyCleared"; provider?: string }
+  | { type: "allKeyStatuses"; statuses: KeyStatusSummary[]; focusServiceId?: KeyServiceId }
+  | { type: "keyStatusUpdated"; status: KeyStatusSummary; focusServiceId?: KeyServiceId }
+  | { type: "keyActionError"; serviceId: KeyServiceId; message: string }
+  | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "error"; message: string }
   | { type: "simulationResult"; result: SimulatorResult }
-  | { type: "simulationError"; message: string }
-  | { type: "ecoApiKeyStored" }
-  | { type: "ecoApiKeyError"; message: string }
-  | { type: "ecoApiKeyCleared" }
-  | { type: "ecoApiKeyStatus"; isSet: boolean };
+  | { type: "simulationError"; message: string };
