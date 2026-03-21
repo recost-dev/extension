@@ -21,15 +21,15 @@ export interface KeyServiceDescriptor {
 
 const ECOAPI_SERVICE: KeyServiceDescriptor = {
   serviceId: "ecoapi",
-  displayName: "EcoAPI",
+  displayName: "ReCost",
   kind: "ecoapi",
-  secretStorageKey: "eco.ecoApiKey",
+  secretStorageKey: "recost.apiKey",
   supportsTest: true,
 };
 
 export function listKeyServices(): KeyServiceDescriptor[] {
   const providerServices: KeyServiceDescriptor[] = listProviderAdapters()
-    .filter((provider): provider is ReturnType<typeof listProviderAdapters>[number] & { id: Exclude<ChatProviderId, "eco"> } => provider.id !== "eco" && provider.auth.required)
+    .filter((provider): provider is ReturnType<typeof listProviderAdapters>[number] & { id: Exclude<ChatProviderId, "recost"> } => provider.id !== "recost" && provider.auth.required)
     .map((provider) => ({
       serviceId: provider.id,
       displayName: provider.displayName,
@@ -53,8 +53,7 @@ export function getKeyService(serviceId: KeyServiceId): KeyServiceDescriptor {
 export function maskKeyPreview(value: string | undefined): string | undefined {
   if (!value?.trim()) return undefined;
   const trimmed = value.trim();
-  if (trimmed.length <= 8) return `${trimmed.slice(0, 2)}...${trimmed.slice(-2)}`;
-  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+  return `${trimmed.slice(0, 6)}••••••••••`;
 }
 
 export function resolveKeyState(source: KeyStatusSource, validation?: KeyValidationSnapshot): KeyStatusState {
@@ -72,7 +71,7 @@ export async function readStoredSecret(
   const direct = await secrets.get(service.secretStorageKey);
   if (direct?.trim()) return direct.trim();
   if (service.serviceId === "openai") {
-    const legacy = await secrets.get("eco.openaiApiKey");
+    const legacy = await secrets.get("recost.openaiApiKey");
     if (legacy?.trim()) return legacy.trim();
   }
   return undefined;
@@ -130,7 +129,7 @@ export async function validateServiceKey(
       secrets: {
         get: async (key: string) => {
           if (key === adapter.auth.secretStorageKey) return apiKey;
-          if (adapter.id === "openai" && key === "eco.openaiApiKey") return apiKey;
+          if (adapter.id === "openai" && key === "recost.openaiApiKey") return apiKey;
           return undefined;
         },
       },

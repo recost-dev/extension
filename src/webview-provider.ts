@@ -508,7 +508,7 @@ function mergeRemoteAndLocalEndpoints(
 }
 
 export class EcoSidebarProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "eco.sidebarView";
+  public static readonly viewType = "recost.sidebarView";
 
   private _view?: vscode.WebviewView;
   private readonly context: vscode.ExtensionContext;
@@ -532,9 +532,9 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
-    this.outputChannel = vscode.window.createOutputChannel("ECO AI Review");
+    this.outputChannel = vscode.window.createOutputChannel("ReCost AI Review");
     this.context.subscriptions.push(this.outputChannel);
-    this.savedScenarios = (this.context.globalState.get<import("./simulator/types").SavedScenario[]>("eco.simulatorScenarios")) ?? [];
+    this.savedScenarios = (this.context.globalState.get<import("./simulator/types").SavedScenario[]>("recost.simulatorScenarios")) ?? [];
   }
 
   resolveWebviewView(
@@ -555,7 +555,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       (message: WebviewMessage) => this.handleMessage(message)
     );
 
-    this.projectId = this.context.globalState.get<string>("eco.projectId") ?? null;
+    this.projectId = this.context.globalState.get<string>("recost.projectId") ?? null;
     void this.sendChatConfig();
     void this.sendAllKeyStatuses();
   }
@@ -581,12 +581,12 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private getSelectedChatProvider(): ChatProviderId {
-    return (this.context.globalState.get<string>("eco.selectedChatProvider") as ChatProviderId | undefined)
+    return (this.context.globalState.get<string>("recost.selectedChatProvider") as ChatProviderId | undefined)
       ?? getDefaultChatSelection().provider;
   }
 
   private getSelectedChatModel(): string {
-    return this.context.globalState.get<string>("eco.selectedChatModel") ?? getDefaultChatSelection().model;
+    return this.context.globalState.get<string>("recost.selectedChatModel") ?? getDefaultChatSelection().model;
   }
 
   private getKeyServiceIdForProvider(providerId: string): KeyServiceId | undefined {
@@ -637,7 +637,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       await this.context.secrets.delete(service.secretStorageKey);
     }
     if (serviceId === "openai") {
-      await this.context.secrets.delete("eco.openaiApiKey");
+      await this.context.secrets.delete("recost.openaiApiKey");
     }
     this.keyValidationState.delete(serviceId);
     await this.sendKeyStatusUpdate(serviceId);
@@ -660,7 +660,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     }
     await this.context.secrets.store(service.secretStorageKey, trimmed);
     if (serviceId === "openai") {
-      await this.context.secrets.store("eco.openaiApiKey", trimmed);
+      await this.context.secrets.store("recost.openaiApiKey", trimmed);
     }
     this.keyValidationState.delete(serviceId);
     await this.sendKeyStatusUpdate(serviceId);
@@ -718,8 +718,8 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         await this.handleChat(message.text, message.provider, message.model);
         break;
       case "modelChanged": {
-        await this.context.globalState.update("eco.selectedChatProvider", message.provider);
-        await this.context.globalState.update("eco.selectedChatModel", message.model);
+        await this.context.globalState.update("recost.selectedChatProvider", message.provider);
+        await this.context.globalState.update("recost.selectedChatModel", message.model);
         await this.sendChatConfig(message.provider as ChatProviderId, message.model);
         await this.sendAllKeyStatuses();
         break;
@@ -840,15 +840,12 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       let ecoApiKey = await this.getEcoApiKey();
       if (!ecoApiKey) {
         publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
-        this.openKeys("ecoapi");
         this.postMessage({
-          type: "error",
-          message: "EcoAPI key missing. Showing local-only results. Open Keys to connect EcoAPI sync.",
+          type: "scanNotification",
+          message: "No ReCost API key — showing local results only. Add a key in Keys to enable remote sync.",
         });
         return;
       }
-      let projectId = await this.getOrCreateProject(ecoApiKey);
-
       // Submit scan and fetch results
       const remoteApiCalls = apiCalls.filter(shouldSubmitRemote);
       if (remoteApiCalls.length === 0) {
@@ -857,6 +854,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       try {
+        let projectId = await this.getOrCreateProject(ecoApiKey);
         let scanResult;
         try {
           scanResult = await submitScan(projectId, remoteApiCalls, ecoApiKey);
@@ -866,7 +864,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
             const freshId = await createProject(this.getWorkspaceName(), ecoApiKey);
             this.projectId = freshId;
             projectId = freshId;
-            await this.context.globalState.update("eco.projectId", freshId);
+            await this.context.globalState.update("recost.projectId", freshId);
             scanResult = await submitScan(projectId, remoteApiCalls, ecoApiKey);
           } else {
             throw err;
@@ -914,10 +912,12 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
           await this.sendKeyStatusUpdate("ecoapi", "ecoapi");
           this.openKeys("ecoapi");
         }
-        publishLocalOnlyResults(this.projectId ?? projectId ?? "local", `local-${Date.now()}`);
+        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
         this.postMessage({
-          type: "error",
-          message: `Remote analysis failed: ${message}. Showing local-only results.`,
+          type: "scanNotification",
+          message: err instanceof Error && err.message === "fetch failed"
+            ? "Could not reach ReCost server. Showing local results."
+            : `Remote analysis unavailable: ${message}. Showing local results.`,
         });
       }
     } catch (err: unknown) {
@@ -932,7 +932,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private getAiReviewConfig() {
-    const config = vscode.workspace.getConfiguration("eco");
+    const config = vscode.workspace.getConfiguration("recost");
     return {
       enabled: config.get<boolean>("aiReview.enabled", true),
       minConfidence: config.get<number>("aiReview.minConfidence", 0.7),
@@ -1286,7 +1286,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       const response = await this.executeAiReviewRequest({
         provider: providerId,
         model,
-        temperature: providerId === "eco" ? undefined : 0.1,
+        temperature: providerId === "recost" ? undefined : 0.1,
         stream: false,
         messages: [
           {
@@ -1370,12 +1370,12 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     }
     const id = await createProject(this.getWorkspaceName(), ecoApiKey);
     this.projectId = id;
-    await this.context.globalState.update("eco.projectId", id);
+    await this.context.globalState.update("recost.projectId", id);
     return id;
   }
 
   private getWorkspaceName(): string {
-    return vscode.workspace.workspaceFolders?.[0]?.name ?? "eco-workspace";
+    return vscode.workspace.workspaceFolders?.[0]?.name ?? "recost-workspace";
   }
 
   private async getEcoApiKey(): Promise<string | undefined> {
@@ -1407,12 +1407,12 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   private async handleChat(text: string, providerId: string, model: string) {
     const provider = getProviderAdapter(providerId);
     const modelMeta = findModelMetadata(providerId, model);
-    const messages = this.buildMessages(text, providerId === "eco");
+    const messages = this.buildMessages(text, providerId === "recost");
     const baseRequest: NormalizedChatRequest = {
       provider: providerId,
       model,
       messages,
-      temperature: providerId === "eco" ? undefined : 0.7,
+      temperature: providerId === "recost" ? undefined : 0.7,
       stream: provider.supportsStreaming && (modelMeta?.supportsStreaming ?? provider.supportsStreaming),
     };
 
@@ -1581,7 +1581,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
           scenarios: this.savedScenarios,
           onScenariosChanged: (scenarios) => {
             this.savedScenarios = scenarios;
-            void this.context.globalState.update("eco.simulatorScenarios", scenarios);
+            void this.context.globalState.update("recost.simulatorScenarios", scenarios);
           },
         }));
       }

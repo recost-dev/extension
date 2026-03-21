@@ -15,7 +15,7 @@ function test(name: string, fn: () => void | Promise<void>): void {
 
 test("registry exposes all provider adapters", () => {
   const ids = listProviderAdapters().map((provider) => provider.id);
-  assert.deepEqual(ids, ["eco", "openai", "anthropic", "gemini", "xai", "cohere", "mistral", "perplexity"]);
+  assert.deepEqual(ids, ["recost", "openai", "anthropic", "gemini", "xai", "cohere", "mistral", "perplexity"]);
 });
 
 test("openai adapter builds chat completions payload", () => {
@@ -128,17 +128,17 @@ test("http 429 maps to rate_limited", async () => {
   );
 });
 
-test("eco adapter preserves current response shape", async () => {
+test("recost adapter preserves current response shape", async () => {
   const response = await executeChat({
     request: {
-      provider: "eco",
-      model: "eco-ai",
+      provider: "recost",
+      model: "recost-ai",
       messages: [{ role: "user", content: "Hello" }],
       stream: false,
     },
-    fetchImpl: async () => new Response(JSON.stringify({ data: { response: "eco reply" } }), { status: 200 }),
+    fetchImpl: async () => new Response(JSON.stringify({ data: { response: "recost reply" } }), { status: 200 }),
   });
-  assert.equal(response.content, "eco reply");
+  assert.equal(response.content, "recost reply");
 });
 
 test("key services include ecoapi and supported providers", () => {
@@ -173,6 +173,6 @@ test("key status summary reports saved for stored secrets", async () => {
 });
 
 test("maskKeyPreview returns stable preview", () => {
-  assert.equal(maskKeyPreview("abc12345"), "ab...45");
-  assert.equal(maskKeyPreview("sk-super-secret"), "sk-s...cret");
+  assert.equal(maskKeyPreview("abc12345"), "abc123••••••••••");
+  assert.equal(maskKeyPreview("sk-super-secret"), "sk-sup••••••••••");
 });

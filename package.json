@@ -1,6 +1,6 @@
 {
-  "name": "eco-api-analyzer",
-  "displayName": "ECO - API Usage Analyzer",
+  "name": "recost-api-analyzer",
+  "displayName": "ReCost - API Usage Analyzer",
   "description": "Scan your codebase for API call patterns, estimate costs, and get optimization suggestions.",
   "version": "0.1.0",
   "license": "AGPL-3.0-only",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "https://github.com/ecoapi-dev/extension"
   },
-  "publisher": "eco",
+  "publisher": "recost",
   "icon": "media/eco-icon.png",
   "engines": {
     "vscode": "^1.85.0"
@@ -23,103 +23,97 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "eco-sidebar",
-          "title": "ECO",
+          "id": "recost-sidebar",
+          "title": "ReCost",
           "icon": "media/eco-icon.svg"
         }
       ]
     },
     "views": {
-      "eco-sidebar": [
+      "recost-sidebar": [
         {
           "type": "webview",
-          "id": "eco.sidebarView",
-          "name": "ECO",
+          "id": "recost.sidebarView",
+          "name": "ReCost",
           "icon": "media/eco-icon.svg"
         }
       ]
     },
     "commands": [
       {
-        "command": "eco.openPanel",
-        "title": "ECO: Open API Analyzer"
+        "command": "recost.openPanel",
+        "title": "ReCost: Open API Analyzer"
       },
       {
-        "command": "eco.scanWorkspace",
-        "title": "ECO: Scan Workspace",
+        "command": "recost.scanWorkspace",
+        "title": "ReCost: Scan Workspace",
         "icon": "$(search)"
       },
       {
-        "command": "eco.clearApiKey",
-        "title": "ECO: Clear API Key"
-      },
-      {
-        "command": "eco.updateApiKey",
-        "title": "ECO: Update API Key"
-      },
-      {
-        "command": "eco.setEcoApiKey",
-        "title": "EcoAPI: Set Admin API Key"
-      },
-      {
-        "command": "eco.changeApiKey",
-        "title": "EcoAPI: Change API Key"
+        "command": "recost.openKeys",
+        "title": "ReCost: Manage API Keys",
+        "icon": "$(key)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "eco.scanWorkspace",
-          "when": "view == eco.sidebarView",
+          "command": "recost.openKeys",
+          "when": "view == recost.sidebarView",
+          "group": "navigation"
+        },
+        {
+          "command": "recost.scanWorkspace",
+          "when": "view == recost.sidebarView",
           "group": "navigation"
         }
       ]
     },
     "configuration": {
-      "title": "ECO API Analyzer",
+      "title": "ReCost API Analyzer",
       "properties": {
-        "eco.scanGlob": {
+        "recost.scanGlob": {
           "type": "string",
           "default": "**/*.{ts,tsx,js,jsx,py,go,java,rb}",
           "description": "Glob pattern for files to scan"
         },
-        "eco.scanIncludeGlobs": {
+        "recost.scanIncludeGlobs": {
           "type": "string",
           "default": "",
           "description": "Optional comma-separated allowlist globs. When set, only matching files are scanned (example: packages/**/src/**,packages/**/test/**,prod-server-integration-tests/**)."
         },
-        "eco.excludeGlob": {
+        "recost.excludeGlob": {
           "type": "string",
           "default": "**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**",
           "description": "Glob pattern for files to exclude from scanning"
         },
-        "eco.aiReview.enabled": {
+        "recost.aiReview.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable manual AI second-pass review."
         },
-        "eco.aiReview.minConfidence": {
+        "recost.aiReview.minConfidence": {
           "type": "number",
           "default": 0.7,
           "minimum": 0,
           "maximum": 1,
           "description": "Minimum confidence for AI findings to be accepted."
         },
-        "eco.aiReview.maxFiles": {
+        "recost.aiReview.maxFiles": {
           "type": "number",
           "default": 25,
           "minimum": 1,
           "maximum": 100,
           "description": "Maximum number of files to include in AI review context."
         },
-        "eco.aiReview.maxCharsPerFile": {
+        "recost.aiReview.maxCharsPerFile": {
           "type": "number",
           "default": 6000,
           "minimum": 500,
           "maximum": 20000,
           "description": "Maximum characters per file excerpt sent to AI review."
         },
-        "eco.aiReview.model": {
+        "recost.aiReview.model": {
           "type": "string",
           "default": "gpt-4.1-mini",
           "description": "OpenAI model used for AI review."

@@ -28,7 +28,7 @@ interface SelectionState {
   model: string;
 }
 
-const DEFAULT_SELECTION: SelectionState = { provider: "eco", model: "eco-ai" };
+const DEFAULT_SELECTION: SelectionState = { provider: "recost", model: "recost-ai" };
 
 function toCodeFocusedPrompt(text: string): string {
   return `${text}
@@ -135,7 +135,7 @@ export function ChatPage({
       setIsLoading(true);
       postMessage({
         type: "chat",
-        text: selection.provider === "eco" ? toCodeFocusedPrompt(autoText) : autoText,
+        text: selection.provider === "recost" ? toCodeFocusedPrompt(autoText) : autoText,
         provider: selection.provider,
         model: selection.model,
       });
@@ -200,7 +200,7 @@ export function ChatPage({
 
   const sendChatRequest = (text: string) => {
     if (!chatUsable || isLoading) return;
-    const textForModel = selection.provider === "eco" ? toCodeFocusedPrompt(text) : text;
+    const textForModel = selection.provider === "recost" ? toCodeFocusedPrompt(text) : text;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setIsLoading(true);
     postMessage({ type: "chat", text: textForModel, provider: selection.provider, model: selection.model });
@@ -224,7 +224,7 @@ export function ChatPage({
             {selectedProviderName} · {selectedModelName}
           </div>
         </div>
-        {selection.provider !== "eco" && (
+        {selection.provider !== "recost" && (
           <div
             style={{
               display: "flex",
@@ -257,7 +257,7 @@ export function ChatPage({
         {messages.map((msg, index) => (
           <div key={index} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
             <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", marginBottom: "4px" }}>
-              {msg.role === "user" ? "you" : "eco"}
+              {msg.role === "user" ? "you" : "recost"}
             </span>
             {msg.role === "user" ? (
               <div style={{ background: "#2e7d32", color: "#ffffff", padding: "8px 12px", borderRadius: "12px 12px 0 12px", maxWidth: "85%", fontSize: "var(--vscode-font-size)", lineHeight: 1.5, wordBreak: "break-word" }}>

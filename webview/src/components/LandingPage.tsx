@@ -28,7 +28,7 @@ export function LandingPage({ onStartScan }: LandingPageProps) {
           color: "var(--vscode-foreground)",
         }}
       >
-        ECO
+        ReCost
       </h1>
 
       <p

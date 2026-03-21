@@ -1,19 +1,9 @@
 import * as vscode from "vscode";
-import { getDefaultChatSelection, getProviderAdapter } from "./chat";
-import type { KeyServiceId } from "./messages";
 import { EcoSidebarProvider } from "./webview-provider";
 import { validateApiKey } from "./api-client";
 
-const ECO_API_KEY = "eco.ecoApiKey";
-const GET_KEY_URL = "https://ecoapi.dev/dashboard/account";
-
-async function getSelectedProviderId(context: vscode.ExtensionContext): Promise<string> {
-  return context.globalState.get<string>("eco.selectedChatProvider") ?? getDefaultChatSelection().provider;
-}
-function toProviderServiceId(providerId: string): KeyServiceId | undefined {
-  if (providerId === "eco") return undefined;
-  return providerId as KeyServiceId;
-}
+const ECO_API_KEY = "recost.apiKey";
+const GET_KEY_URL = "https://recost.dev/dashboard/account";
 
 async function updateStatusBar(
   statusBar: vscode.StatusBarItem,
@@ -21,69 +11,36 @@ async function updateStatusBar(
 ): Promise<void> {
   const key = await context.secrets.get(ECO_API_KEY);
   if (!key) {
-    statusBar.text = "$(key) EcoAPI: Not Configured";
-    statusBar.tooltip = "Click to configure your EcoAPI key";
+    statusBar.text = "$(key) ReCost: Not Configured";
+    statusBar.tooltip = "Click to manage your ReCost API keys";
     return;
   }
   try {
     const user = await validateApiKey(key);
     if (user) {
-      statusBar.text = `$(check) EcoAPI: ${user.email}`;
+      statusBar.text = `$(check) ReCost: ${user.email}`;
       statusBar.tooltip = `Connected as ${user.email}`;
     } else {
-      statusBar.text = "$(check) EcoAPI: Connected";
-      statusBar.tooltip = "EcoAPI key configured";
+      statusBar.text = "$(check) ReCost: Connected";
+      statusBar.tooltip = "ReCost API key configured";
     }
   } catch (err: unknown) {
     const error = err as Error & { status?: number };
     if (error.status === 401) {
-      statusBar.text = "$(warning) EcoAPI: Invalid Key";
-      statusBar.tooltip = "EcoAPI key is invalid. Click to update.";
+      statusBar.text = "$(warning) ReCost: Invalid Key";
+      statusBar.tooltip = "ReCost API key is invalid. Click to manage keys.";
     } else {
-      statusBar.text = "$(warning) EcoAPI: Unreachable";
-      statusBar.tooltip = "Cannot reach EcoAPI. Check your connection.";
+      statusBar.text = "$(warning) ReCost: Unreachable";
+      statusBar.tooltip = "Cannot reach ReCost. Check your connection.";
     }
   }
 }
-
-async function promptAndValidateKey(
-  context: vscode.ExtensionContext,
-  statusBar: vscode.StatusBarItem
-): Promise<void> {
-  const value = await vscode.window.showInputBox({
-    prompt: "Enter your EcoAPI key",
-    password: true,
-    ignoreFocusOut: true,
-    placeHolder: "Paste your API key here",
-  });
-  if (!value) return;
-  const trimmed = value.trim();
-  if (!trimmed) return;
-
-  try {
-    const user = await validateApiKey(trimmed);
-    await context.secrets.store(ECO_API_KEY, trimmed);
-    await updateStatusBar(statusBar, context);
-    const msg = user ? `EcoAPI key saved. Connected as ${user.email}.` : "EcoAPI key saved.";
-    vscode.window.showInformationMessage(msg);
-  } catch (err: unknown) {
-    const error = err as Error & { status?: number };
-    if (error.status === 401) {
-      vscode.window.showErrorMessage("Invalid EcoAPI key. Key was not saved.");
-    } else {
-      vscode.window.showErrorMessage(
-        "Could not reach EcoAPI to validate key. Please check your connection and try again."
-      );
-    }
-  }
-}
-
 
 export function activate(context: vscode.ExtensionContext) {
   // Status bar
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBar.command = "eco.changeApiKey";
-  statusBar.text = "$(key) EcoAPI: Not Configured";
+  statusBar.command = "recost.openKeys";
+  statusBar.text = "$(key) ReCost: Not Configured";
   statusBar.show();
   context.subscriptions.push(statusBar);
 
@@ -95,44 +52,21 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  const openPanelCommand = vscode.commands.registerCommand("eco.openPanel", () => {
-    vscode.commands.executeCommand("eco.sidebarView.focus");
+  const openPanelCommand = vscode.commands.registerCommand("recost.openPanel", () => {
+    vscode.commands.executeCommand("recost.sidebarView.focus");
   });
 
-  const scanCommand = vscode.commands.registerCommand("eco.scanWorkspace", () => {
-    vscode.commands.executeCommand("eco.sidebarView.focus");
+  const scanCommand = vscode.commands.registerCommand("recost.scanWorkspace", () => {
+    vscode.commands.executeCommand("recost.sidebarView.focus");
     provider.startScan();
   });
 
-  const clearApiKeyCommand = vscode.commands.registerCommand("eco.clearApiKey", async () => {
-    const providerId = await getSelectedProviderId(context);
-    const adapter = getProviderAdapter(providerId);
-    if (adapter.auth.secretStorageKey) {
-      await provider.clearManagedKey(toProviderServiceId(providerId) ?? "openai");
-    } else {
-      vscode.window.showInformationMessage(`${adapter.displayName} does not require an API key.`);
-    }
+  const openKeysCommand = vscode.commands.registerCommand("recost.openKeys", () => {
+    vscode.commands.executeCommand("recost.sidebarView.focus");
+    provider.openKeys();
   });
 
-  const updateApiKeyCommand = vscode.commands.registerCommand("eco.updateApiKey", async () => {
-    const providerId = await getSelectedProviderId(context);
-    const adapter = getProviderAdapter(providerId);
-    if (!adapter.auth.required) {
-      vscode.window.showInformationMessage(`${adapter.displayName} does not require an API key.`);
-      return;
-    }
-    provider.openKeys(toProviderServiceId(providerId));
-  });
-
-  const setEcoApiKeyCommand = vscode.commands.registerCommand("eco.setEcoApiKey", async () => {
-    await promptAndValidateKey(context, statusBar);
-  });
-
-  const changeApiKeyCommand = vscode.commands.registerCommand("eco.changeApiKey", async () => {
-    await promptAndValidateKey(context, statusBar);
-  });
-
-  // Re-validate status bar whenever the EcoAPI key changes in SecretStorage
+  // Re-validate status bar whenever the ReCost API key changes in SecretStorage
   context.subscriptions.push(
     context.secrets.onDidChange(async (event) => {
       if (event.key === ECO_API_KEY) {
@@ -141,10 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  context.subscriptions.push(
-    openPanelCommand, scanCommand, clearApiKeyCommand, updateApiKeyCommand,
-    setEcoApiKeyCommand, changeApiKeyCommand
-  );
+  context.subscriptions.push(openPanelCommand, scanCommand, openKeysCommand);
 
   // Async init: update status bar on startup + show first-run notification if no key
   (async () => {
@@ -152,19 +83,18 @@ export function activate(context: vscode.ExtensionContext) {
     const existingKey = await context.secrets.get(ECO_API_KEY);
     if (!existingKey) {
       const choice = await vscode.window.showInformationMessage(
-        "EcoAPI key not configured. Enter your API key to enable scanning.",
-        "Enter Key",
+        "ReCost API key not configured. Open Keys to set up your API key.",
+        "Open Keys",
         "Get a key"
       );
-      if (choice === "Enter Key") {
-        await promptAndValidateKey(context, statusBar);
+      if (choice === "Open Keys") {
+        vscode.commands.executeCommand("recost.openKeys");
       } else if (choice === "Get a key") {
         await vscode.env.openExternal(vscode.Uri.parse(GET_KEY_URL));
       }
-      // Dismissed → do nothing, extension continues normally
     }
   })().catch((err: unknown) => {
-    console.error("EcoAPI: init error", err);
+    console.error("ReCost: init error", err);
   });
 }
 

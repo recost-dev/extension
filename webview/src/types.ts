@@ -182,5 +182,6 @@ export type HostMessage =
   | { type: "keyActionError"; serviceId: KeyServiceId; message: string }
   | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "error"; message: string }
+  | { type: "scanNotification"; message: string }
   | { type: "simulationResult"; result: SimulatorResult }
   | { type: "simulationError"; message: string };

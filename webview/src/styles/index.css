@@ -458,6 +458,12 @@ input[type="number"] {
   appearance: textfield;
 }
 
+.eco-chevron {
+  display: inline-block;
+  line-height: 1;
+  transition: transform 150ms ease;
+}
+
 .eco-scroll-invisible {
   scrollbar-width: none;
   -ms-overflow-style: none;

@@ -6,9 +6,10 @@ interface ScanningPageProps {
   endpointCount: number;
   total: number;
   error?: string;
+  onDismissError?: () => void;
 }
 
-export function ScanningPage({ files, currentIndex, endpointCount, total, error }: ScanningPageProps) {
+export function ScanningPage({ files, currentIndex, endpointCount, total, error, onDismissError }: ScanningPageProps) {
   const progress = total > 0 ? ((currentIndex + 1) / total) * 100 : 0;
   const currentFile = files[currentIndex] || "";
 
@@ -63,9 +64,27 @@ export function ScanningPage({ files, currentIndex, endpointCount, total, error 
           {endpointCount > 0 ? `${endpointCount} endpoints found` : "Scanning..."}
         </p>
         {error && (
-          <p style={{ marginTop: "8px", color: "var(--vscode-errorForeground)", fontSize: "11px", textAlign: "center" }}>
-            {error}
-          </p>
+          <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+            <p style={{ margin: 0, color: "var(--vscode-errorForeground)", fontSize: "11px", textAlign: "center" }}>
+              {error}
+            </p>
+            {onDismissError && (
+              <button
+                onClick={onDismissError}
+                style={{
+                  padding: "5px 14px",
+                  fontSize: "12px",
+                  background: "var(--vscode-button-secondaryBackground)",
+                  color: "var(--vscode-button-secondaryForeground)",
+                  border: "none",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                Continue with local results
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

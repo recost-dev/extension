@@ -20,12 +20,12 @@ import type {
 type Screen = "landing" | "scanning" | "findings" | "chat" | "simulate" | "keys";
 
 function toServiceId(providerId: string): KeyServiceId | null {
-  if (providerId === "eco") return null;
+  if (providerId === "recost") return null;
   return providerId as KeyServiceId;
 }
 
 function canUseChatProvider(statuses: KeyStatusSummary[], providerId: string): boolean {
-  if (providerId === "eco") return true;
+  if (providerId === "recost") return true;
   const serviceId = toServiceId(providerId);
   const match = serviceId ? statuses.find((entry) => entry.serviceId === serviceId) : undefined;
   return Boolean(match && ["saved", "valid", "from_environment"].includes(match.state));
@@ -42,9 +42,9 @@ function getGlobalBanner(
   const ecoStatus = findStatus("ecoapi");
   const otherInvalid = statuses.find((entry) => entry.serviceId !== "ecoapi" && entry.serviceId !== selectedServiceId && entry.state === "invalid");
 
-  if (ecoStatus?.state === "invalid") return { serviceId: "ecoapi", text: "EcoAPI: Invalid key" };
+  if (ecoStatus?.state === "invalid") return { serviceId: "ecoapi", text: "ReCost: Invalid key" };
   if (selectedStatus?.state === "invalid") return { serviceId: selectedStatus.serviceId, text: `${selectedStatus.displayName}: Invalid key` };
-  if (hasResults && ecoStatus?.state === "missing") return { serviceId: "ecoapi", text: "EcoAPI: Missing key" };
+  if (hasResults && ecoStatus?.state === "missing") return { serviceId: "ecoapi", text: "ReCost: Missing key" };
   if (selectedStatus?.state === "missing") return { serviceId: selectedStatus.serviceId, text: `${selectedStatus.displayName}: Missing key` };
   if (otherInvalid) return { serviceId: otherInvalid.serviceId, text: `${otherInvalid.displayName}: Invalid key` };
   return null;
@@ -82,11 +82,12 @@ export default function App() {
   const [aiReviewStats, setAiReviewStats] = useState<{ added: number; filtered: number } | null>(null);
   const [configuredAiReviewModel, setConfiguredAiReviewModel] = useState("current chat model");
   const [providers, setProviders] = useState<ChatProviderOption[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState("eco");
-  const [selectedModel, setSelectedModel] = useState("eco-ai");
+  const [selectedProvider, setSelectedProvider] = useState("recost");
+  const [selectedModel, setSelectedModel] = useState("recost-ai");
   const [keyStatuses, setKeyStatuses] = useState<KeyStatusSummary[]>([]);
   const [focusServiceId, setFocusServiceId] = useState<KeyServiceId | null>(null);
   const [chatContext, setChatContext] = useState<SuggestionContext | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
   const hasResults = endpoints.length > 0 || suggestions.length > 0 || summary.totalEndpoints > 0;
   const banner = useMemo(
@@ -100,6 +101,7 @@ export default function App() {
     setScanTotal(0);
     setEndpointCount(0);
     setScanError("");
+    setNotification(null);
     setAiReviewRunning(false);
     setAiReviewStage("");
     setAiReviewError("");
@@ -194,6 +196,9 @@ export default function App() {
           setScreen(msg.screen);
           setFocusServiceId(msg.focusServiceId ?? null);
           break;
+        case "scanNotification":
+          setNotification(msg.message);
+          break;
         case "error":
           if (screen === "scanning") {
             setScanError(msg.message);
@@ -215,17 +220,14 @@ export default function App() {
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {screen !== "scanning" && (
         <div className="eco-tabs">
-          <button className={`eco-tab${screen === "findings" ? " active" : ""}`} disabled={!hasResults} onClick={() => setScreen("findings")}>
+          <button className={`eco-tab${screen === "findings" ? " active" : ""}`} disabled={!hasResults && screen !== "keys"} onClick={() => setScreen(hasResults ? "findings" : "landing")}>
             Findings
           </button>
-          <button className={`eco-tab${screen === "chat" ? " active" : ""}`} disabled={!hasResults} onClick={() => setScreen("chat")}>
+          <button className={`eco-tab${screen === "chat" ? " active" : ""}`} disabled={!hasResults && screen !== "keys"} onClick={() => setScreen(hasResults ? "chat" : "landing")}>
             Chat
           </button>
-          <button className={`eco-tab${screen === "simulate" ? " active" : ""}`} disabled={!hasResults} onClick={() => setScreen("simulate")}>
+          <button className={`eco-tab${screen === "simulate" ? " active" : ""}`} disabled={!hasResults && screen !== "keys"} onClick={() => setScreen(hasResults ? "simulate" : "landing")}>
             Simulate
-          </button>
-          <button className={`eco-tab${screen === "keys" ? " active" : ""}`} onClick={() => handleManageKeys(focusServiceId)}>
-            Keys
           </button>
           <button
             className="eco-btn-icon"
@@ -247,9 +249,36 @@ export default function App() {
         </div>
       )}
 
+      {notification && (
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "7px 12px",
+          background: "color-mix(in srgb, var(--vscode-editorWarning-foreground) 12%, var(--vscode-editor-background))",
+          borderBottom: "1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground) 30%, transparent)",
+          fontSize: "12px",
+          color: "var(--vscode-foreground)",
+          flexShrink: 0,
+        }}>
+          <span style={{ flex: 1 }}>{notification}</span>
+          <button
+            onClick={() => setNotification(null)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--vscode-descriptionForeground)", padding: "0 2px", lineHeight: 1, fontSize: "14px" }}
+          >✕</button>
+        </div>
+      )}
+
       {screen === "landing" && <LandingPage onStartScan={handleStartScan} />}
       {screen === "scanning" && (
-        <ScanningPage files={scanFiles} currentIndex={scanIndex} endpointCount={endpointCount} total={scanTotal} error={scanError} />
+        <ScanningPage
+          files={scanFiles}
+          currentIndex={scanIndex}
+          endpointCount={endpointCount}
+          total={scanTotal}
+          error={scanError}
+          onDismissError={scanError ? () => { setScanError(""); setScreen(hasResults ? "findings" : "landing"); } : undefined}
+        />
       )}
       {screen === "findings" && (
         hasResults ? (

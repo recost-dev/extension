@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { KeyServiceId, KeyStatusSummary } from "../types";
 import { postMessage } from "../vscode";
 
@@ -44,7 +44,6 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
   const [expandedServiceId, setExpandedServiceId] = useState<KeyServiceId | null>(focusServiceId ?? null);
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const autosaveTimers = useRef<Record<string, number>>({});
 
   useEffect(() => {
     if (focusServiceId) {
@@ -60,24 +59,15 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
     });
   }, [statuses]);
 
-  const save = (serviceId: KeyServiceId) => {
+  const saveAndCollapse = (serviceId: KeyServiceId) => {
     const value = (draftValues[serviceId] ?? "").trim();
-    if (!value) {
-      setErrors((prev) => ({ ...prev, [serviceId]: "API key must not be empty." }));
-      return;
+    if (value) {
+      setErrors((prev) => ({ ...prev, [serviceId]: "" }));
+      postMessage({ type: "setKey", serviceId, value });
+      setDraftValues((prev) => ({ ...prev, [serviceId]: "" }));
     }
-    setErrors((prev) => ({ ...prev, [serviceId]: "" }));
-    postMessage({ type: "setKey", serviceId, value });
-    setDraftValues((prev) => ({ ...prev, [serviceId]: "" }));
+    setExpandedServiceId((prev) => (prev === serviceId ? null : serviceId));
   };
-
-  useEffect(() => {
-    return () => {
-      for (const timer of Object.values(autosaveTimers.current)) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, []);
 
   return (
     <div className="eco-scroll-invisible" style={{ flex: 1, overflowY: "auto", padding: "16px", minHeight: 0 }}>
@@ -85,7 +75,7 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
         <div>
           <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "4px" }}>Keys</div>
           <p style={{ margin: 0, color: "var(--vscode-descriptionForeground)", fontSize: "12px", lineHeight: 1.5 }}>
-            Manage EcoAPI and model provider credentials in one place. Expanded rows save automatically as you enter a key.
+            Manage ReCost and model provider credentials in one place. Keys are saved when you collapse the row.
           </p>
         </div>
 
@@ -106,14 +96,12 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
               }}
             >
               <button
-                onClick={() => {
-                  setExpandedServiceId((prev) => (prev === status.serviceId ? null : status.serviceId));
-                }}
+                onClick={() => saveAndCollapse(status.serviceId)}
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
                   gap: "12px",
-                  alignItems: "center",
+                  alignItems: "flex-start",
                   width: "100%",
                   background: "transparent",
                   border: "none",
@@ -125,20 +113,6 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
                   <div style={{ fontSize: "13px", fontWeight: 600 }}>{status.displayName}</div>
-                  {isExpanded && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                    {status.maskedPreview && (
-                      <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "11px" }}>
-                        {status.maskedPreview}
-                      </span>
-                    )}
-                    {status.lastCheckedAt && (
-                      <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "11px" }}>
-                        Checked {new Date(status.lastCheckedAt).toLocaleTimeString()}
-                      </span>
-                    )}
-                    </div>
-                  )}
                   {isExpanded && status.message && (
                     <div style={{ color: status.state === "invalid" ? "var(--vscode-editorError-foreground)" : "var(--vscode-descriptionForeground)", fontSize: "11px" }}>
                       {status.message}
@@ -169,23 +143,14 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
                     {statusLabel(status)}
                   </span>
                   <span
+                    className="eco-chevron"
                     style={{
-                      width: "22px",
-                      height: "22px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: "999px",
-                      background: "var(--vscode-editorGroupHeader-tabsBackground)",
-                      border: "1px solid var(--vscode-panel-border)",
-                      transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                      transition: "transform 150ms ease",
+                      fontSize: "22px",
+                      transform: isExpanded ? "rotate(0deg)" : "rotate(90deg)",
+                      color: "var(--vscode-descriptionForeground)",
                     }}
                   >
-                    <span className="codicon codicon-chevron-down" style={{ fontSize: "12px" }} />
-                  </span>
-                  <span style={{ fontSize: "11px", color: "var(--vscode-descriptionForeground)", fontWeight: 600 }}>
-                    {isExpanded ? "Collapse" : "Expand"}
+                    ▾
                   </span>
                 </div>
               </button>
@@ -204,31 +169,19 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
                     }}
                   >
                     <input
-                      type="password"
-                      value={draftValues[status.serviceId] ?? ""}
+                      type={draftValues[status.serviceId + "__focused"] ? "password" : "text"}
+                      value={draftValues[status.serviceId + "__focused"] ? (draftValues[status.serviceId] ?? "") : (status.maskedPreview ?? "")}
+                      onFocus={() => {
+                        setDraftValues((prev) => ({ ...prev, [status.serviceId + "__focused"]: "1", [status.serviceId]: "" }));
+                      }}
                       onChange={(event) => {
                         const nextValue = event.target.value;
                         setDraftValues((prev) => ({ ...prev, [status.serviceId]: nextValue }));
                         setErrors((prev) => ({ ...prev, [status.serviceId]: "" }));
-                        const existingTimer = autosaveTimers.current[status.serviceId];
-                        if (existingTimer) window.clearTimeout(existingTimer);
-                        autosaveTimers.current[status.serviceId] = window.setTimeout(() => {
-                          const trimmed = nextValue.trim();
-                          if (!trimmed) return;
-                          postMessage({ type: "setKey", serviceId: status.serviceId, value: trimmed });
-                          setDraftValues((prev) => ({ ...prev, [status.serviceId]: "" }));
-                        }, 400);
                       }}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          const existingTimer = autosaveTimers.current[status.serviceId];
-                          if (existingTimer) window.clearTimeout(existingTimer);
-                          save(status.serviceId);
-                        }
                         if (event.key === "Escape") {
-                          const existingTimer = autosaveTimers.current[status.serviceId];
-                          if (existingTimer) window.clearTimeout(existingTimer);
-                          setDraftValues((prev) => ({ ...prev, [status.serviceId]: "" }));
+                          setDraftValues((prev) => ({ ...prev, [status.serviceId]: "", [status.serviceId + "__focused"]: "" }));
                         }
                       }}
                       placeholder={`Paste ${status.displayName} key`}
@@ -245,20 +198,39 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
                     />
                     {canClear && (
                       <button
-                        className="eco-btn-secondary"
                         onClick={() => postMessage({ type: "clearKey", serviceId: status.serviceId })}
                         title="Delete saved key"
                         style={{
-                          color: "var(--vscode-errorForeground, #f14c4c)",
-                          borderColor: "color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 55%, var(--vscode-input-border, var(--vscode-panel-border)) 45%)",
-                          background: "color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 10%, transparent)",
-                          width: "32px",
-                          minWidth: "32px",
+                          display: "flex",
+                          alignItems: "center",
                           justifyContent: "center",
+                          width: "16px",
+                          minWidth: "16px",
+                          height: "16px",
                           padding: "0",
+                          border: "none",
+                          borderRadius: "3px",
+                          background: "transparent",
+                          color: "var(--vscode-descriptionForeground)",
+                          cursor: "pointer",
+                          opacity: 0.5,
+                          transition: "opacity 0.15s, background 0.15s",
+                          flexShrink: 0,
+                        }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+                          (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent)";
+                          (e.currentTarget as HTMLButtonElement).style.color = "var(--vscode-errorForeground, #f14c4c)";
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLButtonElement).style.opacity = "0.5";
+                          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                          (e.currentTarget as HTMLButtonElement).style.color = "var(--vscode-descriptionForeground)";
                         }}
                       >
-                        X
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
                       </button>
                     )}
                   </div>

@@ -45,7 +45,7 @@ export function findModelMetadata(providerId: string, modelId: string): ChatMode
 }
 
 export function getDefaultChatSelection(): { provider: ChatProviderId; model: string } {
-  return { provider: "eco", model: "eco-ai" };
+  return { provider: "recost", model: "recost-ai" };
 }
 
 export function buildProviderOptions(): ChatProviderOption[] {
@@ -83,7 +83,7 @@ export async function resolveProviderAuth(
   }
   const secretKeys = [provider.auth.secretStorageKey];
   if (provider.id === "openai") {
-    secretKeys.push("eco.openaiApiKey");
+    secretKeys.push("recost.openaiApiKey");
   }
   if (secrets) {
     for (const secretKey of secretKeys) {

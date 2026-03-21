@@ -1,5 +1,5 @@
 export type ChatProviderId =
-  | "eco"
+  | "recost"
   | "openai"
   | "anthropic"
   | "gemini"

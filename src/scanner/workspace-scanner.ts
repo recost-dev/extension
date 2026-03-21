@@ -135,7 +135,7 @@ export async function readWorkspaceFileExcerpt(
 export async function scanWorkspace(
   onProgress?: (progress: ScanProgress) => void
 ): Promise<ApiCallInput[]> {
-  const config = vscode.workspace.getConfiguration("eco");
+  const config = vscode.workspace.getConfiguration("recost");
   const uris = await findScopedUris(config);
   const allCalls: ApiCallInput[] = [];
   const dedupe = new Set<string>();
@@ -207,7 +207,7 @@ export async function scanWorkspace(
 }
 
 export async function detectLocalWastePatterns(): Promise<LocalWasteFinding[]> {
-  const config = vscode.workspace.getConfiguration("eco");
+  const config = vscode.workspace.getConfiguration("recost");
   const uris = await findScopedUris(config);
   const findings: LocalWasteFinding[] = [];
 
