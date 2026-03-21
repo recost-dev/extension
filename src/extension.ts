@@ -2,17 +2,23 @@ import * as vscode from "vscode";
 import { getDefaultChatSelection, getProviderAdapter } from "./chat";
 import type { KeyServiceId } from "./messages";
 import { EcoSidebarProvider } from "./webview-provider";
+import { validateApiKey } from "./api-client";
+
+const ECO_API_KEY = "eco.ecoApiKey";
+const GET_KEY_URL = "https://ecoapi.dev/dashboard/account";
 
 async function getSelectedProviderId(context: vscode.ExtensionContext): Promise<string> {
   return context.globalState.get<string>("eco.selectedChatProvider") ?? getDefaultChatSelection().provider;
 }
 
-function toProviderServiceId(providerId: string): KeyServiceId | undefined {
-  if (providerId === "eco") return undefined;
-  return providerId as KeyServiceId;
-}
-
 export function activate(context: vscode.ExtensionContext) {
+  // Status bar
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBar.command = "eco.changeApiKey";
+  statusBar.text = "$(key) EcoAPI: Not Configured";
+  statusBar.show();
+  context.subscriptions.push(statusBar);
+
   const provider = new EcoSidebarProvider(context);
 
   context.subscriptions.push(
@@ -57,11 +63,35 @@ export function activate(context: vscode.ExtensionContext) {
       ignoreFocusOut: true,
     });
     if (value) {
-      await provider.saveManagedKey("ecoapi", value);
+      await context.secrets.store("eco.ecoApiKey", value);
     }
   });
 
-  context.subscriptions.push(openPanelCommand, scanCommand, clearApiKeyCommand, updateApiKeyCommand, setEcoApiKeyCommand);
+  context.subscriptions.push(
+    openPanelCommand, scanCommand, clearApiKeyCommand, updateApiKeyCommand,
+    setEcoApiKeyCommand, changeApiKeyCommand
+  );
+
+  // Async init: update status bar on startup + show first-run notification if no key
+  (async () => {
+    await updateStatusBar(statusBar, context);
+    const existingKey = await context.secrets.get(ECO_API_KEY);
+    if (!existingKey) {
+      const choice = await vscode.window.showInformationMessage(
+        "EcoAPI key not configured. Enter your API key to enable scanning.",
+        "Enter Key",
+        "Get a key"
+      );
+      if (choice === "Enter Key") {
+        await promptAndValidateKey(context, statusBar);
+      } else if (choice === "Get a key") {
+        await vscode.env.openExternal(vscode.Uri.parse(GET_KEY_URL));
+      }
+      // Dismissed → do nothing, extension continues normally
+    }
+  })().catch((err: unknown) => {
+    console.error("EcoAPI: init error", err);
+  });
 }
 
 export function deactivate() {}

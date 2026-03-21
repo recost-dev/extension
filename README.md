@@ -99,21 +99,31 @@ npm run build && npm run package
 
 ## API Keys
 
-### EcoAPI Admin Key (required for scanning)
+### EcoAPI API Key
 
-The extension calls two protected endpoints when you run a scan:
-- `POST /projects` — creates a new project the first time you scan a codebase
-- `POST /projects/:id/scans` — submits the scan results
+An API key is required to sync scan results with the ECO API and unlock full cost estimates (provider pricing, per-endpoint breakdowns, monthly projections).
 
-Both require an admin API key. To set it:
+**Get a key:** [https://ecoapi.dev/dashboard/account](https://ecoapi.dev/dashboard/account)
 
-1. Open the command palette: `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS)
-2. Run: **EcoAPI: Set Admin API Key**
-3. Enter the key when prompted — it is stored in VS Code's encrypted secret storage, never in any file
+**Set or change your key:**
 
-You only need to do this once per machine. The key is used automatically on every scan.
+1. Open the command palette: `Ctrl+Shift+P` (macOS: `Cmd+Shift+P`)
+2. Run: **EcoAPI: Change API Key**
+3. Paste your key — it is validated against the API before being saved, and stored in VS Code's encrypted secret storage (never in any file)
 
-> **Note:** Reading data (analytics, endpoints, suggestions, cost breakdowns) does not require a key — only scanning does.
+You can also click the **EcoAPI status bar item** (bottom-right of the VS Code window) to open the same prompt. On first launch, a notification appears automatically if no key is configured.
+
+**Status bar states:**
+
+| Text | Meaning |
+|------|---------|
+| `EcoAPI: Not Configured` | No key stored — click to configure |
+| `EcoAPI: user@email.com` | Connected and authenticated |
+| `EcoAPI: Connected` | Admin/dev key configured (auth endpoint not yet live) |
+| `EcoAPI: Invalid Key` | Key rejected by server — run **EcoAPI: Change API Key** to update |
+| `EcoAPI: Unreachable` | Network issue — check your connection |
+
+**Dev mode / admin key:** Use **EcoAPI: Change API Key** to set any key, including an admin key for local development. If the `/auth/me` endpoint isn't deployed yet, the extension accepts the key and shows `EcoAPI: Connected`. No `eco-` prefix is required.
 
 ### AI Chat Keys (optional)
 

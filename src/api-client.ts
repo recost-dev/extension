@@ -79,3 +79,26 @@ export async function getAllSuggestions(projectId: string, scanId: string): Prom
   }
   return results;
 }
+
+export interface AuthMeUser {
+  email: string;
+}
+
+/**
+ * Validates an API key against GET /auth/me.
+ * Returns AuthMeUser on success, null for 404 (dev mode — endpoint not yet deployed).
+ * Throws with err.status === 401 for invalid key.
+ * Throws without .status for network errors.
+ */
+export async function validateApiKey(key: string): Promise<AuthMeUser | null> {
+  try {
+    const { data } = await apiFetch<{ data: AuthMeUser }>("/auth/me", undefined, key);
+    return data;
+  } catch (err: unknown) {
+    const error = err as Error & { status?: number };
+    if (error.status === 404) {
+      return null; // Dev mode: auth endpoint not deployed, treat key as valid
+    }
+    throw err;
+  }
+}

@@ -127,6 +127,21 @@ Then press **F5** in VSCode to launch the Extension Development Host.
 - AI review is optional: prompts live in `chat/prompts.ts`, calls go through `openai` SDK; key is stored in VSCode SecretStorage
 - `dashboard-dist/` must exist (built) before the extension can serve the dashboard — `build:dashboard` handles this
 
+### Auth / API Key System
+
+Two separate key systems coexist:
+
+**EcoAPI key** (for scanning/remote API) — managed entirely in `extension.ts`:
+- Stored in `context.secrets` under `"eco.ecoApiKey"`
+- `validateApiKey()` in `api-client.ts` calls `GET /auth/me` with `Authorization: Bearer <key>` to validate; returns `null` on 404 (dev mode — endpoint not deployed), throws on 401 (invalid) or network error
+- Status bar item in `extension.ts` reflects auth state (Not Configured / email / Invalid Key / Unreachable); clicking it runs `eco.changeApiKey`
+- `eco.changeApiKey` command validates before storing; key is never saved on failure
+- `context.secrets.onDidChange` listener keeps status bar live without reload
+
+**Chat provider keys** (OpenAI, Anthropic, etc.) — managed in `webview-provider.ts` + `chat/provider-registry.ts`:
+- Stored per-provider in `context.secrets` under provider-specific keys (e.g., `eco.providerApiKey.openai`)
+- Resolved via env var → SecretStorage fallback in `resolveProviderAuth()`
+
 ### Cost Simulator
 
 The Cost Simulator (`src/simulator/`) is a pure computation layer (no Node/browser/VSCode deps) that projects API costs at scale:
