@@ -853,6 +853,9 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
 
+      // Show local results immediately so UI unblocks, then update with remote
+      publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+
       try {
         let projectId = await this.getOrCreateProject(ecoApiKey);
         let scanResult;

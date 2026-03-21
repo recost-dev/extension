@@ -108,6 +108,7 @@ export function ChatPage({
   const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const autoSentContextRef = useRef<SuggestionContext | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -184,7 +185,9 @@ export function ChatPage({
   }, [context]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [messages, isLoading, streamingContent]);
 
   useEffect(() => {
@@ -253,7 +256,11 @@ export function ChatPage({
         )}
       </div>
 
-      <div className="eco-scroll-invisible" style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "12px", display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div
+        ref={messagesContainerRef}
+        className="eco-scroll-invisible"
+        style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "12px", display: "flex", flexDirection: "column", gap: "16px" }}
+      >
         {messages.map((msg, index) => (
           <div key={index} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
             <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", marginBottom: "4px" }}>
