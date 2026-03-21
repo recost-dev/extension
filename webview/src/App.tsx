@@ -120,7 +120,6 @@ export default function App() {
     setScreen("keys");
     setFocusServiceId(serviceId ?? null);
     postMessage({ type: "navigate", screen: "keys", focusServiceId: serviceId ?? undefined });
-    postMessage({ type: "getAllKeyStatuses" });
   }, []);
 
   useEffect(() => {

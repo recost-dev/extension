@@ -1,4 +1,4 @@
-# ECO - API Usage Analyzer
+# ReCost - API Usage Analyzer
 
 VSCode extension that scans your workspace for API call patterns, estimates costs, and generates optimization suggestions — all locally, no remote server required.
 
@@ -9,12 +9,14 @@ Developers often ship API-heavy features without visibility into:
 - Redundant or cacheable request patterns
 - Rate-limit and N+1 hotspots
 
-ECO turns parsed API call data into actionable diagnostics:
-- Cost analytics
-- Endpoint-level risk/status
+ReCost turns parsed API call data into actionable diagnostics:
+- Cost analytics with per-endpoint breakdowns
+- Endpoint-level risk/status and scope classification (internal vs external)
 - Optimization suggestions with estimated savings
-- Graph data for dependency visualization
+- Interactive dependency graph visualization
+- **Cost Simulator** — project API spend at scale with user-centric or volume-centric models, save/compare scenarios, export CSV
 - **Sustainability stats** — electricity (kWh), water (L), and CO2 (g) footprint estimated from API call volume, with AI vs non-AI breakdown
+- **Local waste detection** — identifies redundant patterns, missing caching, unbatched requests without needing the remote API
 
 ## Tech Stack
 
@@ -22,14 +24,14 @@ ECO turns parsed API call data into actionable diagnostics:
 - **React 18** — sidebar webview UI
 - **Vite** + **esbuild** — bundlers
 - **TanStack Query v5**, **Tailwind CSS v4**, **D3.js**, **Radix UI** — dashboard UI
-- **Multi-provider AI chat** — ECO AI (free, default), OpenAI, Anthropic, Gemini, xAI, Cohere, Mistral, Perplexity
+- **Multi-provider AI chat** — ReCost AI (free, default), OpenAI, Anthropic, Gemini, xAI, Cohere, Mistral, Perplexity
 
 ## Project Structure
 
 ```
 src/                        # Extension backend
   extension.ts              # Entry point
-  api-client.ts             # HTTP client for remote ECO API
+  api-client.ts             # HTTP client for remote ReCost API
   local-server.ts           # Embedded server (dashboard + local analysis)
   webview-provider.ts       # Sidebar webview provider
   messages.ts               # IPC message types
@@ -43,7 +45,15 @@ src/                        # Extension backend
     providers/              # Per-provider adapters (eco, openai, anthropic, gemini, xai, cohere, mistral, perplexity)
   scanner/
     patterns.ts             # API call detection regex
+    patterns/               # 16 provider-specific pattern scanners (Firebase, GraphQL, OpenAI, Stripe, etc.)
     workspace-scanner.ts    # Workspace file scanner
+    endpoint-classification.ts  # Classifies endpoints as internal/external, detects 50+ providers
+    local-waste-detector.ts # Detects waste patterns locally (redundancy, missing cache, unbatched)
+  simulator/                # Cost Simulator computation layer
+    types.ts                # SimulatorInput, SimulatorResult, SavedScenario, scale presets
+    engine.ts               # runSimulation() — scales endpoints, ±30% uncertainty, groups by provider
+    static-source.ts        # StaticDataSource adapter (EndpointRecord[] → SimulatorDataSource)
+    index.ts                # Barrel re-export
 webview/                    # React sidebar UI
   src/
     App.tsx
@@ -51,12 +61,14 @@ webview/                    # React sidebar UI
     components/
       LandingPage.tsx
       ScanningPage.tsx
-      ResultsPage.tsx
-      ChatPage.tsx
+      ResultsPage.tsx        # Main results view with tabs
+      ChatPage.tsx           # AI chat tab
+      SimulatePage.tsx       # Cost Simulator tab
 dashboard/                  # Full React dashboard (built into dashboard-dist/)
   src/
-    pages/                  # Dashboard, Endpoints, Graph, Suggestions
+    pages/                  # Dashboard, Endpoints, Graph, Suggestions, Simulator
     lib/                    # API client, TanStack Query hooks, types
+    components/             # ScenarioCompare, Select, animated-tree, particles
 dashboard-dist/             # Built dashboard (generated — do not edit)
 scripts/
   build-vsix.sh             # Build & package as .vsix (run in bash)
@@ -78,7 +90,7 @@ code --install-extension eco-api-analyzer-0.1.0.vsix
 # or: Ctrl+Shift+P → "Extensions: Install from VSIX..."
 ```
 
-Reload the window when prompted, then click the **ECO leaf icon** in the Activity Bar.
+Reload the window when prompted, then click the **ReCost leaf icon** in the Activity Bar.
 
 ## Quick Start (Dev)
 
@@ -97,13 +109,26 @@ cd extension
 npm run build && npm run package
 ```
 
+## VSCode Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `eco.scanGlob` | `**/*.{ts,tsx,js,jsx,py,go,java,rb}` | Files to scan |
+| `eco.scanIncludeGlobs` | `""` | Optional allowlist globs (comma-separated) |
+| `eco.excludeGlob` | node_modules, dist, build, etc. | Files to exclude |
+| `eco.aiReview.enabled` | `true` | Enable AI second-pass review |
+| `eco.aiReview.minConfidence` | `0.7` | Min confidence for AI findings |
+| `eco.aiReview.maxFiles` | `25` | Max files sent to AI review |
+| `eco.aiReview.maxCharsPerFile` | `6000` | Max chars per file in AI context |
+| `eco.aiReview.model` | `gpt-4.1-mini` | OpenAI model for AI review |
+
 ## API Keys
 
-### EcoAPI API Key
+### ReCost API Key
 
-An API key is required to sync scan results with the ECO API and unlock full cost estimates (provider pricing, per-endpoint breakdowns, monthly projections).
+An API key is required to sync scan results with the ReCost API and unlock full cost estimates (provider pricing, per-endpoint breakdowns, monthly projections).
 
-**Get a key:** [https://ecoapi.dev/dashboard/account](https://ecoapi.dev/dashboard/account)
+**Get a key:** [https://recost.dev/dashboard/account](https://recost.dev/dashboard/account)
 
 **Set or change your key:**
 
@@ -111,7 +136,7 @@ An API key is required to sync scan results with the ECO API and unlock full cos
 2. Run: **EcoAPI: Change API Key**
 3. Paste your key — it is validated against the API before being saved, and stored in VS Code's encrypted secret storage (never in any file)
 
-You can also click the **EcoAPI status bar item** (bottom-right of the VS Code window) to open the same prompt. On first launch, a notification appears automatically if no key is configured.
+You can also click the **ReCost status bar item** (bottom-right of the VS Code window) to open the same prompt. On first launch, a notification appears automatically if no key is configured.
 
 **Status bar states:**
 
@@ -127,7 +152,7 @@ You can also click the **EcoAPI status bar item** (bottom-right of the VS Code w
 
 ### AI Chat Keys (optional)
 
-The Chat tab supports multiple AI providers. **ECO AI is free and requires no key** — it is the default. For other providers, enter your API key via the extension UI when prompted, or set the corresponding environment variable:
+The Chat tab supports multiple AI providers. **ReCost AI is free and requires no key** — it is the default. For other providers, enter your API key via the extension UI when prompted, or set the corresponding environment variable:
 
 | Provider | Environment variable |
 |----------|---------------------|
@@ -145,9 +170,9 @@ Environment variables can be set in your shell profile or in a `.env` file in yo
 
 ## API
 
-The live ECO API is available at **https://api.ecoapi.dev** — no setup required for read operations.
+The live ReCost API is available at **https://api.recost.dev** — no setup required for read operations.
 
-Full API documentation: **https://ecoapi.dev**
+Full API documentation: **https://recost.dev**
 
 ---
 

@@ -10,6 +10,74 @@ const GET_KEY_URL = "https://ecoapi.dev/dashboard/account";
 async function getSelectedProviderId(context: vscode.ExtensionContext): Promise<string> {
   return context.globalState.get<string>("eco.selectedChatProvider") ?? getDefaultChatSelection().provider;
 }
+function toProviderServiceId(providerId: string): KeyServiceId | undefined {
+  if (providerId === "eco") return undefined;
+  return providerId as KeyServiceId;
+}
+
+async function updateStatusBar(
+  statusBar: vscode.StatusBarItem,
+  context: vscode.ExtensionContext
+): Promise<void> {
+  const key = await context.secrets.get(ECO_API_KEY);
+  if (!key) {
+    statusBar.text = "$(key) EcoAPI: Not Configured";
+    statusBar.tooltip = "Click to configure your EcoAPI key";
+    return;
+  }
+  try {
+    const user = await validateApiKey(key);
+    if (user) {
+      statusBar.text = `$(check) EcoAPI: ${user.email}`;
+      statusBar.tooltip = `Connected as ${user.email}`;
+    } else {
+      statusBar.text = "$(check) EcoAPI: Connected";
+      statusBar.tooltip = "EcoAPI key configured";
+    }
+  } catch (err: unknown) {
+    const error = err as Error & { status?: number };
+    if (error.status === 401) {
+      statusBar.text = "$(warning) EcoAPI: Invalid Key";
+      statusBar.tooltip = "EcoAPI key is invalid. Click to update.";
+    } else {
+      statusBar.text = "$(warning) EcoAPI: Unreachable";
+      statusBar.tooltip = "Cannot reach EcoAPI. Check your connection.";
+    }
+  }
+}
+
+async function promptAndValidateKey(
+  context: vscode.ExtensionContext,
+  statusBar: vscode.StatusBarItem
+): Promise<void> {
+  const value = await vscode.window.showInputBox({
+    prompt: "Enter your EcoAPI key",
+    password: true,
+    ignoreFocusOut: true,
+    placeHolder: "Paste your API key here",
+  });
+  if (!value) return;
+  const trimmed = value.trim();
+  if (!trimmed) return;
+
+  try {
+    const user = await validateApiKey(trimmed);
+    await context.secrets.store(ECO_API_KEY, trimmed);
+    await updateStatusBar(statusBar, context);
+    const msg = user ? `EcoAPI key saved. Connected as ${user.email}.` : "EcoAPI key saved.";
+    vscode.window.showInformationMessage(msg);
+  } catch (err: unknown) {
+    const error = err as Error & { status?: number };
+    if (error.status === 401) {
+      vscode.window.showErrorMessage("Invalid EcoAPI key. Key was not saved.");
+    } else {
+      vscode.window.showErrorMessage(
+        "Could not reach EcoAPI to validate key. Please check your connection and try again."
+      );
+    }
+  }
+}
+
 
 export function activate(context: vscode.ExtensionContext) {
   // Status bar
@@ -57,15 +125,21 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   const setEcoApiKeyCommand = vscode.commands.registerCommand("eco.setEcoApiKey", async () => {
-    const value = await vscode.window.showInputBox({
-      prompt: "Enter your EcoAPI Admin API Key",
-      password: true,
-      ignoreFocusOut: true,
-    });
-    if (value) {
-      await context.secrets.store("eco.ecoApiKey", value);
-    }
+    await promptAndValidateKey(context, statusBar);
   });
+
+  const changeApiKeyCommand = vscode.commands.registerCommand("eco.changeApiKey", async () => {
+    await promptAndValidateKey(context, statusBar);
+  });
+
+  // Re-validate status bar whenever the EcoAPI key changes in SecretStorage
+  context.subscriptions.push(
+    context.secrets.onDidChange(async (event) => {
+      if (event.key === ECO_API_KEY) {
+        await updateStatusBar(statusBar, context);
+      }
+    })
+  );
 
   context.subscriptions.push(
     openPanelCommand, scanCommand, clearApiKeyCommand, updateApiKeyCommand,
