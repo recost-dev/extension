@@ -387,6 +387,123 @@ async function resolveBarrelImport(
   return result;
 }
 
+// ── Python import handling ────────────────────────────────────────────────────
+
+/**
+ * Python `import_statement`: `import openai` or `import openai as ai`.
+ *
+ * AST structure:
+ *   import openai     → (import_statement name: (dotted_name (identifier "openai")))
+ *   import openai as ai → (import_statement name: (aliased_import name: (dotted_name) alias: (identifier "ai")))
+ */
+function processPythonImportStatement(node: SyntaxNode, importMap: Map<string, string>): void {
+  for (let i = 0; i < node.namedChildCount; i++) {
+    const child = node.namedChild(i);
+    if (!child) continue;
+
+    if (child.type === "dotted_name") {
+      // `import openai` — package and local name are the first segment
+      const pkg = child.text;
+      const localName = child.namedChild(0)?.text ?? pkg;
+      importMap.set(localName, pkg);
+    } else if (child.type === "aliased_import") {
+      // `import openai as ai` — local name is the alias
+      const nameNode = childOfType(child, "dotted_name");
+      const aliasNode = childOfType(child, "identifier");
+      if (!nameNode || !aliasNode) continue;
+      importMap.set(aliasNode.text, nameNode.text);
+    }
+  }
+}
+
+/**
+ * Python `import_from_statement`: `from openai import OpenAI` or with alias.
+ *
+ * AST structure (single import):
+ *   (import_from_statement
+ *     module_name: (dotted_name (identifier "openai"))
+ *     name: (dotted_name (identifier "OpenAI")))
+ *
+ * With alias:
+ *   (import_from_statement ... name: (aliased_import name: ... alias: (identifier "AI")))
+ */
+function processPythonImportFromStatement(node: SyntaxNode, importMap: Map<string, string>): void {
+  // First dotted_name child is the module (the "from" part)
+  let moduleName: string | null = null;
+
+  for (let i = 0; i < node.namedChildCount; i++) {
+    const child = node.namedChild(i);
+    if (!child) continue;
+
+    if (child.type === "dotted_name" && moduleName === null) {
+      // Module name: take only the top-level package (first segment)
+      moduleName = child.namedChild(0)?.text ?? child.text;
+    } else if (child.type === "dotted_name") {
+      // Imported name (no alias) — last segment is the local name
+      const lastName = child.namedChild(child.namedChildCount - 1)?.text;
+      if (lastName && moduleName) importMap.set(lastName, moduleName);
+    } else if (child.type === "aliased_import") {
+      // `OpenAI as AI` — alias is the local name
+      const alias = childOfType(child, "identifier");
+      if (alias && moduleName) importMap.set(alias.text, moduleName);
+    } else if (child.type === "import_list" || child.type === "wildcard_import") {
+      // `from openai import OpenAI, Embedding` or `from openai import *`
+      if (child.type === "wildcard_import") continue; // skip *
+      for (let j = 0; j < child.namedChildCount; j++) {
+        const item = child.namedChild(j);
+        if (!item) continue;
+        if (item.type === "dotted_name") {
+          const lastName = item.namedChild(item.namedChildCount - 1)?.text;
+          if (lastName && moduleName) importMap.set(lastName, moduleName);
+        } else if (item.type === "aliased_import") {
+          const alias = childOfType(item, "identifier");
+          if (alias && moduleName) importMap.set(alias.text, moduleName);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Python constructor assignment: `client = OpenAI()` or `client = anthropic.Anthropic()`.
+ *
+ * AST structure (inside expression_statement):
+ *   (assignment
+ *     left: (identifier "client")
+ *     right: (call function: (identifier "OpenAI") | (attribute ...)))
+ */
+function processPythonAssignment(node: SyntaxNode, importMap: Map<string, string>): void {
+  // node is `assignment`
+  // lhs: first named child that is an identifier
+  const lhs = childOfType(node, "identifier");
+  if (!lhs) return;
+
+  // rhs: last named child
+  const rhs = node.namedChildCount >= 2 ? node.namedChild(node.namedChildCount - 1) : null;
+  if (!rhs || rhs.type !== "call") return;
+
+  const fn = rhs.child(0);
+  if (!fn) return;
+
+  let pkg: string | undefined;
+
+  if (fn.type === "identifier") {
+    // client = OpenAI()
+    const ctorName = fn.text;
+    pkg = CLASS_TO_PACKAGE[ctorName] ?? importMap.get(ctorName);
+  } else if (fn.type === "attribute") {
+    // client = anthropic.Anthropic()
+    const pkgPrefix = fn.child(0)?.text;
+    const ctorName = fn.child(2)?.text;
+    if (ctorName) pkg = CLASS_TO_PACKAGE[ctorName] ?? importMap.get(ctorName);
+    if (!pkg && pkgPrefix) pkg = importMap.get(pkgPrefix) ?? pkgPrefix;
+  }
+
+  if (pkg) {
+    importMap.set(lhs.text, pkg);
+  }
+}
+
 // ── Core resolution logic ─────────────────────────────────────────────────────
 
 async function resolveImportsCore(
@@ -408,7 +525,12 @@ async function resolveImportsCore(
     switch (stmt.type) {
       case "import_statement": {
         const source = childOfType(stmt, "string");
-        if (!source) break;
+        if (!source) {
+          // No string child → Python `import openai` / `import openai as ai`
+          processPythonImportStatement(stmt, importMap);
+          break;
+        }
+        // JS/TS ESM import: `import X from "pkg"`
         const pkg = stringValue(source);
 
         if (!pkg.startsWith(".")) {
@@ -449,6 +571,19 @@ async function resolveImportsCore(
             relativeImports.set(pkg, [...existing, ...names]);
           }
         }
+        break;
+      }
+
+      case "import_from_statement": {
+        // Python only: `from openai import OpenAI`
+        processPythonImportFromStatement(stmt, importMap);
+        break;
+      }
+
+      case "expression_statement": {
+        // Python only: top-level `client = OpenAI()` (no let/const in Python)
+        const assign = childOfType(stmt, "assignment");
+        if (assign) processPythonAssignment(assign, importMap);
         break;
       }
 

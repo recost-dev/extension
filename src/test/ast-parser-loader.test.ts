@@ -41,8 +41,12 @@ async function run(name: string, fn: () => Promise<void>): Promise<void> {
     assert.equal(getLanguageForExtension(".TS"), "typescript");
   });
 
+  await run("getLanguageForExtension: .py → python", async () => {
+    assert.equal(getLanguageForExtension(".py"), "python");
+    assert.equal(getLanguageForExtension(".PY"), "python"); // case-insensitive
+  });
+
   await run("getLanguageForExtension: unsupported extensions → null", async () => {
-    assert.equal(getLanguageForExtension(".py"), null);
     assert.equal(getLanguageForExtension(".go"), null);
     assert.equal(getLanguageForExtension(".rb"), null);
     assert.equal(getLanguageForExtension(""), null);

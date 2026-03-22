@@ -75,6 +75,11 @@ const grammars = [
     // tree-sitter-typescript v0.23.2 — built with tree-sitter 0.23.x (ABI 14)
     url: "https://github.com/tree-sitter/tree-sitter-typescript/releases/download/v0.23.2/tree-sitter-typescript.wasm",
   },
+  {
+    file: "tree-sitter-python.wasm",
+    // tree-sitter-python v0.23.6 — built with tree-sitter 0.23.x (ABI 14)
+    url: "https://github.com/tree-sitter/tree-sitter-python/releases/download/v0.23.6/tree-sitter-python.wasm",
+  },
 ];
 
 for (const { file, url } of grammars) {

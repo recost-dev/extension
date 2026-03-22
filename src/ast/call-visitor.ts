@@ -53,9 +53,9 @@ function flattenMemberExpression(node: SyntaxNode): string[] | null {
     return inner ? flattenMemberExpression(inner) : null;
   }
 
-  if (node.type === "member_expression") {
+  if (node.type === "member_expression" || node.type === "attribute") {
     const object = node.child(0); // left side
-    const property = node.child(2); // property_identifier (child 1 is . or ?.)
+    const property = node.child(2); // property_identifier / identifier (child 1 is . or ?.)
 
     if (!object || !property) return null;
 
@@ -63,7 +63,9 @@ function flattenMemberExpression(node: SyntaxNode): string[] | null {
     // capture the property suffix so e.g. `items[0].create()` yields ["create"]
     if (
       object.type === "subscript_expression" ||
-      object.type === "call_expression"
+      object.type === "call_expression" ||
+      object.type === "subscript" ||  // Python computed access obj[expr]
+      object.type === "call"          // Python call result access call()[prop]
     ) {
       // We can't resolve the object, so the root is unknown.
       // Return only the property so callers get a partial chain.
@@ -83,9 +85,10 @@ function flattenMemberExpression(node: SyntaxNode): string[] | null {
 // ── Call node visitor ─────────────────────────────────────────────────────────
 
 function collectCalls(node: SyntaxNode, results: CallInfo[]): void {
-  if (node.type === "call_expression") {
+  if (node.type === "call_expression" || node.type === "call") {
     const fn = node.child(0); // function expression
-    const argsNode = node.child(1); // arguments node
+    // JS/TS: child(1) is `arguments`; Python: child(1) is `argument_list` — same layout
+    const argsNode = node.child(1);
 
     if (fn) {
       const segments = flattenMemberExpression(fn);

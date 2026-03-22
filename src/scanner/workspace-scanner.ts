@@ -1,7 +1,10 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { ApiCallInput } from "../analysis/types";
 import { matchLine, matchRouteDefinitionLine, isInsideLoop } from "./patterns";
 import { detectLocalWasteFindingsInText, type LocalWasteFinding } from "./local-waste-detector";
+import { scanFileWithAst, type AstCallMatch } from "../ast/ast-scanner";
+import { getLanguageForExtension } from "../ast/parser-loader";
 
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT =
@@ -132,6 +135,19 @@ export async function readWorkspaceFileExcerpt(
   }
 }
 
+function astMatchToApiCallInput(match: AstCallMatch, file: string): ApiCallInput {
+  const method = match.method ?? "CALL";
+  const url =
+    match.endpoint ??
+    (match.provider
+      ? `sdk://${match.provider}/${match.methodChain}`
+      : `ast:${match.methodChain}`);
+  const library =
+    match.packageName ?? match.provider ?? match.methodChain.split(".")[0];
+  const frequency = match.loopContext || match.isMiddleware ? "per-request" : "daily";
+  return { file, line: match.line, method, url, library, frequency };
+}
+
 export async function scanWorkspace(
   onProgress?: (progress: ScanProgress) => void
 ): Promise<ApiCallInput[]> {
@@ -149,7 +165,36 @@ export async function scanWorkspace(
       const text = await readUriText(uri);
       const lines = text.split("\n");
 
+      // ── AST scan (JS/TS only) ──────────────────────────────────────────────
+      const astCoveredLines = new Set<number>();
+      const ext = path.extname(relativePath);
+      if (getLanguageForExtension(ext)) {
+        try {
+          const absPath = uri.fsPath;
+          const fileReader = async (fp: string): Promise<string | null> => {
+            if (fp === absPath) return text;
+            try { return await readUriText(vscode.Uri.file(fp)); } catch { return null; }
+          };
+          const astResult = await scanFileWithAst(absPath, fileReader);
+          for (const match of astResult.matches) {
+            const apiCall = astMatchToApiCallInput(match, relativePath);
+            const key = `${relativePath}:${match.line}:${apiCall.method}:${apiCall.url}`;
+            if (dedupe.has(key)) continue;
+            dedupe.add(key);
+            astCoveredLines.add(match.line);
+            uniqueEndpointKeys.add(`${apiCall.method} ${apiCall.url}`);
+            allCalls.push(apiCall);
+          }
+        } catch {
+          // AST failed — fall through to regex-only for this file
+        }
+      }
+
+      // ── Regex scan ────────────────────────────────────────────────────────
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const lineNum = lineIndex + 1;
+        if (astCoveredLines.has(lineNum)) continue;
+
         const line = lines[lineIndex];
         const routeMatches = matchRouteDefinitionLine(line);
         for (const route of routeMatches) {

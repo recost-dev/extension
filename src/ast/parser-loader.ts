@@ -60,6 +60,7 @@ const EXT_TO_GRAMMAR: Record<string, string> = {
   ".jsx": "javascript",
   ".ts": "typescript",
   ".tsx": "typescript",
+  ".py": "python",
 };
 
 /**

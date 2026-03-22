@@ -37,8 +37,11 @@ exports.readWorkspaceFileExcerpt = readWorkspaceFileExcerpt;
 exports.scanWorkspace = scanWorkspace;
 exports.detectLocalWastePatterns = detectLocalWastePatterns;
 const vscode = __importStar(require("vscode"));
+const path = __importStar(require("path"));
 const patterns_1 = require("./patterns");
 const local_waste_detector_1 = require("./local-waste-detector");
+const ast_scanner_1 = require("../ast/ast-scanner");
+const parser_loader_1 = require("../ast/parser-loader");
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT = /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
 const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
@@ -148,6 +151,16 @@ async function readWorkspaceFileExcerpt(relativePath, options) {
         return null;
     }
 }
+function astMatchToApiCallInput(match, file) {
+    const method = match.method ?? "CALL";
+    const url = match.endpoint ??
+        (match.provider
+            ? `sdk://${match.provider}/${match.methodChain}`
+            : `ast:${match.methodChain}`);
+    const library = match.packageName ?? match.provider ?? match.methodChain.split(".")[0];
+    const frequency = match.loopContext || match.isMiddleware ? "per-request" : "daily";
+    return { file, line: match.line, method, url, library, frequency };
+}
 async function scanWorkspace(onProgress) {
     const config = vscode.workspace.getConfiguration("recost");
     const uris = await findScopedUris(config);
@@ -160,7 +173,43 @@ async function scanWorkspace(onProgress) {
         try {
             const text = await readUriText(uri);
             const lines = text.split("\n");
+            // ── AST scan (JS/TS only) ──────────────────────────────────────────────
+            const astCoveredLines = new Set();
+            const ext = path.extname(relativePath);
+            if ((0, parser_loader_1.getLanguageForExtension)(ext)) {
+                try {
+                    const absPath = uri.fsPath;
+                    const fileReader = async (fp) => {
+                        if (fp === absPath)
+                            return text;
+                        try {
+                            return await readUriText(vscode.Uri.file(fp));
+                        }
+                        catch {
+                            return null;
+                        }
+                    };
+                    const astResult = await (0, ast_scanner_1.scanFileWithAst)(absPath, fileReader);
+                    for (const match of astResult.matches) {
+                        const apiCall = astMatchToApiCallInput(match, relativePath);
+                        const key = `${relativePath}:${match.line}:${apiCall.method}:${apiCall.url}`;
+                        if (dedupe.has(key))
+                            continue;
+                        dedupe.add(key);
+                        astCoveredLines.add(match.line);
+                        uniqueEndpointKeys.add(`${apiCall.method} ${apiCall.url}`);
+                        allCalls.push(apiCall);
+                    }
+                }
+                catch {
+                    // AST failed — fall through to regex-only for this file
+                }
+            }
+            // ── Regex scan ────────────────────────────────────────────────────────
             for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+                const lineNum = lineIndex + 1;
+                if (astCoveredLines.has(lineNum))
+                    continue;
                 const line = lines[lineIndex];
                 const routeMatches = (0, patterns_1.matchRouteDefinitionLine)(line);
                 for (const route of routeMatches) {

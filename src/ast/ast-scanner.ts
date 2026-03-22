@@ -69,6 +69,7 @@ export interface AstScanResult {
 
 const PACKAGE_TO_PROVIDER: Record<string, string> = {
   openai: "openai",
+  anthropic: "anthropic",          // Python SDK: import anthropic
   "@anthropic-ai/sdk": "anthropic",
   "@anthropic-ai/bedrock-sdk": "anthropic",
   "@anthropic-ai/vertex-sdk": "anthropic",
@@ -119,10 +120,10 @@ function isInLoop(node: SyntaxNode): boolean {
   let current: SyntaxNode | null = node.parent;
   while (current) {
     if (LOOP_NODE_TYPES.has(current.type)) return true;
-    if (current.type === "call_expression") {
+    if (current.type === "call_expression" || current.type === "call") {
       const fn = current.child(0);
-      if (fn?.type === "member_expression") {
-        const prop = fn.child(2); // property_identifier
+      if (fn?.type === "member_expression" || fn?.type === "attribute") {
+        const prop = fn.child(2); // property_identifier / identifier
         if (prop && ITERATION_METHODS.has(prop.text)) return true;
       }
     }
@@ -142,7 +143,8 @@ function isMiddlewareCall(chain: string): boolean {
 
 // ── URL / host extraction from fetch/axios ────────────────────────────────────
 
-const HTTP_CLIENTS = new Set(["fetch", "axios", "got", "ky", "request", "superagent"]);
+const HTTP_CLIENTS = new Set(["fetch", "axios", "got", "ky", "request", "superagent",
+  "requests", "httpx"]); // Python HTTP libraries
 const AXIOS_METHODS = new Set(["get", "post", "put", "patch", "delete", "head", "options"]);
 
 /** Extract a URL string literal from argument nodes. */
@@ -178,9 +180,10 @@ function collectTopLevelFunctions(tree: Tree): Map<string, SyntaxNode> {
   for (let i = 0; i < tree.rootNode.childCount; i++) {
     const node = tree.rootNode.child(i);
     if (!node) continue;
-    if (node.type === "function_declaration") {
+    if (node.type === "function_declaration" || node.type === "function_definition") {
       // Scan all children to find the identifier — position varies for async functions
       // (async function foo() → child 0=async, 1=function, 2=identifier)
+      // Python function_definition: `def foo(...)` → identifier is at child 1
       for (let k = 0; k < node.childCount; k++) {
         const c = node.child(k);
         if (c?.type === "identifier") { fns.set(c.text, node); break; }
@@ -209,9 +212,10 @@ function collectClasses(tree: Tree): Map<string, SyntaxNode> {
   for (let i = 0; i < tree.rootNode.childCount; i++) {
     const node = tree.rootNode.child(i);
     if (!node) continue;
-    if (node.type === "class_declaration") {
+    if (node.type === "class_declaration" || node.type === "class_definition") {
       const name = node.child(1);
       // TypeScript grammar uses "type_identifier" for class names; JS uses "identifier"
+      // Python class_definition: `class Foo:` → identifier at child 1
       if (name?.type === "identifier" || name?.type === "type_identifier") classes.set(name.text, node);
     }
     // Handle: const Foo = class { ... }
@@ -294,6 +298,23 @@ function buildExtendedMaps(
         if (lhs.type === "identifier" && rhs.type === "new_expression") {
           const ctor = rhs.child(1);
           if (ctor) instanceMap.set(lhs.text, ctor.text);
+        }
+      }
+    }
+
+    // Python: `client = OpenAI()` at module level is expression_statement → assignment
+    if (node.type === "expression_statement") {
+      const assign = node.child(0);
+      if (!assign || assign.type !== "assignment") continue;
+      const lhs = assign.namedChildCount >= 1 ? assign.namedChild(0) : null;
+      const rhs = assign.namedChildCount >= 2 ? assign.namedChild(assign.namedChildCount - 1) : null;
+      if (!lhs || !rhs || lhs.type !== "identifier") continue;
+      if (rhs.type === "call") {
+        const fn = rhs.child(0);
+        if (fn?.type === "identifier") instanceMap.set(lhs.text, fn.text);
+        else if (fn?.type === "attribute") {
+          const attrName = fn.child(2)?.text;
+          if (attrName) instanceMap.set(lhs.text, attrName);
         }
       }
     }
@@ -384,7 +405,9 @@ function resolveProvider(
 function enclosingFunctionName(node: SyntaxNode): string | null {
   let current: SyntaxNode | null = node.parent;
   while (current) {
-    if (current.type === "function_declaration" || current.type === "method_definition") {
+    if (current.type === "function_declaration" ||
+        current.type === "method_definition" ||
+        current.type === "function_definition") {
       for (let i = 0; i < current.childCount; i++) {
         const c = current.child(i);
         if (c?.type === "identifier" || c?.type === "property_identifier") {

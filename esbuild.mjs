@@ -6,7 +6,7 @@ const buildOptions = {
   entryPoints: ["src/extension.ts"],
   bundle: true,
   outfile: "dist/extension.js",
-  external: ["vscode"],
+  external: ["vscode", "web-tree-sitter"],
   format: "cjs",
   platform: "node",
   target: "node18",
