@@ -20,6 +20,8 @@ export interface CallInfo {
   line: number;
   /** 0-based column of the call */
   column: number;
+  /** The call_expression AST node — used by callers for ancestor traversal. */
+  node: SyntaxNode;
 }
 
 // ── Chain extraction ──────────────────────────────────────────────────────────
@@ -37,6 +39,11 @@ export interface CallInfo {
 function flattenMemberExpression(node: SyntaxNode): string[] | null {
   if (node.type === "identifier" || node.type === "property_identifier") {
     return [node.text];
+  }
+
+  // `this` keyword — treated as a special root identifier
+  if (node.type === "this") {
+    return ["this"];
   }
 
   // TypeScript generic calls: create<T>() make the parser put an
@@ -98,6 +105,7 @@ function collectCalls(node: SyntaxNode, results: CallInfo[]): void {
           args,
           line: node.startPosition.row + 1, // convert 0-based to 1-based
           column: node.startPosition.column,
+          node,
         });
       }
     }

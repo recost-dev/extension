@@ -414,8 +414,10 @@ async function resolveImportsCore(
         if (!pkg.startsWith(".")) {
           // npm import — resolve directly
           processImportStatement(stmt, importMap);
-        } else if (readFile) {
-          // Relative import — may be a barrel file
+        } else {
+          // Relative import — always record the imported names in importMap (with
+          // the relative path as the value) so callers can test `importMap.has(name)`.
+          // If readFile is provided, also attempt barrel-file package resolution.
           const clause = childOfType(stmt, "import_clause");
           if (!clause) break;
           const names: string[] = [];
@@ -424,6 +426,7 @@ async function resolveImportsCore(
             if (!child) continue;
             if (child.type === "identifier") {
               names.push(child.text);
+              importMap.set(child.text, pkg);
             } else if (child.type === "named_imports") {
               for (let k = 0; k < child.childCount; k++) {
                 const spec = child.child(k);
@@ -434,11 +437,14 @@ async function resolveImportsCore(
                   if (s && s.type === "identifier") idents.push(s.text);
                 }
                 const local = idents[idents.length - 1];
-                if (local) names.push(local);
+                if (local) {
+                  names.push(local);
+                  importMap.set(local, pkg);
+                }
               }
             }
           }
-          if (names.length > 0) {
+          if (readFile && names.length > 0) {
             const existing = relativeImports.get(pkg) ?? [];
             relativeImports.set(pkg, [...existing, ...names]);
           }
