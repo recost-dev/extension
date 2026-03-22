@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const strict_1 = __importDefault(require("node:assert/strict"));
 const index_1 = require("../scanner/fingerprints/index");
 const registry_1 = require("../scanner/fingerprints/registry");
+const patterns_1 = require("../scanner/patterns");
 function run(name, fn) {
     try {
         fn();
@@ -400,5 +401,130 @@ run("lookupHost: api.algolia.net → algolia", () => {
 });
 run("lookupHost: api.segment.io → segment", () => {
     strict_1.default.equal((0, registry_1.lookupHost)("api.segment.io"), "segment");
+});
+// ── 8. Pricing detail tests (Phase 1.7) ──────────────────────────────────────
+run("pricing: openai chat.completions.create has positive input and output price", () => {
+    const m = (0, registry_1.lookupMethod)("openai", "chat.completions.create");
+    strict_1.default.ok(m, "entry must exist");
+    strict_1.default.ok(typeof m.inputPricePer1M === "number" && m.inputPricePer1M > 0, "inputPricePer1M must be > 0");
+    strict_1.default.ok(typeof m.outputPricePer1M === "number" && m.outputPricePer1M > 0, "outputPricePer1M must be > 0");
+});
+run("pricing: anthropic messages.create cheaper input than output", () => {
+    const m = (0, registry_1.lookupMethod)("anthropic", "messages.create");
+    strict_1.default.ok(m);
+    strict_1.default.ok((m.inputPricePer1M ?? 0) < (m.outputPricePer1M ?? 0), "input tokens should cost less than output tokens");
+});
+run("pricing: anthropic messageBatches.create cheaper than messages.create", () => {
+    const batch = (0, registry_1.lookupMethod)("anthropic", "messageBatches.create");
+    const msg = (0, registry_1.lookupMethod)("anthropic", "messages.create");
+    strict_1.default.ok(batch && msg);
+    strict_1.default.ok((batch.inputPricePer1M ?? 0) < (msg.inputPricePer1M ?? 999), "batch pricing should be cheaper than standard");
+});
+run("pricing: stripe paymentIntents.create has fixed 0.30 fee and 2.9% rate", () => {
+    const m = (0, registry_1.lookupMethod)("stripe", "paymentIntents.create");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.costModel, "per_transaction");
+    strict_1.default.equal(m.fixedFee, 0.30, "fixed fee should be $0.30");
+    strict_1.default.equal(m.percentageFee, 0.029, "percentage fee should be 2.9%");
+});
+run("pricing: bedrock ConverseStreamCommand has per_token pricing", () => {
+    const m = (0, registry_1.lookupMethod)("aws-bedrock", "ConverseStreamCommand");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.costModel, "per_token");
+    strict_1.default.ok((m.inputPricePer1M ?? 0) > 0 && (m.outputPricePer1M ?? 0) > 0);
+    // Bedrock is typically more expensive than hosted APIs
+    strict_1.default.ok((m.inputPricePer1M ?? 0) > 1, "bedrock input price should be > $1/1M");
+});
+run("pricing: gemini models.generateContent has per_token pricing", () => {
+    const m = (0, registry_1.lookupMethod)("gemini", "models.generateContent");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.costModel, "per_token");
+    strict_1.default.ok(typeof m.inputPricePer1M === "number" && m.inputPricePer1M >= 0);
+});
+run("pricing: mistral chat.complete has non-zero pricing", () => {
+    const m = (0, registry_1.lookupMethod)("mistral", "chat.complete");
+    strict_1.default.ok(m);
+    strict_1.default.ok((m.inputPricePer1M ?? 0) > 0);
+    strict_1.default.ok((m.outputPricePer1M ?? 0) > 0);
+});
+run("pricing: vertex-ai generateContent has per_token pricing", () => {
+    const m = (0, registry_1.lookupMethod)("vertex-ai", "generateContent");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.costModel, "per_token");
+    strict_1.default.ok((m.inputPricePer1M ?? 0) >= 0);
+});
+run("pricing: cohere embed has per_token, rerank has per_request", () => {
+    const embed = (0, registry_1.lookupMethod)("cohere", "embed");
+    const rerank = (0, registry_1.lookupMethod)("cohere", "rerank");
+    strict_1.default.ok(embed && rerank);
+    strict_1.default.equal(embed.costModel, "per_token");
+    strict_1.default.equal(rerank.costModel, "per_request");
+});
+run("pricing: supabase from.select is per_request (usage-based)", () => {
+    const m = (0, registry_1.lookupMethod)("supabase", "from.select");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.costModel, "per_request");
+});
+// ── 9. Integration: scanner matches use registry data (Phase 1.7) ─────────────
+run("integration: anthropic scanner match endpoint matches registry", () => {
+    const line = "await client.messages.create({ model: 'claude-3-5-haiku-latest' })";
+    const matches = (0, patterns_1.matchNormalizedLine)(line).filter((m) => m.provider === "anthropic");
+    strict_1.default.ok(matches.length > 0, "should detect anthropic match");
+    const reg = (0, registry_1.lookupMethod)("anthropic", "messages.create");
+    strict_1.default.ok(reg, "registry must have messages.create");
+    const match = matches.find((m) => m.action === "create");
+    strict_1.default.ok(match, "should find create action");
+    strict_1.default.equal(match.endpoint, reg.endpoint, "scanner endpoint should match registry endpoint");
+});
+run("integration: bedrock scanner streaming flag matches registry", () => {
+    const line = "await client.send(new ConverseStreamCommand({ modelId: 'anthropic.claude-3' }))";
+    const matches = (0, patterns_1.matchNormalizedLine)(line).filter((m) => m.provider === "aws-bedrock");
+    strict_1.default.ok(matches.length > 0, "should detect bedrock match");
+    const reg = (0, registry_1.lookupMethod)("aws-bedrock", "ConverseStreamCommand");
+    strict_1.default.ok(reg && reg.streaming === true);
+    strict_1.default.equal(matches[0].streaming, true, "scanner streaming flag should come from registry");
+});
+run("integration: openai chat completions match uses registry costModel endpoint", () => {
+    const line = "await openai.chat.completions.create({ model: 'gpt-4o', messages })";
+    const matches = (0, patterns_1.matchNormalizedLine)(line).filter((m) => m.provider === "openai");
+    strict_1.default.ok(matches.length > 0, "should detect openai match");
+    const reg = (0, registry_1.lookupMethod)("openai", "chat.completions.create");
+    strict_1.default.ok(reg);
+    const match = matches[0];
+    strict_1.default.match(match.endpoint ?? "", /api\.openai\.com\/v1\/chat\/completions/, "endpoint must point to openai completions");
+    strict_1.default.equal(match.streaming, reg.streaming ?? false);
+});
+run("integration: mistral chat stream match has streaming true", () => {
+    const line = "await mistral.chat.stream({ model: 'mistral-small' })";
+    const matches = (0, patterns_1.matchNormalizedLine)(line).filter((m) => m.provider === "mistral");
+    strict_1.default.ok(matches.length > 0, "should detect mistral match");
+    const reg = (0, registry_1.lookupMethod)("mistral", "chat.stream");
+    strict_1.default.ok(reg && reg.streaming === true);
+    strict_1.default.equal(matches[0].streaming, true);
+});
+run("integration: stripe match method and endpoint match registry", () => {
+    const line = "await stripe.paymentIntents.create({ amount: 1000, currency: 'usd' })";
+    const matches = (0, patterns_1.matchNormalizedLine)(line).filter((m) => m.provider === "stripe");
+    strict_1.default.ok(matches.length > 0, "should detect stripe match");
+    const reg = (0, registry_1.lookupMethod)("stripe", "paymentIntents.create");
+    strict_1.default.ok(reg);
+    strict_1.default.equal(matches[0].method, reg.httpMethod, "HTTP method should come from registry");
+    strict_1.default.match(matches[0].endpoint ?? "", /api\.stripe\.com/);
+});
+run("integration: supabase select match is cacheCapable from registry", () => {
+    const line = "await supabase.from('users').select('id, name')";
+    const matches = (0, patterns_1.matchNormalizedLine)(line).filter((m) => m.provider === "supabase");
+    strict_1.default.ok(matches.length > 0, "should detect supabase match");
+    const reg = (0, registry_1.lookupMethod)("supabase", "from.select");
+    strict_1.default.ok(reg && reg.cacheCapable === true);
+    strict_1.default.equal(matches[0].cacheCapable, true, "cacheCapable should come from registry");
+});
+run("integration: firebase onSnapshot match is streaming from registry", () => {
+    const line = "onSnapshot(docRef, (snap) => { setData(snap.data()); })";
+    const matches = (0, patterns_1.matchNormalizedLine)(line).filter((m) => m.provider === "firebase");
+    strict_1.default.ok(matches.length > 0, "should detect firebase match");
+    const reg = (0, registry_1.lookupMethod)("firebase", "onSnapshot");
+    strict_1.default.ok(reg && reg.streaming === true);
+    strict_1.default.equal(matches[0].streaming, true, "streaming should come from registry");
 });
 //# sourceMappingURL=fingerprint-registry.test.js.map

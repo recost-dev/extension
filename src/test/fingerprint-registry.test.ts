@@ -7,6 +7,7 @@ import {
   getAllProviders,
   getProviderMethods,
 } from "../scanner/fingerprints/registry";
+import { matchNormalizedLine } from "../scanner/patterns";
 
 function run(name: string, fn: () => void): void {
   try {
@@ -496,4 +497,158 @@ run("lookupHost: api.algolia.net → algolia", () => {
 
 run("lookupHost: api.segment.io → segment", () => {
   assert.equal(lookupHost("api.segment.io"), "segment");
+});
+
+// ── 8. Pricing detail tests (Phase 1.7) ──────────────────────────────────────
+
+run("pricing: openai chat.completions.create has positive input and output price", () => {
+  const m = lookupMethod("openai", "chat.completions.create");
+  assert.ok(m, "entry must exist");
+  assert.ok(typeof m!.inputPricePer1M === "number" && m!.inputPricePer1M > 0,
+    "inputPricePer1M must be > 0");
+  assert.ok(typeof m!.outputPricePer1M === "number" && m!.outputPricePer1M > 0,
+    "outputPricePer1M must be > 0");
+});
+
+run("pricing: anthropic messages.create cheaper input than output", () => {
+  const m = lookupMethod("anthropic", "messages.create");
+  assert.ok(m);
+  assert.ok((m!.inputPricePer1M ?? 0) < (m!.outputPricePer1M ?? 0),
+    "input tokens should cost less than output tokens");
+});
+
+run("pricing: anthropic messageBatches.create cheaper than messages.create", () => {
+  const batch = lookupMethod("anthropic", "messageBatches.create");
+  const msg = lookupMethod("anthropic", "messages.create");
+  assert.ok(batch && msg);
+  assert.ok((batch!.inputPricePer1M ?? 0) < (msg!.inputPricePer1M ?? 999),
+    "batch pricing should be cheaper than standard");
+});
+
+run("pricing: stripe paymentIntents.create has fixed 0.30 fee and 2.9% rate", () => {
+  const m = lookupMethod("stripe", "paymentIntents.create");
+  assert.ok(m);
+  assert.equal(m!.costModel, "per_transaction");
+  assert.equal(m!.fixedFee, 0.30, "fixed fee should be $0.30");
+  assert.equal(m!.percentageFee, 0.029, "percentage fee should be 2.9%");
+});
+
+run("pricing: bedrock ConverseStreamCommand has per_token pricing", () => {
+  const m = lookupMethod("aws-bedrock", "ConverseStreamCommand");
+  assert.ok(m);
+  assert.equal(m!.costModel, "per_token");
+  assert.ok((m!.inputPricePer1M ?? 0) > 0 && (m!.outputPricePer1M ?? 0) > 0);
+  // Bedrock is typically more expensive than hosted APIs
+  assert.ok((m!.inputPricePer1M ?? 0) > 1, "bedrock input price should be > $1/1M");
+});
+
+run("pricing: gemini models.generateContent has per_token pricing", () => {
+  const m = lookupMethod("gemini", "models.generateContent");
+  assert.ok(m);
+  assert.equal(m!.costModel, "per_token");
+  assert.ok(typeof m!.inputPricePer1M === "number" && m!.inputPricePer1M >= 0);
+});
+
+run("pricing: mistral chat.complete has non-zero pricing", () => {
+  const m = lookupMethod("mistral", "chat.complete");
+  assert.ok(m);
+  assert.ok((m!.inputPricePer1M ?? 0) > 0);
+  assert.ok((m!.outputPricePer1M ?? 0) > 0);
+});
+
+run("pricing: vertex-ai generateContent has per_token pricing", () => {
+  const m = lookupMethod("vertex-ai", "generateContent");
+  assert.ok(m);
+  assert.equal(m!.costModel, "per_token");
+  assert.ok((m!.inputPricePer1M ?? 0) >= 0);
+});
+
+run("pricing: cohere embed has per_token, rerank has per_request", () => {
+  const embed = lookupMethod("cohere", "embed");
+  const rerank = lookupMethod("cohere", "rerank");
+  assert.ok(embed && rerank);
+  assert.equal(embed!.costModel, "per_token");
+  assert.equal(rerank!.costModel, "per_request");
+});
+
+run("pricing: supabase from.select is per_request (usage-based)", () => {
+  const m = lookupMethod("supabase", "from.select");
+  assert.ok(m);
+  assert.equal(m!.costModel, "per_request");
+});
+
+// ── 9. Integration: scanner matches use registry data (Phase 1.7) ─────────────
+
+run("integration: anthropic scanner match endpoint matches registry", () => {
+  const line = "await client.messages.create({ model: 'claude-3-5-haiku-latest' })";
+  const matches = matchNormalizedLine(line).filter((m) => m.provider === "anthropic");
+  assert.ok(matches.length > 0, "should detect anthropic match");
+  const reg = lookupMethod("anthropic", "messages.create");
+  assert.ok(reg, "registry must have messages.create");
+  const match = matches.find((m) => m.action === "create");
+  assert.ok(match, "should find create action");
+  assert.equal(match!.endpoint, reg!.endpoint,
+    "scanner endpoint should match registry endpoint");
+});
+
+run("integration: bedrock scanner streaming flag matches registry", () => {
+  const line = "await client.send(new ConverseStreamCommand({ modelId: 'anthropic.claude-3' }))";
+  const matches = matchNormalizedLine(line).filter((m) => m.provider === "aws-bedrock");
+  assert.ok(matches.length > 0, "should detect bedrock match");
+  const reg = lookupMethod("aws-bedrock", "ConverseStreamCommand");
+  assert.ok(reg && reg.streaming === true);
+  assert.equal(matches[0].streaming, true,
+    "scanner streaming flag should come from registry");
+});
+
+run("integration: openai chat completions match uses registry costModel endpoint", () => {
+  const line = "await openai.chat.completions.create({ model: 'gpt-4o', messages })";
+  const matches = matchNormalizedLine(line).filter((m) => m.provider === "openai");
+  assert.ok(matches.length > 0, "should detect openai match");
+  const reg = lookupMethod("openai", "chat.completions.create");
+  assert.ok(reg);
+  const match = matches[0];
+  assert.match(match.endpoint ?? "", /api\.openai\.com\/v1\/chat\/completions/,
+    "endpoint must point to openai completions");
+  assert.equal(match.streaming, reg!.streaming ?? false);
+});
+
+run("integration: mistral chat stream match has streaming true", () => {
+  const line = "await mistral.chat.stream({ model: 'mistral-small' })";
+  const matches = matchNormalizedLine(line).filter((m) => m.provider === "mistral");
+  assert.ok(matches.length > 0, "should detect mistral match");
+  const reg = lookupMethod("mistral", "chat.stream");
+  assert.ok(reg && reg.streaming === true);
+  assert.equal(matches[0].streaming, true);
+});
+
+run("integration: stripe match method and endpoint match registry", () => {
+  const line = "await stripe.paymentIntents.create({ amount: 1000, currency: 'usd' })";
+  const matches = matchNormalizedLine(line).filter((m) => m.provider === "stripe");
+  assert.ok(matches.length > 0, "should detect stripe match");
+  const reg = lookupMethod("stripe", "paymentIntents.create");
+  assert.ok(reg);
+  assert.equal(matches[0].method, reg!.httpMethod,
+    "HTTP method should come from registry");
+  assert.match(matches[0].endpoint ?? "", /api\.stripe\.com/);
+});
+
+run("integration: supabase select match is cacheCapable from registry", () => {
+  const line = "await supabase.from('users').select('id, name')";
+  const matches = matchNormalizedLine(line).filter((m) => m.provider === "supabase");
+  assert.ok(matches.length > 0, "should detect supabase match");
+  const reg = lookupMethod("supabase", "from.select");
+  assert.ok(reg && reg.cacheCapable === true);
+  assert.equal(matches[0].cacheCapable, true,
+    "cacheCapable should come from registry");
+});
+
+run("integration: firebase onSnapshot match is streaming from registry", () => {
+  const line = "onSnapshot(docRef, (snap) => { setData(snap.data()); })";
+  const matches = matchNormalizedLine(line).filter((m) => m.provider === "firebase");
+  assert.ok(matches.length > 0, "should detect firebase match");
+  const reg = lookupMethod("firebase", "onSnapshot");
+  assert.ok(reg && reg.streaming === true);
+  assert.equal(matches[0].streaming, true,
+    "streaming should come from registry");
 });
