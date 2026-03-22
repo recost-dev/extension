@@ -47,12 +47,18 @@
       {
         "command": "recost.statusOnline",
         "title": "ReCost: Online",
-        "icon": { "light": "./media/status-online.svg", "dark": "./media/status-online.svg" }
+        "icon": {
+          "light": "./media/status-online.svg",
+          "dark": "./media/status-online.svg"
+        }
       },
       {
         "command": "recost.statusLocal",
         "title": "ReCost: Local mode",
-        "icon": { "light": "./media/status-local.svg", "dark": "./media/status-local.svg" }
+        "icon": {
+          "light": "./media/status-local.svg",
+          "dark": "./media/status-local.svg"
+        }
       },
       {
         "command": "recost.scanWorkspace",
@@ -154,17 +160,18 @@
     "build:webview": "cd webview && npm run build",
     "build:dashboard": "cd dashboard && npm run build && rm -rf ../dashboard-dist && cp -r dist ../dashboard-dist",
     "test": "npm run test:scanner",
-    "test:scanner": "tsc -p tsconfig.scanner-tests.json && node dist-test/test/scanner-patterns.test.js && node dist-test/test/endpoint-classification.test.js && node dist-test/test/local-waste-detector.test.js && node dist-test/test/chat-providers.test.js && node dist-test/test/fingerprint-registry.test.js && node dist-test/test/pricing-sync.test.js",
+    "test:scanner": "tsc -p tsconfig.scanner-tests.json && node dist-test/test/scanner-patterns.test.js && node dist-test/test/endpoint-classification.test.js && node dist-test/test/local-waste-detector.test.js && node dist-test/test/chat-providers.test.js && node dist-test/test/fingerprint-registry.test.js && node dist-test/test/pricing-sync.test.js && node dist-test/test/ast-parser-loader.test.js && node dist-test/test/ast-call-visitor.test.js && node dist-test/test/ast-import-resolver.test.js",
     "watch:ext": "node esbuild.mjs --watch",
     "watch:webview": "cd webview && npm run build -- --watch",
     "package": "npx @vscode/vsce package --no-dependencies --allow-missing-repository"
   },
   "dependencies": {
-    "openai": "^4.73.0"
+    "openai": "^4.73.0",
+    "web-tree-sitter": "^0.26.7"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
     "esbuild": "^0.24.0",
     "typescript": "^5.8.0"
   }

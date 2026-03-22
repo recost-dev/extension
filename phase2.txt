@@ -45,7 +45,7 @@ The AST scanner runs in parallel with existing regex matchers. Results are dedup
 
 ### Branch
 
-`feat/tree-sitter` off `feat/fingerprint-registry`
+`p2-tree-sitter` off `p1-fingerprint-registry`
 
 ---
 
