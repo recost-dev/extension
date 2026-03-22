@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const strict_1 = __importDefault(require("node:assert/strict"));
 const index_1 = require("../scanner/fingerprints/index");
+const registry_1 = require("../scanner/fingerprints/registry");
 function run(name, fn) {
     try {
         fn();
@@ -228,5 +229,127 @@ run("pricing values are non-negative where defined", () => {
                 strict_1.default.ok(m.percentageFee >= 0, `${p.provider}/${m.pattern}: percentageFee < 0`);
         }
     }
+});
+// ── Registry loader tests (1.4) ───────────────────────────────────────────────
+// lookupMethod — exact match
+run("lookupMethod: openai chat.completions.create returns correct entry", () => {
+    const m = (0, registry_1.lookupMethod)("openai", "chat.completions.create");
+    strict_1.default.ok(m, "expected a result");
+    strict_1.default.equal(m.httpMethod, "POST");
+    strict_1.default.equal(m.costModel, "per_token");
+    strict_1.default.ok(typeof m.inputPricePer1M === "number");
+});
+run("lookupMethod: anthropic messages.create returns correct endpoint", () => {
+    const m = (0, registry_1.lookupMethod)("anthropic", "messages.create");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.endpoint, "https://api.anthropic.com/v1/messages");
+});
+run("lookupMethod: stripe paymentIntents.create returns per_transaction", () => {
+    const m = (0, registry_1.lookupMethod)("stripe", "paymentIntents.create");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.costModel, "per_transaction");
+});
+run("lookupMethod: supabase from.select returns cacheCapable GET", () => {
+    const m = (0, registry_1.lookupMethod)("supabase", "from.select");
+    strict_1.default.ok(m);
+    strict_1.default.equal(m.httpMethod, "GET");
+    strict_1.default.equal(m.cacheCapable, true);
+});
+// lookupMethod — variable prefix stripping
+run("lookupMethod: strips leading variable name (client.chat.completions.create → openai)", () => {
+    const m = (0, registry_1.lookupMethod)("openai", "client.chat.completions.create");
+    strict_1.default.ok(m, "should match after stripping 'client.' prefix");
+    strict_1.default.equal(m.costModel, "per_token");
+});
+run("lookupMethod: strips arbitrary alias prefix (ai.messages.create → anthropic)", () => {
+    const m = (0, registry_1.lookupMethod)("anthropic", "ai.messages.create");
+    strict_1.default.ok(m, "should match after stripping 'ai.' prefix");
+    strict_1.default.equal(m.endpoint, "https://api.anthropic.com/v1/messages");
+});
+// lookupMethod — misses
+run("lookupMethod: unknown method returns null", () => {
+    strict_1.default.equal((0, registry_1.lookupMethod)("openai", "totally.unknown.method"), null);
+});
+run("lookupMethod: unknown provider returns null", () => {
+    strict_1.default.equal((0, registry_1.lookupMethod)("nonexistent", "chat.completions.create"), null);
+});
+run("lookupMethod: empty strings return null", () => {
+    strict_1.default.equal((0, registry_1.lookupMethod)("", "chat.completions.create"), null);
+    strict_1.default.equal((0, registry_1.lookupMethod)("openai", ""), null);
+});
+// lookupMethod — case-insensitive provider
+run("lookupMethod: provider name is case-insensitive", () => {
+    const lower = (0, registry_1.lookupMethod)("openai", "chat.completions.create");
+    const upper = (0, registry_1.lookupMethod)("OpenAI", "chat.completions.create");
+    const mixed = (0, registry_1.lookupMethod)("OPENAI", "chat.completions.create");
+    strict_1.default.ok(lower && upper && mixed);
+    strict_1.default.equal(lower.endpoint, upper.endpoint);
+    strict_1.default.equal(lower.endpoint, mixed.endpoint);
+});
+// lookupHost — exact matches
+run("lookupHost: api.openai.com → openai", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.openai.com"), "openai");
+});
+run("lookupHost: api.anthropic.com → anthropic", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.anthropic.com"), "anthropic");
+});
+run("lookupHost: api.stripe.com → stripe", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.stripe.com"), "stripe");
+});
+run("lookupHost: api.mistral.ai → mistral", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.mistral.ai"), "mistral");
+});
+run("lookupHost: generativelanguage.googleapis.com → gemini", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("generativelanguage.googleapis.com"), "gemini");
+});
+// lookupHost — regex patterns
+run("lookupHost: subdomain.supabase.co matches supabase regex", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("myproject.supabase.co"), "supabase");
+});
+run("lookupHost: bedrock-runtime.us-east-1.amazonaws.com → aws-bedrock", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("bedrock-runtime.us-east-1.amazonaws.com"), "aws-bedrock");
+});
+run("lookupHost: us-central1-aiplatform.googleapis.com → vertex-ai", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("us-central1-aiplatform.googleapis.com"), "vertex-ai");
+});
+// lookupHost — misses
+run("lookupHost: unknown hostname returns null", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("example.com"), null);
+});
+run("lookupHost: empty string returns null", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)(""), null);
+});
+// getAllProviders
+run("getAllProviders: returns all 10 providers", () => {
+    const providers = (0, registry_1.getAllProviders)();
+    strict_1.default.equal(providers.length, 10);
+    strict_1.default.ok(providers.includes("openai"));
+    strict_1.default.ok(providers.includes("anthropic"));
+    strict_1.default.ok(providers.includes("stripe"));
+    strict_1.default.ok(providers.includes("aws-bedrock"));
+    strict_1.default.ok(providers.includes("vertex-ai"));
+});
+run("getAllProviders: no duplicates", () => {
+    const providers = (0, registry_1.getAllProviders)();
+    strict_1.default.equal(providers.length, new Set(providers).size);
+});
+// getProviderMethods
+run("getProviderMethods: openai returns multiple methods", () => {
+    const methods = (0, registry_1.getProviderMethods)("openai");
+    strict_1.default.ok(methods.length > 0);
+    strict_1.default.ok(methods.some((m) => m.pattern === "chat.completions.create"));
+    strict_1.default.ok(methods.some((m) => m.pattern === "embeddings.create"));
+});
+run("getProviderMethods: unknown provider returns empty array", () => {
+    strict_1.default.deepEqual((0, registry_1.getProviderMethods)("nonexistent"), []);
+});
+run("getProviderMethods: empty string returns empty array", () => {
+    strict_1.default.deepEqual((0, registry_1.getProviderMethods)(""), []);
+});
+run("getProviderMethods: case-insensitive provider name", () => {
+    const lower = (0, registry_1.getProviderMethods)("anthropic");
+    const upper = (0, registry_1.getProviderMethods)("ANTHROPIC");
+    strict_1.default.equal(lower.length, upper.length);
+    strict_1.default.ok(lower.length > 0);
 });
 //# sourceMappingURL=fingerprint-registry.test.js.map
