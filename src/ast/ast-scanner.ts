@@ -19,8 +19,10 @@ import { parseFile, getLanguageForExtension } from "./parser-loader";
 import { extractCalls } from "./call-visitor";
 import { resolveImports, CLASS_TO_PACKAGE } from "./import-resolver";
 import { lookupMethod, lookupHost } from "../scanner/fingerprints/registry";
+import { analyzeFrequency, frequencyToLoopContext } from "./frequency-analyzer";
 import type { SyntaxNode, Tree } from "./parser-loader";
 import type { FileReader } from "./import-resolver";
+export type { FrequencyClass } from "./frequency-analyzer";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -41,7 +43,9 @@ export interface AstCallMatch {
   line: number;
   /** 0-based column */
   column: number;
-  /** True when the call is inside a loop or iteration context */
+  /** Structural frequency classification derived from AST context */
+  frequency: import("./frequency-analyzer").FrequencyClass;
+  /** Convenience: true when frequency implies repeated execution (loop/parallel/polling) */
   loopContext: boolean;
   streaming?: boolean;
   batchCapable?: boolean;
@@ -85,15 +89,7 @@ const PACKAGE_TO_PROVIDER: Record<string, string> = {
   "@mistralai/mistralai": "mistral",
 };
 
-// ── Loop / iteration detection ────────────────────────────────────────────────
-
-const LOOP_NODE_TYPES = new Set([
-  "for_statement",
-  "for_in_statement",
-  "for_of_statement",
-  "while_statement",
-  "do_statement",
-]);
+// ── Iteration method names (used in callback/queue detection) ─────────────────
 
 const ITERATION_METHODS = new Set([
   "forEach",
@@ -116,21 +112,6 @@ const QUEUE_WORKER_METHODS = new Set([
   "on",
 ]);
 
-function isInLoop(node: SyntaxNode): boolean {
-  let current: SyntaxNode | null = node.parent;
-  while (current) {
-    if (LOOP_NODE_TYPES.has(current.type)) return true;
-    if (current.type === "call_expression" || current.type === "call") {
-      const fn = current.child(0);
-      if (fn?.type === "member_expression" || fn?.type === "attribute") {
-        const prop = fn.child(2); // property_identifier / identifier
-        if (prop && ITERATION_METHODS.has(prop.text)) return true;
-      }
-    }
-    current = current.parent;
-  }
-  return false;
-}
 
 // ── Middleware detection ──────────────────────────────────────────────────────
 
@@ -471,7 +452,8 @@ export async function scanSourceWithAst(
       const methodMatches: AstCallMatch[] = [];
       for (const callInfo of methodCalls) {
         const { rootIdentifier, methodChain, args, line, column, node } = callInfo;
-        const inLoop = isInLoop(node);
+        const frequency = analyzeFrequency(node);
+        const inLoop = frequencyToLoopContext(frequency);
 
         const resolved = resolveProvider(
           rootIdentifier, methodChain, varMap, thisFieldMap, parameterMaps, methodName
@@ -483,9 +465,9 @@ export async function scanSourceWithAst(
 
         methodMatches.push(fp
           ? { kind: "sdk", provider, packageName, methodChain, method: fp.httpMethod,
-              endpoint: fp.endpoint, line, column, loopContext: inLoop,
+              endpoint: fp.endpoint, line, column, frequency, loopContext: inLoop,
               streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable }
-          : { kind: "sdk", provider, packageName, methodChain, line, column, loopContext: inLoop }
+          : { kind: "sdk", provider, packageName, methodChain, line, column, frequency, loopContext: inLoop }
         );
       }
       if (methodMatches.length > 0) classInfo.methods.set(methodName, methodMatches);
@@ -498,7 +480,8 @@ export async function scanSourceWithAst(
 
   for (const callInfo of allCalls) {
     const { methodChain, rootIdentifier, args, line, column, node } = callInfo;
-    const inLoop = isInLoop(node);
+    const frequency = analyzeFrequency(node);
+    const inLoop = frequencyToLoopContext(frequency);
     const fnName = enclosingFunctionName(node);
     const parts = methodChain.split(".");
     const lastMethod = parts[parts.length - 1];
@@ -568,6 +551,7 @@ export async function scanSourceWithAst(
               method: httpMethod,
               endpoint: url,
               line, column,
+              frequency,
               loopContext: inLoop,
             });
           }
@@ -591,7 +575,7 @@ export async function scanSourceWithAst(
               const key = `${m.provider}:${m.methodChain}:${line}`;
               if (!seen.has(key)) {
                 seen.add(key);
-                matches.push({ ...m, line, column, loopContext: inLoop || m.loopContext });
+                matches.push({ ...m, line, column, frequency, loopContext: inLoop || m.loopContext });
               }
             }
             continue;
@@ -616,11 +600,11 @@ export async function scanSourceWithAst(
     if (fp) {
       matches.push({
         kind: "sdk", provider, packageName, methodChain, method: fp.httpMethod,
-        endpoint: fp.endpoint, line, column, loopContext: inLoop,
+        endpoint: fp.endpoint, line, column, frequency, loopContext: inLoop,
         streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable,
       });
     } else {
-      matches.push({ kind: "sdk", provider, packageName, methodChain, line, column, loopContext: inLoop });
+      matches.push({ kind: "sdk", provider, packageName, methodChain, line, column, frequency, loopContext: inLoop });
     }
   }
 
@@ -639,9 +623,9 @@ export async function scanSourceWithAst(
       const fp = lookupMethod(provider, resolvedChain);
       fnMatches.push(fp
         ? { kind: "sdk", provider, packageName, methodChain, method: fp.httpMethod,
-            endpoint: fp.endpoint, line, column, loopContext: false,
+            endpoint: fp.endpoint, line, column, frequency: "single", loopContext: false,
             streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable }
-        : { kind: "sdk", provider, packageName, methodChain, line, column, loopContext: false }
+        : { kind: "sdk", provider, packageName, methodChain, line, column, frequency: "single", loopContext: false }
       );
     }
     if (fnMatches.length > 0) fnApiCalls.set(fnName2, fnMatches);
@@ -652,12 +636,11 @@ export async function scanSourceWithAst(
     const { methodChain, args, line, column, node } = callInfo;
     const parts = methodChain.split(".");
     const lastMethod = parts[parts.length - 1];
-    const inLoop = isInLoop(node);
 
+    const isParallelCall = methodChain === "Promise.all" || methodChain === "Promise.allSettled";
     const isIterationCall =
       (ITERATION_METHODS.has(lastMethod) && parts.length >= 2) ||
-      methodChain === "Promise.all" ||
-      methodChain === "Promise.allSettled";
+      isParallelCall;
 
     const isQueueCall = QUEUE_WORKER_METHODS.has(lastMethod) && parts.length >= 2;
 
@@ -669,11 +652,12 @@ export async function scanSourceWithAst(
         const refName = arg.text;
         const refCalls = fnApiCalls.get(refName);
         if (refCalls) {
+          const cbFreq = isParallelCall ? "parallel" : "bounded-loop";
           for (const m of refCalls) {
             const key = `${m.provider}:${m.methodChain}:${line}:cb`;
             if (!seen.has(key)) {
               seen.add(key);
-              matches.push({ ...m, line, column, loopContext: true });
+              matches.push({ ...m, line, column, frequency: cbFreq, loopContext: true });
             }
           }
         }
@@ -694,7 +678,7 @@ export async function scanSourceWithAst(
                     const key = `${m.provider}:${m.methodChain}:${line}:nested`;
                     if (!seen.has(key)) {
                       seen.add(key);
-                      matches.push({ ...m, line, column, loopContext: true });
+                      matches.push({ ...m, line, column, frequency: "parallel", loopContext: true });
                     }
                   }
                 }
@@ -720,7 +704,7 @@ export async function scanSourceWithAst(
             const key = `${m.provider}:${m.methodChain}:${line}:mw`;
             if (!seen.has(key)) {
               seen.add(key);
-              matches.push({ ...m, line, column, loopContext: isInLoop(node), isMiddleware: true });
+              matches.push({ ...m, line, column, frequency: "single", loopContext: false, isMiddleware: true });
             }
           }
         }

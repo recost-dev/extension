@@ -1,6 +1,7 @@
 import type { ApiCallMatch } from "./patterns/types";
 import { getLoopDepth, matchNormalizedLine } from "./patterns";
 import type { Severity, SuggestionType } from "../analysis/types";
+import type { FrequencyClass } from "../ast/frequency-analyzer";
 
 const HTTP_CALL_HINT =
   /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
@@ -162,12 +163,29 @@ function extractCallSites(relativePath: string, lines: string[]): MatchedCallSit
   });
 }
 
+/**
+ * Derive a FrequencyClass from a regex-based MatchedCallSite (no AST available).
+ * Used to enrich severity scoring with frequency semantics.
+ */
+function siteFrequencyClass(site: MatchedCallSite): FrequencyClass {
+  if (site.polling) return "polling";
+  if (site.promiseAll) return "parallel";
+  if (site.loopDepth > 1) return "unbounded-loop";
+  if (site.loopDepth === 1 || site.mapFanout || site.arrayFanout) return "bounded-loop";
+  if (site.cacheGuard) return "cache-guarded";
+  return "single";
+}
+
 function baseScore(site: MatchedCallSite): number {
   let score = 1;
-  if (site.loopDepth > 0) score += 2;
+  const fc = siteFrequencyClass(site);
+  // Frequency-aware base scoring
+  if (fc === "polling") score += 4;          // timer loops run indefinitely
+  else if (fc === "parallel") score += 2;    // Promise.all fan-out
+  else if (fc === "unbounded-loop") score += 3;
+  else if (fc === "bounded-loop") score += 2;
+  // Legacy depth-based adjustments (kept for overlap cases like nested loops)
   if (site.loopDepth > 1) score += 1;
-  if (site.promiseAll) score += 1;
-  if (site.mapFanout || site.arrayFanout) score += 1;
   if (site.hotPath) score += 1;
   if (site.repeatedResourceCount >= 2) score += 1;
   if (site.retryNearby && !site.retryGuard) score += 1;

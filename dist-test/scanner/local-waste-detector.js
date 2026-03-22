@@ -111,15 +111,37 @@ function extractCallSites(relativePath, lines) {
         };
     });
 }
+/**
+ * Derive a FrequencyClass from a regex-based MatchedCallSite (no AST available).
+ * Used to enrich severity scoring with frequency semantics.
+ */
+function siteFrequencyClass(site) {
+    if (site.polling)
+        return "polling";
+    if (site.promiseAll)
+        return "parallel";
+    if (site.loopDepth > 1)
+        return "unbounded-loop";
+    if (site.loopDepth === 1 || site.mapFanout || site.arrayFanout)
+        return "bounded-loop";
+    if (site.cacheGuard)
+        return "cache-guarded";
+    return "single";
+}
 function baseScore(site) {
     let score = 1;
-    if (site.loopDepth > 0)
+    const fc = siteFrequencyClass(site);
+    // Frequency-aware base scoring
+    if (fc === "polling")
+        score += 4; // timer loops run indefinitely
+    else if (fc === "parallel")
+        score += 2; // Promise.all fan-out
+    else if (fc === "unbounded-loop")
+        score += 3;
+    else if (fc === "bounded-loop")
         score += 2;
+    // Legacy depth-based adjustments (kept for overlap cases like nested loops)
     if (site.loopDepth > 1)
-        score += 1;
-    if (site.promiseAll)
-        score += 1;
-    if (site.mapFanout || site.arrayFanout)
         score += 1;
     if (site.hotPath)
         score += 1;

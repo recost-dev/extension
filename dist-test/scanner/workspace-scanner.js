@@ -158,7 +158,12 @@ function astMatchToApiCallInput(match, file) {
             ? `sdk://${match.provider}/${match.methodChain}`
             : `ast:${match.methodChain}`);
     const library = match.packageName ?? match.provider ?? match.methodChain.split(".")[0];
-    const frequency = match.loopContext || match.isMiddleware ? "per-request" : "daily";
+    const isHighFreq = match.isMiddleware ||
+        match.frequency === "unbounded-loop" ||
+        match.frequency === "polling" ||
+        match.frequency === "parallel" ||
+        match.frequency === "bounded-loop";
+    const frequency = isHighFreq ? "per-request" : "daily";
     return { file, line: match.line, method, url, library, frequency };
 }
 async function scanWorkspace(onProgress) {
