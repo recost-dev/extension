@@ -319,24 +319,6 @@ export default function App() {
       )}
       {screen === "keys" && <KeysPage statuses={keyStatuses} focusServiceId={focusServiceId} />}
 
-      {screen !== "scanning" && banner && (
-        <button
-          onClick={() => handleManageKeys(banner.serviceId)}
-          style={{
-            border: "none",
-            borderTop: "1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground) 55%, black 45%)",
-            background: "var(--vscode-editorWarning-background, #f8d568)",
-            color: "var(--vscode-editorWarning-foreground, #5c4300)",
-            padding: "9px 12px",
-            textAlign: "left",
-            cursor: "pointer",
-            fontSize: "12px",
-            fontWeight: 600,
-          }}
-        >
-          {banner.text} · Manage Keys
-        </button>
-      )}
     </div>
   );
 }

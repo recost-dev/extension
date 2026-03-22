@@ -13,6 +13,7 @@ async function updateStatusBar(
   if (!key) {
     statusBar.text = "$(key) ReCost: Not Configured";
     statusBar.tooltip = "Click to manage your ReCost API keys";
+    await vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
     return;
   }
   try {
@@ -24,6 +25,7 @@ async function updateStatusBar(
       statusBar.text = "$(check) ReCost: Connected";
       statusBar.tooltip = "ReCost API key configured";
     }
+    await vscode.commands.executeCommand("setContext", "recost.keyOnline", true);
   } catch (err: unknown) {
     const error = err as Error & { status?: number };
     if (error.status === 401) {
@@ -33,6 +35,7 @@ async function updateStatusBar(
       statusBar.text = "$(warning) ReCost: Unreachable";
       statusBar.tooltip = "Cannot reach ReCost. Check your connection.";
     }
+    await vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
   }
 }
 
@@ -43,6 +46,9 @@ export function activate(context: vscode.ExtensionContext) {
   statusBar.text = "$(key) ReCost: Not Configured";
   statusBar.show();
   context.subscriptions.push(statusBar);
+
+  // Initialize context variable immediately so view/title when clauses work on first render
+  vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
 
   const provider = new EcoSidebarProvider(context);
 
@@ -75,7 +81,10 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  context.subscriptions.push(openPanelCommand, scanCommand, openKeysCommand);
+  const statusOnlineCommand = vscode.commands.registerCommand("recost.statusOnline", () => {});
+  const statusLocalCommand = vscode.commands.registerCommand("recost.statusLocal", () => {});
+
+  context.subscriptions.push(openPanelCommand, scanCommand, openKeysCommand, statusOnlineCommand, statusLocalCommand);
 
   // Async init: update status bar on startup + show first-run notification if no key
   (async () => {
