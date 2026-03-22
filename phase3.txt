@@ -1,9 +1,4 @@
-
-
-
-## Phase 3: Waste Detection Rebuild
-
-### GitHub Issue
+# Phase 3: Waste Detection Rebuild (FULLY UPDATED)
 
 **Title:** Rebuild waste detection on AST for structural accuracy
 
@@ -11,7 +6,7 @@
 
 **Description:**
 
-#### Problem
+### Problem
 
 The current waste detector (`local-waste-detector.ts`) uses regex guards to detect 6 waste patterns (cache misses, unbatched loops, N+1 queries, rate limit risks, concurrency issues, redundant calls). These regex checks are:
 
@@ -19,40 +14,42 @@ The current waste detector (`local-waste-detector.ts`) uses regex guards to dete
 2. **Context-blind** — can't tell if a guard actually protects the specific API call or a different one
 3. **Poorly calibrated** — the confidence scoring formula (0.48 base + score × 0.07) has no empirical basis
 
-#### Solution
+### Solution
 
-Rebuild all waste detection on top of the AST (Phase 2). Instead of regex, we walk the tree structure to determine if an API call is inside a loop, behind a cache guard, missing a batch alternative, etc. Then recalibrate scoring using real-world data.
+Rebuild all waste detection on top of the AST (Phase 2). Instead of regex, we walk the tree structure to determine if an API call is inside a loop, behind a cache guard, missing a batch alternative, etc. Then recalibrate scoring using real-world data. Add cross-file resolution to catch API calls hidden behind wrappers, class methods, middleware, and barrel file re-exports.
 
-#### Scope
+### Scope
 
 - Rebuild cache waste detection using AST
 - Rebuild batch/N+1 detection using AST
 - Rebuild rate limit and concurrency detection using AST
 - Recalibrate confidence scoring with real repo data
-- (Stretch) Add basic cross-file import tracing
+- Cross-file import tracing covering utility wrappers, class services, middleware, re-export chains, and callback references
 
-#### Acceptance Criteria
+### Acceptance Criteria
 
 - [ ] All 6 waste patterns detected with same or better recall than regex
 - [ ] False positive rate measurably lower than regex approach
 - [ ] Confidence scores calibrated against 3+ real repos
+- [ ] Cross-file resolution catches wrapped API calls (utility functions, class methods, middleware)
+- [ ] Cross-file resolution follows re-export chains up to 2 levels
 - [ ] Old regex waste detection code removed (AST is the only path)
 
-#### Dependencies
+### Dependencies
 
 - Phase 2 (Tree-sitter) must be merged first
 
-#### Branch
+### Branch
 
-`feat/ast-waste-detection` off `main` (after Phase 2 merge)
-
----
-
-### Subphase Prompts
+`feat/ast-waste-detection` off `feat/tree-sitter`
 
 ---
 
-#### Prompt 3.1 — Rebuild cache waste detection on AST
+## Subphase Prompts
+
+---
+
+### Prompt 3.1 — Rebuild cache waste detection on AST
 
 ```
 I'm rebuilding the waste detection in my scanner to use AST instead of regex.
@@ -101,7 +98,7 @@ Write tests with sample code:
 
 ---
 
-#### Prompt 3.2 — Rebuild batch and N+1 detection on AST
+### Prompt 3.2 — Rebuild batch and N+1 detection on AST
 
 ```
 Rebuild batch and N+1 waste detection using AST analysis.
@@ -147,7 +144,7 @@ Write tests:
 
 ---
 
-#### Prompt 3.3 — Rebuild rate limit and concurrency detection on AST
+### Prompt 3.3 — Rebuild rate limit and concurrency detection on AST
 
 ```
 Rebuild rate limit risk and concurrency waste detection using AST.
@@ -197,7 +194,7 @@ Write tests:
 
 ---
 
-#### Prompt 3.4 — Recalibrate confidence scoring
+### Prompt 3.4 — Recalibrate confidence scoring
 
 ```
 The waste detector's confidence scoring needs calibration based on real data 
@@ -236,66 +233,187 @@ with justification.
 
 ---
 
-#### Prompt 3.5 — Cross-file analysis (stretch)
+### Prompt 3.5 — Cross-file analysis (UPDATED)
 
 ```
-This is a stretch goal. Add basic cross-file import tracing so the scanner can 
-detect API calls wrapped in utility functions.
+This is the cross-file resolution phase. It catches API calls hidden behind wrappers, 
+utility functions, class methods, middleware, and barrel file re-exports that the 
+per-file scanner can't resolve on its own.
 
-Common pattern the scanner currently misses:
+Common patterns this needs to catch:
 
-// lib/api.ts
-import OpenAI from "openai";
-const client = new OpenAI();
-export async function askGPT(prompt: string) {
-  return client.chat.completions.create({ model: "gpt-4o", messages: [...] });
-}
+Pattern 1 — Utility function wrapper:
+  // lib/api.ts
+  import OpenAI from "openai";
+  const client = new OpenAI();
+  export async function askGPT(prompt: string) {
+    return client.chat.completions.create({ model: "gpt-4o", messages: [...] });
+  }
+  // routes/handler.ts  
+  import { askGPT } from "../lib/api";
+  for (const item of items) {
+    await askGPT(item.question);  // ← API call in a loop
+  }
 
-// routes/handler.ts  
-import { askGPT } from "../lib/api";
-for (const item of items) {
-  await askGPT(item.question);  // This is an API call in a loop! But scanner misses it.
-}
+Pattern 2 — Class-based service:
+  // services/ai-service.ts
+  import OpenAI from "openai";
+  export class AIService {
+    private client = new OpenAI();
+    async complete(prompt: string) {
+      return this.client.chat.completions.create({...});
+    }
+  }
+  // routes/chat.ts
+  import { AIService } from "../services/ai-service";
+  const ai = new AIService();
+  app.post("/chat", async (req, res) => {
+    const result = await ai.complete(req.body.prompt);  // ← API call per request
+  });
+
+Pattern 3 — Middleware:
+  // middleware/rate-check.ts
+  import Stripe from "stripe";
+  const stripe = new Stripe("sk_...");
+  export function checkSubscription(req, res, next) {
+    const sub = await stripe.subscriptions.retrieve(req.user.subId);
+    req.subscription = sub;
+    next();
+  }
+  // app.ts
+  import { checkSubscription } from "./middleware/rate-check";
+  app.use(checkSubscription);  // ← Stripe call on EVERY request
+
+Pattern 4 — Re-export chain:
+  // lib/openai.ts — defines askGPT with API call inside
+  // lib/index.ts — export { askGPT } from "./openai"
+  // routes/handler.ts — import { askGPT } from "../lib"
+  // Scanner needs to follow: handler → lib/index → lib/openai → API call
+
+Pattern 5 — Callback passed cross-file:
+  // lib/processors.ts
+  export async function processItem(item) {
+    return openai.chat.completions.create({...});
+  }
+  // worker.ts
+  import { processItem } from "./lib/processors";
+  items.forEach(processItem);  // ← API call in loop via callback reference
 
 Create ast/cross-file-resolver.ts that:
 
-1. First pass — scan all files and build an export registry:
-   - For each file, find all exported functions
-   - For each exported function, check if it contains an API call (from the AST scanner)
-   - If yes, tag it: { file, functionName, apiCalls: ApiCallMatch[] }
+1. FIRST PASS — Build the export registry:
+   Run after all per-file AST scans are complete. For each scanned file:
+   
+   a. Collect all exported functions (named exports, default exports):
+      - If the function body contains a direct API call match (from per-file scan), 
+        tag it: { file, exportName, apiCalls: ApiCallMatch[] }
+   
+   b. Collect all exported class declarations:
+      - For each exported class, check which methods contain API calls 
+        (use the class registry built in prompt 2.4)
+      - Tag: { file, className, methods: { methodName: ApiCallMatch[] }[] }
+   
+   c. Collect all re-exports:
+      - export { foo } from "./bar"  → record that foo originates from ./bar
+      - export * from "./bar"        → record that all exports of ./bar are re-exported
+      - Follow re-export chains up to 2 levels deep (covers barrel files like 
+        lib/index.ts → lib/openai.ts)
+   
+   d. Collect middleware registrations that reference imported functions:
+      - app.use(importedFunction) → record that importedFunction runs per-request
+      - router.use(path, importedFunction) → same
 
-2. Second pass — resolve imports:
-   - For each file, find imports from local paths (not npm packages)
-   - Look up the imported function in the export registry
-   - If the imported function is tagged as API-calling, propagate the ApiCallMatch 
-     metadata to every call site of that function
+2. SECOND PASS — Resolve imports and propagate:
+   For each scanned file, look at its imports from local paths (relative imports only):
+   
+   a. Function call resolution:
+      - If an import resolves to a tagged function in the export registry, 
+        find every call site of that function in the importing file
+      - Create a new ApiCallMatch at each call site, copying the API call metadata 
+        from the export registry
+      - Preserve the original call's context (loop, handler, etc.) for waste detection
+   
+   b. Class instance resolution:
+      - If a file imports a class and creates an instance (new AIService()), 
+        find all method calls on that instance
+      - For each method call, check if that method is tagged in the export registry
+      - If yes, create an ApiCallMatch at the call site
+   
+   c. Re-export resolution:
+      - If an import path points to a file that re-exports from another file, 
+        follow the chain (up to 2 levels) to find the original definition
+      - Then apply rules (a) and (b) against the resolved definition
+   
+   d. Middleware resolution:
+      - For middleware registrations collected in pass 1 that reference imported functions:
+        resolve the import → check if the function is tagged → if yes, create an 
+        ApiCallMatch tagged as frequency "per-request" since middleware runs on every hit
+   
+   e. Callback reference resolution:
+      - If an imported function is passed by reference (not called) to .forEach, .map, 
+        Promise.all, or a queue processor:
+        resolve the import → check if the function is tagged → if yes, create an 
+        ApiCallMatch and mark it with the appropriate loop/concurrency context
 
-3. Limits (keep it tractable):
-   - Only one level of indirection (don't follow chains of wrappers)
-   - Only named exports (not default exports that are objects with methods)
-   - Only top-level function exports (not class methods)
-   - Only local imports (relative paths), not re-exports from node_modules
+3. LIMITS (keep it tractable):
+   - Re-export chains: follow max 2 levels deep
+   - Class resolution: only direct instances (new Class()), not factory functions 
+     that return instances
+   - No dynamic imports or conditional requires
+   - No resolution through node_modules (only relative imports)
+   - No higher-order function returns (function that returns a function that calls API)
+   - No decorator unwrapping
+   - One level of function wrapping only (if askGPT calls helperThatCallsAPI 
+     which calls openai, we only catch askGPT → openai, not the double-wrap 
+     through helperThatCallsAPI unless helperThatCallsAPI was already tagged in pass 1)
 
-4. Integration:
-   - Run cross-file resolution after the per-file AST scan
-   - Inject the propagated matches into the results
-   - The waste detector then catches things like "askGPT in a loop" 
-     as an API-call-in-a-loop
+4. INTEGRATION:
+   - Run cross-file resolution after all per-file AST scans complete
+   - Inject propagated matches into the main results
+   - Deduplicate with existing matches (same file + line = keep the one with more data)
+   - The waste detector then sees things like "askGPT in a loop" as 
+     "OpenAI chat.completions.create in a loop" and flags it correctly
 
-Write tests with a two-file setup demonstrating the pattern above.
-Measure scan time impact — this adds a second pass over all files.
+5. PERFORMANCE:
+   - The first pass is O(files) — scan exports once per file
+   - The second pass is O(files × imports) — for each file, resolve its imports
+   - Cache parsed ASTs from the per-file scan so we don't re-parse
+   - Measure total scan time with cross-file enabled vs disabled
+   - If it adds more than 50% to scan time on a large repo (1000+ files), 
+     add a config option to disable it
+
+Write tests:
+
+Pattern 1 test — Utility wrapper:
+  Create two files: lib/api.ts (exports askGPT with OpenAI call inside) 
+  and routes/handler.ts (imports askGPT, calls it in a loop)
+  → Verify handler.ts shows an ApiCallMatch for OpenAI at the askGPT call site
+  → Verify waste detector flags it as API-call-in-loop
+
+Pattern 2 test — Class service:
+  Create services/ai.ts (exports AIService class with complete() method calling OpenAI)
+  and routes/chat.ts (imports, instantiates, calls ai.complete())
+  → Verify chat.ts shows an ApiCallMatch for OpenAI at ai.complete()
+
+Pattern 3 test — Middleware:
+  Create middleware/auth.ts (exports checkSub that calls Stripe)
+  and app.ts (app.use(checkSub))
+  → Verify app.ts shows an ApiCallMatch for Stripe tagged as per-request
+
+Pattern 4 test — Re-export chain:
+  Create lib/openai.ts (exports askGPT), lib/index.ts (re-exports from openai.ts),
+  and routes/handler.ts (imports from lib/index)
+  → Verify handler.ts resolves through the barrel to the original API call
+
+Pattern 5 test — Callback reference:
+  Create lib/processors.ts (exports processItem with OpenAI call)
+  and worker.ts (imports processItem, passes to items.forEach(processItem))
+  → Verify worker.ts shows API-call-in-loop
+
+Edge case tests:
+- Import from node_modules (should NOT be resolved cross-file)
+- Re-export chain 3 levels deep (should stop at 2, use what it has)
+- Class factory function returning new AIService() (should NOT resolve — known limit)
+- File with no exports (should be skipped in first pass)
+- Circular imports between two files (should not infinite loop — detect and skip)
 ```
-
----
-
-## Summary
-
-| Phase | Issue | Subphases | Branch | Depends On |
-|-------|-------|-----------|--------|------------|
-| 1 | Fingerprint Registry | 1.1–1.8 | `feat/fingerprint-registry` | — |
-| 2 | Tree-sitter Integration | 2.1–2.7 | `feat/tree-sitter` | Phase 1 merged |
-| 3 | Waste Detection Rebuild | 3.1–3.5 | `feat/ast-waste-detection` | Phase 2 merged |
-
-**Total subphases:** 20 (8 + 7 + 5)
-
-Each prompt is designed to be a single focused task. Commit after each subphase passes tests. Merge each phase branch to main before starting the next.

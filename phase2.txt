@@ -1,14 +1,7 @@
-## Phase 2: Tree-sitter Integration
-
-### GitHub Issue
-
-**Title:** Integrate Tree-sitter AST parsing for reliable SDK call detection
-
-**Labels:** `enhancement`, `core`, `phase-2`
-
+# Phase 2: Tree-sitter Integration 
 **Description:**
 
-#### Problem
+### Problem
 
 Our scanner uses regex-based line matching to detect API calls. This approach has fundamental limitations:
 
@@ -18,46 +11,49 @@ Our scanner uses regex-based line matching to detect API calls. This approach ha
 4. **Import tracing** — we can't follow `import { openai } from "./lib/ai"` to determine what a variable actually is
 5. **Fragile hint gate** — the Stage 1 keyword regex needs manual updates for every new provider and produces false matches on common words like `got`
 
-#### Solution
+### Solution
 
 Integrate **Tree-sitter** (via `web-tree-sitter` WASM build) alongside the existing regex matchers. Tree-sitter parses source code into an Abstract Syntax Tree (AST), letting us structurally walk call expressions, resolve imports, and match against the fingerprint registry (Phase 1) with high accuracy.
 
 The AST scanner runs in parallel with existing regex matchers. Results are deduplicated, with AST results preferred when both match. Regex remains the fallback for languages without Tree-sitter support.
 
-#### Scope
+### Scope
 
 - Set up `web-tree-sitter` with JS/TS/Python WASM grammars
 - Build a generic call expression AST visitor
-- Build import resolution (variable name → package mapping)
-- Connect AST detection to the fingerprint registry
+- Build import resolution (variable name → package mapping) including re-exports, barrel files, and typed function parameters
+- Connect AST detection to the fingerprint registry with class wrapper and callback detection
 - Run AST + regex in parallel with deduplication
 - Add Python support
 - Upgrade frequency/loop detection using AST structure
 
-#### Acceptance Criteria
+### Acceptance Criteria
 
 - [ ] AST scanner detects all SDK calls that regex currently catches (parity)
 - [ ] AST scanner catches aliased/renamed client calls that regex misses (improvement)
+- [ ] AST scanner catches class method wrappers and callback references that regex misses
 - [ ] Import resolution works for standard import/require patterns in JS/TS/Python
+- [ ] Import resolution follows re-exports through barrel files (1 level)
+- [ ] Typed function parameters (TS) are resolved to providers
 - [ ] Frequency detection uses AST loop analysis instead of binary heuristic
 - [ ] No regression in scan speed (Tree-sitter WASM parses are fast, but measure it)
 - [ ] Regex matchers still work as fallback for unsupported languages
 
-#### Dependencies
+### Dependencies
 
 - Phase 1 (Fingerprint Registry) must be merged first
 
-#### Branch
+### Branch
 
-`feat/tree-sitter` off `main` (after Phase 1 merge)
-
----
-
-### Subphase Prompts
+`feat/tree-sitter` off `feat/fingerprint-registry`
 
 ---
 
-#### Prompt 2.1 — Set up web-tree-sitter and load parsers
+## Subphase Prompts
+
+---
+
+### Prompt 2.1 — Set up web-tree-sitter and load parsers
 
 ```
 I'm adding AST-based code parsing to my VS Code extension scanner (recost). 
@@ -86,7 +82,7 @@ assets path) and in Node.js tests.
 
 ---
 
-#### Prompt 2.2 — Build the call expression visitor
+### Prompt 2.2 — Build the call expression visitor
 
 ```
 I have Tree-sitter parsing working (ast/parser-loader.ts). Now I need to walk the 
@@ -126,7 +122,7 @@ Write tests using sample code strings:
 
 ---
 
-#### Prompt 2.3 — Build import resolution
+### Prompt 2.3 — Build import resolution (UPDATED)
 
 ```
 I need to trace which package a variable comes from so I can map call expressions 
@@ -149,38 +145,71 @@ Create ast/import-resolver.ts that:
    - import * as openai from "openai"               → openai: "openai"
    - const openai = require("openai")               → openai: "openai"
    - const { OpenAI } = require("openai")           → OpenAI: "openai"
+
 4. Handles constructor assignments:
    - const client = new OpenAI()                    → client: "openai" 
      (only if OpenAI is already mapped to "openai" from an import)
    - const stripe = new Stripe("sk_...")            → stripe: "stripe"
      (only if Stripe is mapped from an import)
-5. Returns a Map<string, string> of variableName → packageName
 
-6. Does NOT handle:
-   - Cross-file resolution (that's Phase 3)
-   - Dynamic imports
-   - Re-exports through intermediary files
+5. Handles re-exports and barrel files:
+   - export { askGPT } from "./lib/api"             → when another file imports askGPT 
+     from this barrel, resolve it to the original source
+   - export * from "./providers"                    → follow one level to find what's 
+     actually exported
+   - Implementation: when an import resolves to a relative path, parse that file's 
+     exports. If the export is a re-export from another file, follow ONE level. 
+     Don't recurse deeper than that.
+
+6. Handles client-as-function-parameter (TypeScript only):
+   - function doStuff(client: OpenAI) { client.chat.completions.create(...) }
+   - If a function parameter has a type annotation matching a known provider client 
+     type name (OpenAI, Anthropic, Stripe, etc. — maintain a list of known client 
+     class names from the fingerprint registry), treat calls on that parameter as 
+     calls to that provider
+   - This covers utility functions that receive a pre-configured client
+   - For JavaScript (no type annotations), skip this — we can't resolve it without types
+
+7. Returns a Map<string, string> of variableName → packageName
+   Plus a secondary map: parameterName → packageName (for the function parameter case, 
+   scoped per function)
+
+8. Does NOT handle:
+   - Dynamic imports (import() expressions)
    - Variables reassigned after initialization
+   - Barrel files more than one level deep
+   - Conditional imports (if/else around require)
+   - Function parameters without type annotations (JS)
 
-Write tests with sample files covering all the import patterns above, 
-plus edge cases like:
+Write tests with sample files covering:
+- All import patterns from item 3 above
+- Constructor assignments (item 4)
+- A barrel file that re-exports from another file (item 5):
+  File A: export function askGPT() { ... }
+  File B (barrel): export { askGPT } from "./a"
+  File C: import { askGPT } from "./b"  → should resolve to file A
+- A function with typed OpenAI parameter (item 6):
+  function helper(client: OpenAI) { return client.chat.completions.create(...) }
 - Multiple imports from different packages in one file
 - Aliased imports
 - Mixed require and import in the same file
 - Import of a non-provider package (should still be mapped, filtering happens later)
+- A barrel file with export * (should follow one level)
 ```
 
 ---
 
-#### Prompt 2.4 — Connect AST visitor to the fingerprint registry
+### Prompt 2.4 — Connect AST visitor to the fingerprint registry (UPDATED)
 
 ```
 I have three pieces:
 1. ast/parser-loader.ts — parses files into Tree-sitter ASTs
 2. ast/call-visitor.ts — extracts call expressions with method chains
-3. ast/import-resolver.ts — maps variable names to package names
+3. ast/import-resolver.ts — maps variable names to package names (including 
+   re-exports, barrel files, and typed function parameters)
 
-Now wire them together into a complete AST-based scanner.
+Now wire them together into a complete AST-based scanner that handles real-world 
+patterns developers actually use.
 
 Create ast/ast-scanner.ts that:
 
@@ -198,23 +227,89 @@ Create ast/ast-scanner.ts that:
       (provider, method chain, line number) but no pricing data
 6. Returns ApiCallMatch[] in the same format as the regex matchers
 
-Also handle:
-- Plain fetch/axios calls (rootIdentifier is "fetch" or "axios") — these go through 
-  the generic HTTP path, extract the URL from the first argument if it's a string literal
-- Calls where the root identifier isn't in the import map — skip (probably a local function)
+ADDITIONAL PATTERNS TO HANDLE:
+
+7. Class method wrappers:
+   - Detect class declarations in the AST
+   - For each method in a class, check if the method body contains an API call 
+     (a call expression that resolves to a known provider via the import map)
+   - If yes, build a class-level registry: { className, methodName, apiCalls[] }
+   - When a call expression is className.methodName() or instance.methodName() 
+     (where instance was assigned via new ClassName()), propagate the API call 
+     metadata to that call site
+   - Example:
+     class ApiService {
+       async ask(prompt) { return this.openai.chat.completions.create({...}) }
+     }
+     const svc = new ApiService();
+     for (const q of questions) { await svc.ask(q); }  // ← detect as API call in loop
+   - Store this as a per-file class registry so cross-file resolution (3.5) can use it
+
+8. Callback / function-reference detection:
+   - When a function identifier (not a call) is passed as an argument to a known 
+     iteration method (.forEach, .map, .flatMap, .filter, .reduce, .some, .every) 
+     or to Promise.all/Promise.allSettled:
+     items.forEach(askGPT)           — askGPT is passed by reference, not called
+     Promise.all(items.map(askGPT))  — same pattern
+   - Check if that function identifier resolves to a function that contains API calls 
+     (check the import map + the file's own function declarations)
+   - If yes, treat it as if the API call is inside the loop
+   - Also handle queue/worker patterns where a function is passed to a processor:
+     queue.process(handleJob)  — if handleJob contains API calls, flag it
+
+9. Typed function parameters (from import-resolver):
+   - The import resolver now provides a parameter → package map for functions with 
+     typed parameters. Use this in the call visitor:
+     function helper(client: OpenAI) { client.chat.completions.create(...) }
+   - When walking calls inside a function body, check the parameter map in addition 
+     to the import map for resolving the root identifier
+
+10. Plain fetch/axios calls:
+    - rootIdentifier is "fetch" or "axios" → generic HTTP path
+    - Extract the URL from the first argument if it's a string literal
+    - Look up the hostname via lookupHost() to determine the provider
+    - Extract the HTTP method from options (second argument or method property)
+
+11. Middleware detection (tag only, full resolution in 3.5):
+    - When scanning a file, detect Express/Koa/Fastify middleware registration:
+      app.use(middlewareFunction)
+      router.use(middlewareFunction)
+    - If middlewareFunction is defined in the same file and contains API calls, 
+      tag it as a "per-request" API call
+    - If middlewareFunction is imported, add it to a "needs-cross-file-resolution" list 
+      that Phase 3.5 will process
 
 Write integration tests:
+
+Basic tests:
 - Parse a sample file with OpenAI SDK calls → verify matches include pricing from registry
 - Parse a file with aliased imports (const ai = new OpenAI()) → verify detection works
 - Parse a file with Stripe calls → verify matches
 - Parse a file with no API calls → verify empty results
 - Parse a file with fetch("https://api.openai.com/...") → verify generic HTTP detection
 - Compare output against what the regex matchers produce for the same files
+
+Class wrapper tests:
+- Class with a method that calls OpenAI → instance.method() detected as API call
+- Class method called in a loop → detected as API-call-in-loop with correct frequency
+
+Callback tests:
+- items.forEach(askGPT) where askGPT makes an API call → detected
+- Promise.all(items.map(fetchData)) where fetchData calls Stripe → detected
+- items.forEach(localFunction) where localFunction has no API calls → NOT detected
+
+Typed parameter tests:
+- function helper(client: OpenAI) { client.chat.completions.create(...) } → detected
+- Same pattern in JavaScript (no types) → NOT detected (expected limitation)
+
+Middleware tests:
+- app.use(authMiddleware) where authMiddleware calls an auth API in same file → tagged
+- app.use(importedMiddleware) → added to cross-file resolution queue
 ```
 
 ---
 
-#### Prompt 2.5 — Run AST and regex scanners in parallel
+### Prompt 2.5 — Run AST and regex scanners in parallel
 
 ```
 I have a working AST scanner (ast/ast-scanner.ts) and the existing regex matchers 
@@ -251,7 +346,7 @@ Run the full test suite and report results.
 
 ---
 
-#### Prompt 2.6 — Add Python Tree-sitter support
+### Prompt 2.6 — Add Python Tree-sitter support
 
 ```
 I have Tree-sitter working for JavaScript and TypeScript. Now add Python support.
@@ -297,7 +392,7 @@ I have Tree-sitter working for JavaScript and TypeScript. Now add Python support
 
 ---
 
-#### Prompt 2.7 — Upgrade frequency detection using AST
+### Prompt 2.7 — Upgrade frequency detection using AST
 
 ```
 Currently, frequency detection sets "per-request" if a call is inside a loop, 
@@ -343,5 +438,3 @@ Update the frequency detection logic:
 
 Write tests with sample code for each classification.
 ```
-
----
