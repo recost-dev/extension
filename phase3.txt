@@ -1,0 +1,301 @@
+
+
+
+## Phase 3: Waste Detection Rebuild
+
+### GitHub Issue
+
+**Title:** Rebuild waste detection on AST for structural accuracy
+
+**Labels:** `enhancement`, `detection`, `phase-3`
+
+**Description:**
+
+#### Problem
+
+The current waste detector (`local-waste-detector.ts`) uses regex guards to detect 6 waste patterns (cache misses, unbatched loops, N+1 queries, rate limit risks, concurrency issues, redundant calls). These regex checks are:
+
+1. **Unreliable** — regex can't distinguish a cache check from a comment mentioning caching
+2. **Context-blind** — can't tell if a guard actually protects the specific API call or a different one
+3. **Poorly calibrated** — the confidence scoring formula (0.48 base + score × 0.07) has no empirical basis
+
+#### Solution
+
+Rebuild all waste detection on top of the AST (Phase 2). Instead of regex, we walk the tree structure to determine if an API call is inside a loop, behind a cache guard, missing a batch alternative, etc. Then recalibrate scoring using real-world data.
+
+#### Scope
+
+- Rebuild cache waste detection using AST
+- Rebuild batch/N+1 detection using AST
+- Rebuild rate limit and concurrency detection using AST
+- Recalibrate confidence scoring with real repo data
+- (Stretch) Add basic cross-file import tracing
+
+#### Acceptance Criteria
+
+- [ ] All 6 waste patterns detected with same or better recall than regex
+- [ ] False positive rate measurably lower than regex approach
+- [ ] Confidence scores calibrated against 3+ real repos
+- [ ] Old regex waste detection code removed (AST is the only path)
+
+#### Dependencies
+
+- Phase 2 (Tree-sitter) must be merged first
+
+#### Branch
+
+`feat/ast-waste-detection` off `main` (after Phase 2 merge)
+
+---
+
+### Subphase Prompts
+
+---
+
+#### Prompt 3.1 — Rebuild cache waste detection on AST
+
+```
+I'm rebuilding the waste detection in my scanner to use AST instead of regex.
+Starting with cache waste detection.
+
+The current regex approach in local-waste-detector.ts looks for "repeated reads, 
+auth/config lookups, hot path, no cache guard" using text pattern matching. 
+This produces false positives and misses real issues.
+
+Create ast/waste/cache-detector.ts that:
+
+1. Takes a list of API call matches (with their AST node references from Phase 2)
+2. For each matched API call, checks:
+   a. Is the call inside a function that's called from a request handler 
+      (Express route, API handler, etc.)? → hot path
+   b. Is the call inside a loop? (use the frequency analyzer from 2.7)
+   c. In the same scope, is there a preceding variable assignment that looks like 
+      a cache check? Patterns to detect:
+      - const cached = cache.get(key); if (cached) return cached;
+      - if (map.has(key)) return map.get(key);
+      - if (memo[key]) return memo[key];
+      - Redis/Memcached get before the API call
+   d. Is the same API call (same method + same arguments) made multiple times 
+      in the same scope? → redundant call
+   e. Is it an auth/config call (e.g., fetching API keys, config values) 
+      that could be done once at startup?
+
+3. For each detected issue, produce a LocalWasteFinding with:
+   - type: "cache"
+   - description of what was found
+   - severity: based on context (hot path + no guard = high, loop + no guard = high, 
+     single scope redundancy = medium)
+   - confidence: based on how certain the AST analysis is 
+     (exact match = high, heuristic = medium)
+   - suggestion: what the developer should do
+
+4. Return LocalWasteFinding[] in the same format the existing detector uses
+
+Write tests with sample code:
+- API call in a loop with no cache → should detect
+- API call in a loop with a cache check before it → should NOT detect
+- Same API call twice in same function → should detect redundancy
+- API call in a request handler with no memoization → should detect
+- API call at module top level (one-time init) → should NOT detect
+```
+
+---
+
+#### Prompt 3.2 — Rebuild batch and N+1 detection on AST
+
+```
+Rebuild batch and N+1 waste detection using AST analysis.
+
+Create ast/waste/batch-detector.ts that:
+
+1. Detects API calls inside loops that could be batched:
+   a. Walk each API call match's AST ancestors
+   b. If the call is inside a for/while/forEach/map loop body:
+      - Check the fingerprint registry for the matched method — does the provider 
+        offer a batch alternative? (e.g., single create vs batch create)
+      - If a batch alternative exists → flag as "batchable"
+      - If no batch alternative but the call is making individual requests that 
+        could be combined → flag as "potential-batch"
+
+2. Detects N+1 patterns:
+   a. A database/API query that returns a list
+   b. Followed by a loop over that list
+   c. Where each iteration makes another API call
+   Pattern: results = await getList(); for (r of results) { await getDetail(r.id); }
+   Detection: find a call expression whose result is used as the iterable in a 
+   subsequent loop, where the loop body contains another API call
+
+3. Detects sequential awaits that could be parallel:
+   a. Multiple await statements in the same scope calling the same provider
+   b. Where the calls are independent (result of one is not used as input to another)
+   c. These could be wrapped in Promise.all()
+
+4. For each finding, produce a LocalWasteFinding with:
+   - type: "batch" or "n+1" or "sequential"
+   - The specific API calls involved
+   - severity and confidence
+   - suggestion (use batch API, use Promise.all, restructure query)
+
+Write tests:
+- API call inside forEach → should detect batch opportunity
+- API call inside loop with batch alternative in registry → should flag with suggestion
+- Classic N+1: fetch list then loop-fetch details → should detect
+- Two independent awaits to same provider → should suggest Promise.all
+- Two dependent awaits (second uses first's result) → should NOT flag
+- API call inside loop but it's a batch endpoint already → should NOT flag
+```
+
+---
+
+#### Prompt 3.3 — Rebuild rate limit and concurrency detection on AST
+
+```
+Rebuild rate limit risk and concurrency waste detection using AST.
+
+Create ast/waste/concurrency-detector.ts that:
+
+1. Detects polling without backoff:
+   - API call inside setInterval() → "polling" risk
+   - API call inside a while(true) with setTimeout → "polling" risk
+   - Check if there's exponential backoff logic nearby 
+     (multiplying delay, using a backoff library)
+   - If no backoff → high severity
+
+2. Detects unbounded concurrency:
+   - Promise.all() wrapping an array.map() that makes API calls
+   - No concurrency limiter (p-limit, p-queue, semaphore)
+   - The array could be arbitrarily large
+   - Flag: "unbounded parallel requests risk hitting rate limits"
+
+3. Detects retry storms:
+   - API call inside a catch block that re-calls the same function
+   - No delay between retries
+   - No max retry count
+   - Flag: "retry without backoff can cause rate limit cascade"
+
+4. Detects subscription/event amplification:
+   - API call inside an event handler (addEventListener, .on(), .subscribe())
+   - No debounce or throttle
+   - Events that fire frequently (scroll, input, keydown, message, data)
+   - Flag: "high-frequency event triggers API calls without debouncing"
+
+5. For each finding:
+   - type: "rate-limit", "concurrency", "retry-storm", "event-amplification"
+   - severity based on risk level
+   - confidence based on how clearly the AST shows the pattern
+   - suggestion with specific fix
+
+Write tests:
+- fetch() inside setInterval with no backoff → detect
+- fetch() inside setInterval with exponential backoff → skip
+- Promise.all(items.map(item => api.call(item))) → detect unbounded
+- Promise.all with p-limit wrapping → skip
+- Recursive retry in catch with no delay → detect
+- API call in scroll event handler with no debounce → detect
+- API call in click handler → skip (low frequency, acceptable)
+```
+
+---
+
+#### Prompt 3.4 — Recalibrate confidence scoring
+
+```
+The waste detector's confidence scoring needs calibration based on real data 
+instead of arbitrary weights.
+
+1. Run the new AST-based waste detectors (cache, batch, concurrency) on these repos:
+   - My own projects: Sapling (Next.js + FastAPI), the recost extension itself
+   - 2-3 popular open source projects that make heavy API calls 
+     (suggest good candidates — something using OpenAI SDK, something using Stripe)
+
+2. For each finding produced, log:
+   - Waste type
+   - All score components (loop detected, nested loop, Promise.all, hot path, 
+     guards present, etc.)
+   - The computed severity and confidence
+   - Manual assessment: is this a TRUE positive or FALSE positive?
+
+3. Analyze the results:
+   - What's the false positive rate per waste type?
+   - Which score components are most predictive of true positives?
+   - Are the severity thresholds (>=5 high, >=3 medium) correct?
+   - Is the confidence formula (0.48 + score * 0.07) well-calibrated?
+
+4. Propose new weights and thresholds based on the data:
+   - Adjust component weights if some signals are more/less predictive
+   - Adjust severity thresholds if too many findings are mis-categorized
+   - Adjust confidence formula to match observed accuracy
+   - Document the rationale for each change
+
+5. Implement the new scoring in the waste detectors.
+   Show before/after comparison on the test repos.
+
+Output: a calibration report with the data, analysis, and final parameter values 
+with justification.
+```
+
+---
+
+#### Prompt 3.5 — Cross-file analysis (stretch)
+
+```
+This is a stretch goal. Add basic cross-file import tracing so the scanner can 
+detect API calls wrapped in utility functions.
+
+Common pattern the scanner currently misses:
+
+// lib/api.ts
+import OpenAI from "openai";
+const client = new OpenAI();
+export async function askGPT(prompt: string) {
+  return client.chat.completions.create({ model: "gpt-4o", messages: [...] });
+}
+
+// routes/handler.ts  
+import { askGPT } from "../lib/api";
+for (const item of items) {
+  await askGPT(item.question);  // This is an API call in a loop! But scanner misses it.
+}
+
+Create ast/cross-file-resolver.ts that:
+
+1. First pass — scan all files and build an export registry:
+   - For each file, find all exported functions
+   - For each exported function, check if it contains an API call (from the AST scanner)
+   - If yes, tag it: { file, functionName, apiCalls: ApiCallMatch[] }
+
+2. Second pass — resolve imports:
+   - For each file, find imports from local paths (not npm packages)
+   - Look up the imported function in the export registry
+   - If the imported function is tagged as API-calling, propagate the ApiCallMatch 
+     metadata to every call site of that function
+
+3. Limits (keep it tractable):
+   - Only one level of indirection (don't follow chains of wrappers)
+   - Only named exports (not default exports that are objects with methods)
+   - Only top-level function exports (not class methods)
+   - Only local imports (relative paths), not re-exports from node_modules
+
+4. Integration:
+   - Run cross-file resolution after the per-file AST scan
+   - Inject the propagated matches into the results
+   - The waste detector then catches things like "askGPT in a loop" 
+     as an API-call-in-a-loop
+
+Write tests with a two-file setup demonstrating the pattern above.
+Measure scan time impact — this adds a second pass over all files.
+```
+
+---
+
+## Summary
+
+| Phase | Issue | Subphases | Branch | Depends On |
+|-------|-------|-----------|--------|------------|
+| 1 | Fingerprint Registry | 1.1–1.8 | `feat/fingerprint-registry` | — |
+| 2 | Tree-sitter Integration | 2.1–2.7 | `feat/tree-sitter` | Phase 1 merged |
+| 3 | Waste Detection Rebuild | 3.1–3.5 | `feat/ast-waste-detection` | Phase 2 merged |
+
+**Total subphases:** 20 (8 + 7 + 5)
+
+Each prompt is designed to be a single focused task. Commit after each subphase passes tests. Merge each phase branch to main before starting the next.

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0.0",
+  "provider": "vertex-ai",
+  "displayName": "Google Vertex AI",
+  "languages": ["javascript", "typescript", "python"],
+  "packages": ["@google-cloud/vertexai", "vertexai"],
+  "hosts": [
+    {
+      "pattern": "[a-z0-9-]+-aiplatform\\.googleapis\\.com",
+      "isRegex": true
+    }
+  ],
+  "methods": [
+    {
+      "pattern": "generateContent",
+      "httpMethod": "POST",
+      "endpoint": "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent",
+      "costModel": "per_token",
+      "inputPricePer1M": 0.30,
+      "outputPricePer1M": 2.50,
+      "cacheCapable": true,
+      "description": "Generate content via Vertex AI — gemini-2.5-flash representative pricing"
+    },
+    {
+      "pattern": "streamGenerateContent",
+      "httpMethod": "POST",
+      "endpoint": "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:streamGenerateContent",
+      "costModel": "per_token",
+      "inputPricePer1M": 0.30,
+      "outputPricePer1M": 2.50,
+      "streaming": true,
+      "description": "Stream generated content via Vertex AI"
+    },
+    {
+      "pattern": "embedContent",
+      "httpMethod": "POST",
+      "endpoint": "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:predict",
+      "costModel": "per_token",
+      "inputPricePer1M": 0.10,
+      "batchCapable": true,
+      "description": "Generate embeddings via Vertex AI"
+    },
+    {
+      "pattern": "generate_content",
+      "httpMethod": "POST",
+      "endpoint": "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent",
+      "costModel": "per_token",
+      "inputPricePer1M": 0.30,
+      "outputPricePer1M": 2.50,
+      "cacheCapable": true,
+      "description": "Generate content via Vertex AI (Python SDK)"
+    },
+    {
+      "pattern": "stream_generate_content",
+      "httpMethod": "POST",
+      "endpoint": "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:streamGenerateContent",
+      "costModel": "per_token",
+      "inputPricePer1M": 0.30,
+      "outputPricePer1M": 2.50,
+      "streaming": true,
+      "description": "Stream generated content via Vertex AI (Python SDK)"
+    },
+    {
+      "pattern": "embed_content",
+      "httpMethod": "POST",
+      "endpoint": "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:predict",
+      "costModel": "per_token",
+      "inputPricePer1M": 0.10,
+      "batchCapable": true,
+      "description": "Generate embeddings via Vertex AI (Python SDK)"
+    }
+  ]
+}

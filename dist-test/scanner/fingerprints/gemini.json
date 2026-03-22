@@ -1,0 +1,95 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "gemini",
+    "displayName": "Google Gemini",
+    "languages": ["javascript", "typescript", "python"],
+    "packages": ["@google/genai", "@google/generative-ai"],
+    "hosts": [
+        { "pattern": "generativelanguage.googleapis.com" }
+    ],
+    "methods": [
+        {
+            "pattern": "models.generateContent",
+            "httpMethod": "POST",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.30,
+            "outputPricePer1M": 2.50,
+            "cacheCapable": true,
+            "description": "Generate content — gemini-2.5-flash representative pricing"
+        },
+        {
+            "pattern": "models.streamGenerateContent",
+            "httpMethod": "POST",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.30,
+            "outputPricePer1M": 2.50,
+            "streaming": true,
+            "description": "Stream generated content"
+        },
+        {
+            "pattern": "models.embedContent",
+            "httpMethod": "POST",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.10,
+            "batchCapable": true,
+            "description": "Generate embeddings — text-embedding-004"
+        },
+        {
+            "pattern": "models.batchEmbedContents",
+            "httpMethod": "POST",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.10,
+            "batchCapable": true,
+            "description": "Batch generate embeddings"
+        },
+        {
+            "pattern": "models.batchGenerateContent",
+            "httpMethod": "POST",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:batchGenerateContent",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.30,
+            "outputPricePer1M": 2.50,
+            "batchCapable": true,
+            "description": "Batch generate content"
+        },
+        {
+            "pattern": "models.countTokens",
+            "httpMethod": "POST",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/{model}:countTokens",
+            "costModel": "free",
+            "description": "Count tokens in a request (no charge)"
+        },
+        {
+            "pattern": "files.upload",
+            "httpMethod": "POST",
+            "endpoint": "https://generativelanguage.googleapis.com/upload/v1beta/files",
+            "costModel": "free",
+            "description": "Upload a file to the Files API (free storage)"
+        },
+        {
+            "pattern": "files.get",
+            "httpMethod": "GET",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/files/{id}",
+            "costModel": "free",
+            "description": "Get metadata for an uploaded file"
+        },
+        {
+            "pattern": "files.list",
+            "httpMethod": "GET",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/files",
+            "costModel": "free",
+            "description": "List uploaded files"
+        },
+        {
+            "pattern": "files.delete",
+            "httpMethod": "DELETE",
+            "endpoint": "https://generativelanguage.googleapis.com/v1beta/files/{id}",
+            "costModel": "free",
+            "description": "Delete an uploaded file"
+        }
+    ]
+}

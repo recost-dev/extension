@@ -178,7 +178,7 @@ function makeFinding(relativePath, line, type, description, score, confidence, e
 function detectCacheFinding(relativePath, site) {
     if (!site.isRead || site.cacheGuard)
         return null;
-    const queryWithoutPersisted = site.match.kind === "graphql" && site.match.inferredCostRisk?.includes("missing-persisted-query-hint");
+    const queryWithoutPersisted = site.match.kind === "graphql" && !!site.match.inferredCostRisk?.includes("missing-persisted-query-hint");
     const repeatedLookup = site.authLookup || site.configLookup || site.repeatedResourceCount >= 2;
     if (!queryWithoutPersisted && !repeatedLookup && !site.hotPath && site.loopDepth === 0)
         return null;

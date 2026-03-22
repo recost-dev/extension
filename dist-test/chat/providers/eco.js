@@ -3,8 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ecoAdapter = void 0;
 const errors_1 = require("../errors");
 exports.ecoAdapter = {
-    id: "eco",
-    displayName: "ECO AI",
+    id: "recost",
+    displayName: "ReCost AI",
     baseUrl: "https://api.ecoapi.dev",
     defaultChatEndpoint: "/chat",
     authHeaderFormat: "none",
@@ -13,17 +13,17 @@ exports.ecoAdapter = {
         required: false,
     },
     models: [
-        { id: "eco-ai", displayName: "Llama 3.1 (Free)", provider: "eco", supportsStreaming: false },
+        { id: "recost-ai", displayName: "Llama 3.1 (Free)", provider: "recost", supportsStreaming: false },
     ],
     authHeaders() {
         return {};
     },
     validateRequest(request) {
         if (!exports.ecoAdapter.models.some((model) => model.id === request.model)) {
-            throw new errors_1.ChatAdapterError("unsupported_model", `Unsupported ECO model: ${request.model}`, { provider: "eco" });
+            throw new errors_1.ChatAdapterError("unsupported_model", `Unsupported ReCost model: ${request.model}`, { provider: "recost" });
         }
         if (request.stream) {
-            throw new errors_1.ChatAdapterError("streaming_not_supported", "ECO AI streaming is not supported.", { provider: "eco" });
+            throw new errors_1.ChatAdapterError("streaming_not_supported", "ReCost AI streaming is not supported.", { provider: "recost" });
         }
     },
     toRequestBody(request) {
@@ -39,12 +39,12 @@ exports.ecoAdapter = {
         return {
             provider: exports.ecoAdapter.id,
             model: request.model,
-            content: (0, errors_1.ensureStringContent)(payload?.data?.response, "No response from ECO AI. The service may be temporarily unavailable.", "eco"),
+            content: (0, errors_1.ensureStringContent)(payload?.data?.response, "No response from ReCost AI. The service may be temporarily unavailable.", "recost"),
             raw: response,
         };
     },
     mapHttpError(context) {
-        return new errors_1.ChatAdapterError("provider_error", `ECO AI request failed: ${context.bodyText || "Unknown error"}`, { provider: "eco", status: context.status });
+        return new errors_1.ChatAdapterError("provider_error", `ReCost AI request failed: ${context.bodyText || "Unknown error"}`, { provider: "recost", status: context.status });
     },
 };
 //# sourceMappingURL=eco.js.map

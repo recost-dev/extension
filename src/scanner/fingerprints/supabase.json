@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0.0",
+  "provider": "supabase",
+  "displayName": "Supabase",
+  "languages": ["javascript", "typescript"],
+  "packages": ["@supabase/supabase-js"],
+  "hosts": [
+    { "pattern": "(^|\\.)supabase\\.co$", "isRegex": true }
+  ],
+  "methods": [
+    {
+      "pattern": "from.select",
+      "httpMethod": "GET",
+      "endpoint": "https://{project}.supabase.co/rest/v1/{table}",
+      "costModel": "per_request",
+      "cacheCapable": true,
+      "description": "Query rows from a table"
+    },
+    {
+      "pattern": "from.insert",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/rest/v1/{table}",
+      "costModel": "per_request",
+      "batchCapable": true,
+      "description": "Insert row(s) into a table"
+    },
+    {
+      "pattern": "from.update",
+      "httpMethod": "PATCH",
+      "endpoint": "https://{project}.supabase.co/rest/v1/{table}",
+      "costModel": "per_request",
+      "description": "Update rows in a table"
+    },
+    {
+      "pattern": "from.delete",
+      "httpMethod": "DELETE",
+      "endpoint": "https://{project}.supabase.co/rest/v1/{table}",
+      "costModel": "per_request",
+      "description": "Delete rows from a table"
+    },
+    {
+      "pattern": "from.upsert",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/rest/v1/{table}",
+      "costModel": "per_request",
+      "batchCapable": true,
+      "description": "Upsert rows into a table"
+    },
+    {
+      "pattern": "rpc",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/rest/v1/rpc/{function}",
+      "costModel": "per_request",
+      "description": "Call a Postgres function via RPC"
+    },
+    {
+      "pattern": "storage.from.upload",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/storage/v1/object/{bucket}/{path}",
+      "costModel": "per_request",
+      "description": "Upload a file to Storage"
+    },
+    {
+      "pattern": "storage.from.download",
+      "httpMethod": "GET",
+      "endpoint": "https://{project}.supabase.co/storage/v1/object/{bucket}/{path}",
+      "costModel": "per_request",
+      "description": "Download a file from Storage"
+    },
+    {
+      "pattern": "storage.from.list",
+      "httpMethod": "GET",
+      "endpoint": "https://{project}.supabase.co/storage/v1/object/{bucket}",
+      "costModel": "per_request",
+      "description": "List files in a Storage bucket"
+    },
+    {
+      "pattern": "storage.from.remove",
+      "httpMethod": "DELETE",
+      "endpoint": "https://{project}.supabase.co/storage/v1/object/{bucket}",
+      "costModel": "per_request",
+      "description": "Remove files from Storage"
+    },
+    {
+      "pattern": "storage.from.getPublicUrl",
+      "httpMethod": "GET",
+      "endpoint": "https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}",
+      "costModel": "free",
+      "description": "Get the public URL for a Storage object (client-side only)"
+    },
+    {
+      "pattern": "auth.signInWithPassword",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/auth/v1/token",
+      "costModel": "per_request",
+      "description": "Sign in with email/password"
+    },
+    {
+      "pattern": "auth.signUp",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/auth/v1/signup",
+      "costModel": "per_request",
+      "description": "Sign up a new user"
+    },
+    {
+      "pattern": "auth.signOut",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/auth/v1/logout",
+      "costModel": "per_request",
+      "description": "Sign out the current user"
+    },
+    {
+      "pattern": "auth.getUser",
+      "httpMethod": "GET",
+      "endpoint": "https://{project}.supabase.co/auth/v1/user",
+      "costModel": "per_request",
+      "cacheCapable": true,
+      "description": "Get the currently authenticated user"
+    },
+    {
+      "pattern": "auth.refreshSession",
+      "httpMethod": "POST",
+      "endpoint": "https://{project}.supabase.co/auth/v1/token",
+      "costModel": "per_request",
+      "description": "Refresh the session token"
+    }
+  ]
+}

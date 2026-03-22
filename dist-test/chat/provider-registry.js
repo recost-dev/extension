@@ -39,7 +39,7 @@ function findModelMetadata(providerId, modelId) {
     return getProviderAdapter(providerId).models.find((model) => model.id === modelId);
 }
 function getDefaultChatSelection() {
-    return { provider: "eco", model: "eco-ai" };
+    return { provider: "recost", model: "recost-ai" };
 }
 function buildProviderOptions() {
     return providers.map((provider) => ({
@@ -72,7 +72,7 @@ async function resolveProviderAuth(providerId, secrets) {
     }
     const secretKeys = [provider.auth.secretStorageKey];
     if (provider.id === "openai") {
-        secretKeys.push("eco.openaiApiKey");
+        secretKeys.push("recost.openaiApiKey");
     }
     if (secrets) {
         for (const secretKey of secretKeys) {

@@ -1,0 +1,347 @@
+## Phase 2: Tree-sitter Integration
+
+### GitHub Issue
+
+**Title:** Integrate Tree-sitter AST parsing for reliable SDK call detection
+
+**Labels:** `enhancement`, `core`, `phase-2`
+
+**Description:**
+
+#### Problem
+
+Our scanner uses regex-based line matching to detect API calls. This approach has fundamental limitations:
+
+1. **Variable aliasing** — `const ai = new OpenAI()` followed by `ai.chat.completions.create()` is invisible to regex because it doesn't know `ai` is an OpenAI client
+2. **Multi-line calls** — we stitch up to 6 lines together as a heuristic, but longer call chains or unusual formatting break this
+3. **False positives** — regex can't distinguish actual code from comments, strings, or dead code
+4. **Import tracing** — we can't follow `import { openai } from "./lib/ai"` to determine what a variable actually is
+5. **Fragile hint gate** — the Stage 1 keyword regex needs manual updates for every new provider and produces false matches on common words like `got`
+
+#### Solution
+
+Integrate **Tree-sitter** (via `web-tree-sitter` WASM build) alongside the existing regex matchers. Tree-sitter parses source code into an Abstract Syntax Tree (AST), letting us structurally walk call expressions, resolve imports, and match against the fingerprint registry (Phase 1) with high accuracy.
+
+The AST scanner runs in parallel with existing regex matchers. Results are deduplicated, with AST results preferred when both match. Regex remains the fallback for languages without Tree-sitter support.
+
+#### Scope
+
+- Set up `web-tree-sitter` with JS/TS/Python WASM grammars
+- Build a generic call expression AST visitor
+- Build import resolution (variable name → package mapping)
+- Connect AST detection to the fingerprint registry
+- Run AST + regex in parallel with deduplication
+- Add Python support
+- Upgrade frequency/loop detection using AST structure
+
+#### Acceptance Criteria
+
+- [ ] AST scanner detects all SDK calls that regex currently catches (parity)
+- [ ] AST scanner catches aliased/renamed client calls that regex misses (improvement)
+- [ ] Import resolution works for standard import/require patterns in JS/TS/Python
+- [ ] Frequency detection uses AST loop analysis instead of binary heuristic
+- [ ] No regression in scan speed (Tree-sitter WASM parses are fast, but measure it)
+- [ ] Regex matchers still work as fallback for unsupported languages
+
+#### Dependencies
+
+- Phase 1 (Fingerprint Registry) must be merged first
+
+#### Branch
+
+`feat/tree-sitter` off `main` (after Phase 1 merge)
+
+---
+
+### Subphase Prompts
+
+---
+
+#### Prompt 2.1 — Set up web-tree-sitter and load parsers
+
+```
+I'm adding AST-based code parsing to my VS Code extension scanner (recost). 
+The goal is to parse source files into ASTs using Tree-sitter so I can structurally 
+detect API calls instead of relying on regex.
+
+1. Install web-tree-sitter as a dependency in the extension package
+2. Download the WASM grammar files for JavaScript and TypeScript from the 
+   tree-sitter GitHub releases. Store them in an assets/parsers/ directory.
+3. Create ast/parser-loader.ts that:
+   - Initializes Tree-sitter (handles the async WASM loading)
+   - Loads the correct grammar based on file extension 
+     (.js/.jsx → JavaScript, .ts/.tsx → TypeScript)
+   - Exposes an async function: parseFile(source: string, language: string): Promise<Tree>
+   - Caches loaded languages so grammars aren't reloaded per file
+   - Handles initialization errors gracefully (logs and returns null)
+4. Write a test that:
+   - Parses a simple JS file and confirms root node type is "program"
+   - Parses a simple TS file and confirms root node type is "program"
+   - Handles an empty file without crashing
+   - Handles invalid syntax gracefully (Tree-sitter is error-tolerant)
+
+Make sure this works in the VS Code extension context (WASM loaded from extension 
+assets path) and in Node.js tests.
+```
+
+---
+
+#### Prompt 2.2 — Build the call expression visitor
+
+```
+I have Tree-sitter parsing working (ast/parser-loader.ts). Now I need to walk the 
+AST to find all function/method call expressions.
+
+Create ast/call-visitor.ts that:
+
+1. Takes a Tree-sitter Tree and walks all nodes of type "call_expression"
+2. For each call expression, extracts:
+   - The full member expression chain as a dot-separated string
+     (e.g., openai.chat.completions.create → "openai.chat.completions.create")
+   - Handle nested member expressions by walking the chain recursively
+   - The argument nodes (just the AST nodes, don't parse them yet)
+   - Line number and column of the call
+3. Returns an array of:
+   { 
+     methodChain: string, 
+     rootIdentifier: string,  // the leftmost name, e.g., "openai"
+     arguments: SyntaxNode[], 
+     line: number, 
+     column: number 
+   }
+4. Handles edge cases:
+   - Simple function calls (no member expression): fetch("...") → chain is "fetch"
+   - Deeply nested chains: a.b.c.d.e() → full chain
+   - Calls with await: await openai.chat.completions.create() → same as without await
+   - Optional chaining: openai?.chat?.completions?.create() → normalize to dots
+   - Computed properties: ignore (obj[method]() is not statically analyzable)
+
+Write tests using sample code strings:
+- A file with OpenAI SDK calls
+- A file with Stripe SDK calls  
+- A file with plain fetch() calls
+- A file with deeply nested member expressions
+- A file with comments containing fake calls (should not be detected)
+```
+
+---
+
+#### Prompt 2.3 — Build import resolution
+
+```
+I need to trace which package a variable comes from so I can map call expressions 
+to providers. For example, if someone writes:
+
+  import OpenAI from "openai";
+  const client = new OpenAI();
+  client.chat.completions.create(...)
+
+I need to know that "client" maps to the "openai" package.
+
+Create ast/import-resolver.ts that:
+
+1. Takes a Tree-sitter Tree (JavaScript or TypeScript)
+2. Scans all top-level statements to build a variable-to-package map
+3. Handles these import patterns:
+   - import openai from "openai"                    → openai: "openai"
+   - import { OpenAI } from "openai"                → OpenAI: "openai"
+   - import { OpenAI as AI } from "openai"          → AI: "openai"
+   - import * as openai from "openai"               → openai: "openai"
+   - const openai = require("openai")               → openai: "openai"
+   - const { OpenAI } = require("openai")           → OpenAI: "openai"
+4. Handles constructor assignments:
+   - const client = new OpenAI()                    → client: "openai" 
+     (only if OpenAI is already mapped to "openai" from an import)
+   - const stripe = new Stripe("sk_...")            → stripe: "stripe"
+     (only if Stripe is mapped from an import)
+5. Returns a Map<string, string> of variableName → packageName
+
+6. Does NOT handle:
+   - Cross-file resolution (that's Phase 3)
+   - Dynamic imports
+   - Re-exports through intermediary files
+   - Variables reassigned after initialization
+
+Write tests with sample files covering all the import patterns above, 
+plus edge cases like:
+- Multiple imports from different packages in one file
+- Aliased imports
+- Mixed require and import in the same file
+- Import of a non-provider package (should still be mapped, filtering happens later)
+```
+
+---
+
+#### Prompt 2.4 — Connect AST visitor to the fingerprint registry
+
+```
+I have three pieces:
+1. ast/parser-loader.ts — parses files into Tree-sitter ASTs
+2. ast/call-visitor.ts — extracts call expressions with method chains
+3. ast/import-resolver.ts — maps variable names to package names
+
+Now wire them together into a complete AST-based scanner.
+
+Create ast/ast-scanner.ts that:
+
+1. Takes a file path, reads its content, determines the language from the extension
+2. Parses it with the Tree-sitter parser
+3. Runs import resolution to get the variable → package map
+4. Runs the call visitor to get all call expressions
+5. For each call expression:
+   a. Takes the rootIdentifier (e.g., "client") and looks it up in the import map 
+      to get the package (e.g., "openai")
+   b. Takes the methodChain minus the root (e.g., "chat.completions.create") 
+      and calls lookupMethod(provider, methodChain) on the fingerprint registry
+   c. If found, creates an ApiCallMatch with all fields populated from the registry
+   d. If not found in registry, still creates a basic ApiCallMatch with what we know
+      (provider, method chain, line number) but no pricing data
+6. Returns ApiCallMatch[] in the same format as the regex matchers
+
+Also handle:
+- Plain fetch/axios calls (rootIdentifier is "fetch" or "axios") — these go through 
+  the generic HTTP path, extract the URL from the first argument if it's a string literal
+- Calls where the root identifier isn't in the import map — skip (probably a local function)
+
+Write integration tests:
+- Parse a sample file with OpenAI SDK calls → verify matches include pricing from registry
+- Parse a file with aliased imports (const ai = new OpenAI()) → verify detection works
+- Parse a file with Stripe calls → verify matches
+- Parse a file with no API calls → verify empty results
+- Parse a file with fetch("https://api.openai.com/...") → verify generic HTTP detection
+- Compare output against what the regex matchers produce for the same files
+```
+
+---
+
+#### Prompt 2.5 — Run AST and regex scanners in parallel
+
+```
+I have a working AST scanner (ast/ast-scanner.ts) and the existing regex matchers 
+in workspace-scanner.ts. I need to run both and merge results.
+
+Update workspace-scanner.ts to:
+
+1. For each JS/TS file (.js, .jsx, .ts, .tsx):
+   a. Run the AST scanner (ast/ast-scanner.ts) 
+   b. Run the existing regex matchers (LINE_MATCHERS, ROUTE_MATCHERS)
+   c. Deduplicate results by file path + line number
+   d. When both produce a match for the same location, prefer the AST result 
+      (it has better structural data — resolved provider, accurate method chain)
+   e. Keep regex-only matches that the AST missed (shouldn't happen often, but safety net)
+   f. Keep AST-only matches that regex missed (this is the improvement we want)
+
+2. For non-JS/TS files (.py, .go, .java, .rb, .rs):
+   - Run regex matchers only (AST support for these comes later)
+
+3. Add telemetry logging (just console.log for now, behind a debug flag):
+   - Total matches from AST scanner
+   - Total matches from regex scanner
+   - Matches found by AST only (regex missed)
+   - Matches found by regex only (AST missed)
+   - Matches found by both (overlap)
+   This lets me compare coverage and validate the AST scanner.
+
+4. Handle AST scanner failures gracefully — if Tree-sitter fails to parse a file, 
+   fall back to regex only with a warning log. Don't let a parser error kill the scan.
+
+Don't remove any regex matcher code. The two systems coexist.
+Run the full test suite and report results.
+```
+
+---
+
+#### Prompt 2.6 — Add Python Tree-sitter support
+
+```
+I have Tree-sitter working for JavaScript and TypeScript. Now add Python support.
+
+1. Download the Python WASM grammar from tree-sitter-python releases.
+   Add it to assets/parsers/
+
+2. Update ast/parser-loader.ts:
+   - Add Python language loading (.py extension)
+
+3. Update ast/call-visitor.ts:
+   - Python uses different AST node types:
+     - "call" instead of "call_expression"
+     - "attribute" instead of "member_expression"  
+     - "identifier" for names
+   - Handle Python's calling conventions:
+     - openai.chat.completions.create() — same chain walking but different node types
+     - client.messages.create() — same pattern
+   - Make the visitor language-aware — accept a language parameter and use the 
+     correct node type names
+
+4. Update ast/import-resolver.ts:
+   - Handle Python import patterns:
+     - import openai                               → openai: "openai"
+     - from openai import OpenAI                   → OpenAI: "openai"
+     - from openai import OpenAI as AI             → AI: "openai"
+     - import anthropic                            → anthropic: "anthropic"
+   - Handle Python constructor assignments:
+     - client = OpenAI()                           → client: "openai"
+     - client = anthropic.Anthropic()              → client: "anthropic"
+   - Python doesn't have require(), so skip that path for Python files
+
+5. Update workspace-scanner.ts:
+   - Run AST scanner on .py files in addition to JS/TS
+
+6. Write tests with Python sample files:
+   - OpenAI Python SDK usage (from openai import OpenAI; client = OpenAI(); 
+     client.chat.completions.create(...))
+   - Anthropic Python SDK usage
+   - Mixed import styles
+   - Aliased imports
+```
+
+---
+
+#### Prompt 2.7 — Upgrade frequency detection using AST
+
+```
+Currently, frequency detection sets "per-request" if a call is inside a loop, 
+otherwise "daily". This is too simplistic. With AST access, I can do much better.
+
+Update the frequency detection logic:
+
+1. Create ast/frequency-analyzer.ts that takes a call expression's AST node 
+   and analyzes its surrounding context:
+
+2. Walk up the AST from the call node to check ancestor types:
+   - for_statement, while_statement, do_statement → loop detected
+   - for_in_statement, for_of_statement → iteration detected
+   - Call to .forEach(), .map(), .flatMap() → iteration detected
+   - Promise.all() wrapping multiple calls → parallel execution detected
+   - setInterval, setTimeout with the call inside → polling detected
+
+3. For loops, determine if bounded:
+   - for (let i = 0; i < arr.length; i++) → bounded (array length)
+   - for (const item of items) → bounded (collection)
+   - while (true) → unbounded
+   - while (condition) → unknown, treat as unbounded
+
+4. Check for guards:
+   - if/else wrapping the call → conditional execution
+   - try/catch → error-handled
+   - Cache check before the call (if cached, return) → cache-guarded
+
+5. Return a frequency classification:
+   - "single" — not in any loop or iteration
+   - "bounded-loop" — in a loop with a known bound
+   - "unbounded-loop" — in a loop with no known bound
+   - "parallel" — inside Promise.all or similar
+   - "polling" — inside setInterval/setTimeout
+   - "conditional" — behind an if guard (modify severity)
+   - "cache-guarded" — behind a cache check (modify severity)
+
+6. Update ApiCallMatch to use the new frequency field instead of the 
+   binary "per-request" / "daily"
+
+7. Update the waste detector to use the new frequency classifications 
+   for more accurate severity scoring
+
+Write tests with sample code for each classification.
+```
+
+---

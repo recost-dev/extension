@@ -156,7 +156,7 @@ test("key status summary prefers environment over secret", async () => {
   );
   assert.equal(summary.source, "env");
   assert.equal(summary.state, "from_environment");
-  assert.equal(summary.maskedPreview, "env-...-key");
+  assert.equal(summary.maskedPreview, "env-ge••••••••••");
   delete process.env.GEMINI_API_KEY;
 });
 
@@ -169,7 +169,7 @@ test("key status summary reports saved for stored secrets", async () => {
   );
   assert.equal(summary.source, "secret");
   assert.equal(summary.state, "saved");
-  assert.equal(summary.maskedPreview, "sk-t...cret");
+  assert.equal(summary.maskedPreview, "sk-tes••••••••••");
 });
 
 test("maskKeyPreview returns stable preview", () => {

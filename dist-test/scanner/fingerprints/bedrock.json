@@ -1,0 +1,81 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "aws-bedrock",
+    "displayName": "AWS Bedrock",
+    "languages": ["javascript", "typescript", "python"],
+    "packages": ["@aws-sdk/client-bedrock-runtime", "boto3"],
+    "hosts": [
+        {
+            "pattern": "bedrock-runtime\\.[a-z0-9-]+\\.amazonaws\\.com",
+            "isRegex": true
+        }
+    ],
+    "methods": [
+        {
+            "pattern": "InvokeModelCommand",
+            "httpMethod": "POST",
+            "endpoint": "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/invoke",
+            "costModel": "per_token",
+            "inputPricePer1M": 3.00,
+            "outputPricePer1M": 15.00,
+            "description": "Invoke a Bedrock model — Claude 3.5 Sonnet representative pricing"
+        },
+        {
+            "pattern": "ConverseCommand",
+            "httpMethod": "POST",
+            "endpoint": "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/converse",
+            "costModel": "per_token",
+            "inputPricePer1M": 3.00,
+            "outputPricePer1M": 15.00,
+            "description": "Converse with a Bedrock model (unified API)"
+        },
+        {
+            "pattern": "ConverseStreamCommand",
+            "httpMethod": "POST",
+            "endpoint": "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/converse-stream",
+            "costModel": "per_token",
+            "inputPricePer1M": 3.00,
+            "outputPricePer1M": 15.00,
+            "streaming": true,
+            "description": "Streaming converse with a Bedrock model"
+        },
+        {
+            "pattern": "InvokeModelWithResponseStreamCommand",
+            "httpMethod": "POST",
+            "endpoint": "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/invoke-with-response-stream",
+            "costModel": "per_token",
+            "inputPricePer1M": 3.00,
+            "outputPricePer1M": 15.00,
+            "streaming": true,
+            "description": "Streaming invoke of a Bedrock model"
+        },
+        {
+            "pattern": "invoke_model",
+            "httpMethod": "POST",
+            "endpoint": "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/invoke",
+            "costModel": "per_token",
+            "inputPricePer1M": 3.00,
+            "outputPricePer1M": 15.00,
+            "description": "Invoke a Bedrock model (Python boto3)"
+        },
+        {
+            "pattern": "converse",
+            "httpMethod": "POST",
+            "endpoint": "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/converse",
+            "costModel": "per_token",
+            "inputPricePer1M": 3.00,
+            "outputPricePer1M": 15.00,
+            "description": "Converse with a Bedrock model (Python boto3)"
+        },
+        {
+            "pattern": "converse_stream",
+            "httpMethod": "POST",
+            "endpoint": "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/converse-stream",
+            "costModel": "per_token",
+            "inputPricePer1M": 3.00,
+            "outputPricePer1M": 15.00,
+            "streaming": true,
+            "description": "Streaming converse with a Bedrock model (Python boto3)"
+        }
+    ]
+}

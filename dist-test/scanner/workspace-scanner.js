@@ -149,7 +149,7 @@ async function readWorkspaceFileExcerpt(relativePath, options) {
     }
 }
 async function scanWorkspace(onProgress) {
-    const config = vscode.workspace.getConfiguration("eco");
+    const config = vscode.workspace.getConfiguration("recost");
     const uris = await findScopedUris(config);
     const allCalls = [];
     const dedupe = new Set();
@@ -218,7 +218,7 @@ async function scanWorkspace(onProgress) {
     return allCalls;
 }
 async function detectLocalWastePatterns() {
-    const config = vscode.workspace.getConfiguration("eco");
+    const config = vscode.workspace.getConfiguration("recost");
     const uris = await findScopedUris(config);
     const findings = [];
     for (const uri of uris) {
