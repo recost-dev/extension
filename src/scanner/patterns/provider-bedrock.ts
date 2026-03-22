@@ -1,5 +1,7 @@
 import { ApiCallMatch, LineMatcher } from "./types";
+import { lookupMethod } from "../fingerprints/registry";
 
+// Fallback endpoint data used when registry lookup misses
 const COMMAND_MAP: Record<string, { action: string; endpoint: string; method: string; streaming?: boolean }> = {
   InvokeModelCommand: {
     action: "invoke_model",
@@ -28,19 +30,22 @@ export const bedrockMatcher: LineMatcher = {
     let jsMatch: RegExpExecArray | null;
     while ((jsMatch = jsRegex.exec(line)) !== null) {
       const command = jsMatch[1];
-      const mapped = COMMAND_MAP[command];
+      const reg = lookupMethod("aws-bedrock", command);
+      const fb = COMMAND_MAP[command];
+
+      if (!reg) console.warn(`[fingerprints] no registry entry for aws-bedrock/${command}`);
 
       matches.push({
         kind: "sdk",
         provider: "aws-bedrock",
         sdk: "aws-sdk-bedrock-runtime",
-        method: mapped.method,
-        endpoint: mapped.endpoint,
+        method: reg?.httpMethod ?? fb?.method ?? "POST",
+        endpoint: reg?.endpoint ?? fb?.endpoint ?? "",
         resource: "model/{modelId}",
-        action: mapped.action,
-        streaming: mapped.streaming,
-        batchCapable: false,
-        cacheCapable: true,
+        action: fb?.action ?? command.toLowerCase(),
+        streaming: reg?.streaming ?? fb?.streaming,
+        batchCapable: reg?.batchCapable ?? false,
+        cacheCapable: reg?.cacheCapable ?? true,
         rawMatch: jsMatch[0],
       });
     }
@@ -49,23 +54,29 @@ export const bedrockMatcher: LineMatcher = {
     let botoMatch: RegExpExecArray | null;
     while ((botoMatch = botoRegex.exec(line)) !== null) {
       const action = botoMatch[1].toLowerCase();
-      const endpoint =
+      const reg = lookupMethod("aws-bedrock", action);
+
+      // Fallback endpoint construction
+      const fbEndpoint =
         action === "invoke_model"
           ? "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/invoke"
           : action === "converse"
             ? "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/converse"
             : "https://bedrock-runtime.{region}.amazonaws.com/model/{modelId}/converse-stream";
 
+      if (!reg) console.warn(`[fingerprints] no registry entry for aws-bedrock/${action}`);
+
       matches.push({
         kind: "sdk",
         provider: "aws-bedrock",
         sdk: "boto3-bedrock-runtime",
-        method: "POST",
-        endpoint,
+        method: reg?.httpMethod ?? "POST",
+        endpoint: reg?.endpoint ?? fbEndpoint,
         resource: "model/{modelId}",
         action,
-        streaming: action === "converse_stream",
-        cacheCapable: true,
+        streaming: reg?.streaming ?? action === "converse_stream",
+        batchCapable: reg?.batchCapable,
+        cacheCapable: reg?.cacheCapable ?? true,
         rawMatch: botoMatch[0],
       });
     }

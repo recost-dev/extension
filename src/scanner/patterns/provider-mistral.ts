@@ -1,4 +1,5 @@
 import { ApiCallMatch, LineMatcher } from "./types";
+import { lookupMethod } from "../fingerprints/registry";
 
 export const mistralMatcher: LineMatcher = {
   name: "provider-mistral",
@@ -9,37 +10,51 @@ export const mistralMatcher: LineMatcher = {
     let chatMatch: RegExpExecArray | null;
     while ((chatMatch = chatRegex.exec(line)) !== null) {
       const action = chatMatch[1].toLowerCase();
-      const streaming = action === "stream";
+      const pattern = `chat.${action}`;
+      const reg = lookupMethod("mistral", pattern);
+
+      if (!reg) console.warn(`[fingerprints] no registry entry for mistral/${pattern}`);
+
       matches.push({
         kind: "sdk",
         provider: "mistral",
         sdk: "mistral",
-        method: "POST",
-        endpoint: "https://api.mistral.ai/v1/chat/completions",
+        method: reg?.httpMethod ?? "POST",
+        endpoint: reg?.endpoint ?? "https://api.mistral.ai/v1/chat/completions",
         resource: "chat/completions",
         action,
-        streaming,
-        cacheCapable: true,
+        streaming: reg?.streaming ?? action === "stream",
+        batchCapable: reg?.batchCapable,
+        cacheCapable: reg?.cacheCapable ?? true,
         rawMatch: chatMatch[0],
       });
     }
 
-    const otherRegex = /\b(?:mistral|mistralClient|client)\.(embeddings|ocr|files)\.(create|list|retrieve|upload|delete)\s*\(/gi;
+    const otherRegex =
+      /\b(?:mistral|mistralClient|client)\.(embeddings|ocr|files)\.(create|list|retrieve|upload|delete|process)\s*\(/gi;
     let otherMatch: RegExpExecArray | null;
     while ((otherMatch = otherRegex.exec(line)) !== null) {
       const resource = otherMatch[1].toLowerCase();
       const action = otherMatch[2].toLowerCase();
-      const method = action === "list" || action === "retrieve" ? "GET" : action === "delete" ? "DELETE" : "POST";
-      const endpoint = `https://api.mistral.ai/v1/${resource}${action === "list" || action === "create" || action === "upload" ? "" : "/{id}"}`;
+      const pattern = `${resource}.${action}`;
+      const reg = lookupMethod("mistral", pattern);
+
+      // Fallback HTTP method and endpoint
+      const fbMethod = action === "list" || action === "retrieve" ? "GET" : action === "delete" ? "DELETE" : "POST";
+      const fbEndpoint = `https://api.mistral.ai/v1/${resource}${action === "list" || action === "create" || action === "upload" || action === "process" ? "" : "/{id}"}`;
+
+      if (!reg) console.warn(`[fingerprints] no registry entry for mistral/${pattern}`);
+
       matches.push({
         kind: "sdk",
         provider: "mistral",
         sdk: "mistral",
-        method,
-        endpoint,
+        method: reg?.httpMethod ?? fbMethod,
+        endpoint: reg?.endpoint ?? fbEndpoint,
         resource,
         action,
-        batchCapable: resource === "embeddings",
+        batchCapable: reg?.batchCapable ?? resource === "embeddings",
+        cacheCapable: reg?.cacheCapable,
         rawMatch: otherMatch[0],
       });
     }

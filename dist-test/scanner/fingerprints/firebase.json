@@ -81,6 +81,15 @@
             "description": "Real-time listener on a Firebase Realtime Database path — charged per download byte"
         },
         {
+            "pattern": "addSnapshotListener",
+            "httpMethod": "SUBSCRIBE",
+            "endpoint": "firestore://listener",
+            "costModel": "per_transaction",
+            "fixedFee": 0.0000003,
+            "streaming": true,
+            "description": "Real-time snapshot listener (iOS/Android SDK style)"
+        },
+        {
             "pattern": "uploadBytes",
             "httpMethod": "POST",
             "endpoint": "https://firebasestorage.googleapis.com/v0/b/{bucket}/o",
