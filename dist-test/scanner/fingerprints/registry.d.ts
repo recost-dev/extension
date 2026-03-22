@@ -35,3 +35,19 @@ export declare function getAllProviders(): string[];
  * providers.
  */
 export declare function getProviderMethods(provider: string): MethodFingerprint[];
+/**
+ * Fetch fresh pricing from the backend and patch the in-memory registry.
+ *
+ * Only pricing fields (costModel, inputPricePer1M, outputPricePer1M, fixedFee,
+ * percentageFee, perRequestCostUsd) are overwritten. Detection fields (pattern,
+ * httpMethod, endpoint, streaming, batchCapable, cacheCapable, description,
+ * hosts, packages, languages) are NEVER touched.
+ *
+ * Methods returned by the API that are not in the bundled registry are skipped.
+ * Bundled methods not present in the API response are left unchanged.
+ * Any failure (timeout, HTTP error, malformed JSON) is logged and silently
+ * ignored so the extension continues with bundled pricing.
+ *
+ * @param backendUrl  Base URL of the ReCost backend, e.g. "https://api.recost.dev"
+ */
+export declare function syncPricingFromBackend(backendUrl: string): Promise<void>;

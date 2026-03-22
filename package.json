@@ -137,6 +137,13 @@
           "type": "string",
           "default": "gpt-4.1-mini",
           "description": "OpenAI model used for AI review."
+        },
+        "recost.pricingSyncIntervalHours": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "maximum": 168,
+          "description": "How often (in hours) to re-sync pricing from the ReCost backend. Set to a higher value to reduce network requests."
         }
       }
     }
@@ -147,7 +154,7 @@
     "build:webview": "cd webview && npm run build",
     "build:dashboard": "cd dashboard && npm run build && rm -rf ../dashboard-dist && cp -r dist ../dashboard-dist",
     "test": "npm run test:scanner",
-    "test:scanner": "tsc -p tsconfig.scanner-tests.json && node dist-test/test/scanner-patterns.test.js && node dist-test/test/endpoint-classification.test.js && node dist-test/test/local-waste-detector.test.js && node dist-test/test/chat-providers.test.js && node dist-test/test/fingerprint-registry.test.js",
+    "test:scanner": "tsc -p tsconfig.scanner-tests.json && node dist-test/test/scanner-patterns.test.js && node dist-test/test/endpoint-classification.test.js && node dist-test/test/local-waste-detector.test.js && node dist-test/test/chat-providers.test.js && node dist-test/test/fingerprint-registry.test.js && node dist-test/test/pricing-sync.test.js",
     "watch:ext": "node esbuild.mjs --watch",
     "watch:webview": "cd webview && npm run build -- --watch",
     "package": "npx @vscode/vsce package --no-dependencies --allow-missing-repository"

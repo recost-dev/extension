@@ -1,9 +1,12 @@
 import * as vscode from "vscode";
 import { EcoSidebarProvider } from "./webview-provider";
 import { validateApiKey } from "./api-client";
+import { syncPricingFromBackend } from "./scanner/fingerprints/registry";
 
 const ECO_API_KEY = "recost.apiKey";
 const GET_KEY_URL = "https://recost.dev/dashboard/account";
+const PRICING_BACKEND_URL = "https://api.recost.dev";
+const DEFAULT_SYNC_INTERVAL_HOURS = 6;
 
 async function updateStatusBar(
   statusBar: vscode.StatusBarItem,
@@ -85,6 +88,21 @@ export function activate(context: vscode.ExtensionContext) {
   const statusLocalCommand = vscode.commands.registerCommand("recost.statusLocal", () => {});
 
   context.subscriptions.push(openPanelCommand, scanCommand, openKeysCommand, statusOnlineCommand, statusLocalCommand);
+
+  // Pricing sync: fire-and-forget on startup, then repeat on a configurable interval
+  const syncPricing = () => {
+    syncPricingFromBackend(PRICING_BACKEND_URL).catch((err: unknown) => {
+      console.warn("ReCost: pricing sync error", err);
+    });
+  };
+  syncPricing();
+
+  const intervalHours =
+    vscode.workspace
+      .getConfiguration("recost")
+      .get<number>("pricingSyncIntervalHours") ?? DEFAULT_SYNC_INTERVAL_HOURS;
+  const syncIntervalId = setInterval(syncPricing, intervalHours * 60 * 60 * 1_000);
+  context.subscriptions.push({ dispose: () => clearInterval(syncIntervalId) });
 
   // Async init: update status bar on startup + show first-run notification if no key
   (async () => {

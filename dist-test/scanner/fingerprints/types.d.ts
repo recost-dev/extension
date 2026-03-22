@@ -16,6 +16,8 @@ export interface MethodFingerprint {
     fixedFee?: number;
     /** Fractional percentage fee, e.g. 0.029 for 2.9% */
     percentageFee?: number;
+    /** Fixed USD cost per request (for per_request cost model) */
+    perRequestCostUsd?: number;
     streaming?: boolean;
     batchCapable?: boolean;
     cacheCapable?: boolean;

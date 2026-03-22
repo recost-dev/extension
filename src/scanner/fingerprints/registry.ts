@@ -1,4 +1,4 @@
-import type { MethodFingerprint } from "./types";
+import type { CostModel, MethodFingerprint } from "./types";
 import { ALL_PROVIDERS, HOST_MAP_PROVIDERS } from "./index";
 
 // ── Index structures built once at module load ────────────────────────────────
@@ -121,4 +121,128 @@ export function getProviderMethods(provider: string): MethodFingerprint[] {
   if (!provider) return [];
   const methods = methodIndex.get(provider.toLowerCase());
   return methods ? Array.from(methods.values()) : [];
+}
+
+// ── Pricing sync ──────────────────────────────────────────────────────────────
+
+/** Pricing fields that may be overwritten from the backend. Detection fields are never touched. */
+const PRICING_FIELDS = [
+  "costModel",
+  "inputPricePer1M",
+  "outputPricePer1M",
+  "fixedFee",
+  "percentageFee",
+  "perRequestCostUsd",
+] as const;
+
+type PricingFieldKey = (typeof PRICING_FIELDS)[number];
+
+interface BackendMethodPricing {
+  costModel?: CostModel;
+  inputPricePer1M?: number;
+  outputPricePer1M?: number;
+  fixedFee?: number;
+  percentageFee?: number;
+  perRequestCostUsd?: number;
+  // Any extra fields from the backend (e.g. detection fields) are intentionally ignored.
+  [key: string]: unknown;
+}
+
+interface BackendPricingResponse {
+  schemaVersion?: string;
+  updatedAt?: string;
+  providers: {
+    [providerName: string]: {
+      methods: {
+        [methodPattern: string]: BackendMethodPricing;
+      };
+    };
+  };
+}
+
+/**
+ * Fetch fresh pricing from the backend and patch the in-memory registry.
+ *
+ * Only pricing fields (costModel, inputPricePer1M, outputPricePer1M, fixedFee,
+ * percentageFee, perRequestCostUsd) are overwritten. Detection fields (pattern,
+ * httpMethod, endpoint, streaming, batchCapable, cacheCapable, description,
+ * hosts, packages, languages) are NEVER touched.
+ *
+ * Methods returned by the API that are not in the bundled registry are skipped.
+ * Bundled methods not present in the API response are left unchanged.
+ * Any failure (timeout, HTTP error, malformed JSON) is logged and silently
+ * ignored so the extension continues with bundled pricing.
+ *
+ * @param backendUrl  Base URL of the ReCost backend, e.g. "https://api.recost.dev"
+ */
+export async function syncPricingFromBackend(backendUrl: string): Promise<void> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3_000);
+
+  let raw: unknown;
+  try {
+    const response = await fetch(`${backendUrl}/pricing`, { signal: controller.signal });
+    if (!response.ok) {
+      console.warn(`ReCost: pricing sync failed (HTTP ${response.status}), using bundled pricing`);
+      return;
+    }
+    raw = await response.json();
+  } catch (err) {
+    console.warn("ReCost: pricing sync failed, using bundled pricing:", err);
+    return;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  // Validate top-level shape
+  if (
+    raw == null ||
+    typeof raw !== "object" ||
+    !("providers" in raw) ||
+    raw.providers == null ||
+    typeof raw.providers !== "object"
+  ) {
+    console.warn("ReCost: pricing sync returned malformed data, using bundled pricing");
+    return;
+  }
+
+  const data = raw as BackendPricingResponse;
+
+  for (const [providerName, providerData] of Object.entries(data.providers)) {
+    if (
+      providerData == null ||
+      typeof providerData !== "object" ||
+      providerData.methods == null ||
+      typeof providerData.methods !== "object"
+    ) {
+      continue;
+    }
+
+    const methods = methodIndex.get(providerName.toLowerCase());
+    if (!methods) {
+      // Provider not in bundled registry — skip entirely
+      continue;
+    }
+
+    for (const [methodPattern, pricingData] of Object.entries(providerData.methods)) {
+      const entry = methods.get(methodPattern);
+      if (!entry) {
+        // Method not in bundled registry — skip
+        continue;
+      }
+
+      if (pricingData == null || typeof pricingData !== "object") {
+        continue;
+      }
+
+      // Overwrite only pricing fields; never touch detection fields
+      for (const field of PRICING_FIELDS) {
+        const value = (pricingData as BackendMethodPricing)[field];
+        if (value !== undefined) {
+          // Type-safe assignment through the known union
+          (entry as Record<PricingFieldKey, unknown>)[field] = value;
+        }
+      }
+    }
+  }
 }
