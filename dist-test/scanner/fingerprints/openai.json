@@ -5,7 +5,8 @@
     "languages": ["javascript", "typescript", "python"],
     "packages": ["openai"],
     "hosts": [
-        { "pattern": "api.openai.com" }
+        { "pattern": "api.openai.com" },
+        { "pattern": "(^|\\.)openai\\.com$", "isRegex": true }
     ],
     "methods": [
         {

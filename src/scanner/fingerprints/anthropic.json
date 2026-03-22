@@ -5,7 +5,8 @@
   "languages": ["javascript", "typescript", "python"],
   "packages": ["@anthropic-ai/sdk"],
   "hosts": [
-    { "pattern": "api.anthropic.com" }
+    { "pattern": "api.anthropic.com" },
+    { "pattern": "(^|\\.)anthropic\\.com$", "isRegex": true }
   ],
   "methods": [
     {

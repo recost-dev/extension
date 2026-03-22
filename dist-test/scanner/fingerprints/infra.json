@@ -1,0 +1,13 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "infra",
+    "displayName": "Infrastructure & Deployment",
+    "languages": [],
+    "packages": [],
+    "hosts": [
+        { "pattern": "(^|\\.)cloudflare\\.com$", "isRegex": true, "provider": "cloudflare" },
+        { "pattern": "(^|\\.)vercel\\.com$", "isRegex": true, "provider": "vercel" },
+        { "pattern": "(^|\\.)netlify\\.com$", "isRegex": true, "provider": "netlify" }
+    ],
+    "methods": []
+}

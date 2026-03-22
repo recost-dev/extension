@@ -352,4 +352,53 @@ run("getProviderMethods: case-insensitive provider name", () => {
     strict_1.default.equal(lower.length, upper.length);
     strict_1.default.ok(lower.length > 0);
 });
+// ── 7. HOST_MAP_PROVIDERS host lookups (Phase 1.6) ───────────────────────────
+run("lookupHost: api.github.com → github", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.github.com"), "github");
+});
+run("lookupHost: api.stripe.com → stripe (exact beats regex)", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.stripe.com"), "stripe");
+});
+run("lookupHost: dashboard.stripe.com → stripe (regex)", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("dashboard.stripe.com"), "stripe");
+});
+run("lookupHost: hooks.slack.com → slack", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("hooks.slack.com"), "slack");
+});
+run("lookupHost: ingest.sentry.io → sentry", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("ingest.sentry.io"), "sentry");
+});
+run("lookupHost: bucket.s3.us-east-1.amazonaws.com → aws-s3", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("bucket.s3.us-east-1.amazonaws.com"), "aws-s3");
+});
+run("lookupHost: abc123.execute-api.eu-west-1.amazonaws.com → aws-api-gateway", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("abc123.execute-api.eu-west-1.amazonaws.com"), "aws-api-gateway");
+});
+run("lookupHost: maps.googleapis.com → google-maps", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("maps.googleapis.com"), "google-maps");
+});
+run("lookupHost: firestore.googleapis.com → firestore (provider override)", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("firestore.googleapis.com"), "firestore");
+});
+run("lookupHost: api.openrouter.ai → openrouter", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.openrouter.ai"), "openrouter");
+});
+run("lookupHost: api.groq.com → groq", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.groq.com"), "groq");
+});
+run("lookupHost: api.deepseek.com → deepseek", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.deepseek.com"), "deepseek");
+});
+run("lookupHost: localhost → local-openai-compatible", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("localhost"), "local-openai-compatible");
+});
+run("lookupHost: 127.0.0.1 → local-openai-compatible", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("127.0.0.1"), "local-openai-compatible");
+});
+run("lookupHost: api.algolia.net → algolia", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.algolia.net"), "algolia");
+});
+run("lookupHost: api.segment.io → segment", () => {
+    strict_1.default.equal((0, registry_1.lookupHost)("api.segment.io"), "segment");
+});
 //# sourceMappingURL=fingerprint-registry.test.js.map

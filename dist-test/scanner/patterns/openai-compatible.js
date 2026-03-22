@@ -30,18 +30,6 @@ const OPENAI_ROOTS = new Set([
     "threads",
     "webhooks",
 ]);
-const HOST_PROVIDER_MAP = [
-    { test: /(^|\.)openrouter\.ai$/i, provider: "openrouter" },
-    { test: /(^|\.)together\.xyz$/i, provider: "together" },
-    { test: /(^|\.)groq\.com$/i, provider: "groq" },
-    { test: /(^|\.)perplexity\.ai$/i, provider: "perplexity" },
-    { test: /(^|\.)fireworks\.ai$/i, provider: "fireworks" },
-    { test: /(^|\.)deepseek\.com$/i, provider: "deepseek" },
-    { test: /(^|\.)localhost$/i, provider: "local-openai-compatible" },
-    { test: /^127\.0\.0\.1$/i, provider: "local-openai-compatible" },
-    { test: /(^|\.)ollama$/i, provider: "local-openai-compatible" },
-    { test: /(^|\.)lmstudio/i, provider: "local-openai-compatible" },
-];
 function mapActionToMethod(action) {
     if (action === "delete")
         return "DELETE";
@@ -61,12 +49,9 @@ function mapActionToMethod(action) {
 function mapHostToProvider(host) {
     if (!host)
         return "openai";
-    for (const mapping of HOST_PROVIDER_MAP) {
-        if (mapping.test.test(host))
-            return mapping.provider;
-    }
-    if (host === "api.openai.com")
-        return "openai";
+    const provider = (0, registry_1.lookupHost)(host);
+    if (provider)
+        return provider;
     return "openai-compatible";
 }
 function buildOpenAiPath(chain, action) {

@@ -20,13 +20,26 @@ for (const fp of index_1.ALL_PROVIDERS) {
         methods.set(m.pattern, m);
     }
     methodIndex.set(key, methods);
-    // Host index
+    // Host index (exact entries in ALL_PROVIDERS take priority)
     for (const h of fp.hosts) {
+        const resolvedProvider = h.provider ?? fp.provider;
         if (h.isRegex) {
-            regexHostIndex.push({ regex: new RegExp(h.pattern, "i"), provider: fp.provider });
+            regexHostIndex.push({ regex: new RegExp(h.pattern, "i"), provider: resolvedProvider });
         }
         else {
-            exactHostIndex.set(h.pattern.toLowerCase(), fp.provider);
+            exactHostIndex.set(h.pattern.toLowerCase(), resolvedProvider);
+        }
+    }
+}
+// Host-only providers (grouped mapping files — hosts only, no methods)
+for (const fp of index_1.HOST_MAP_PROVIDERS) {
+    for (const h of fp.hosts) {
+        const resolvedProvider = h.provider ?? fp.provider;
+        if (h.isRegex) {
+            regexHostIndex.push({ regex: new RegExp(h.pattern, "i"), provider: resolvedProvider });
+        }
+        else {
+            exactHostIndex.set(h.pattern.toLowerCase(), resolvedProvider);
         }
     }
 }

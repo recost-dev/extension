@@ -1,0 +1,14 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "payments-extended",
+    "displayName": "Payments (extended)",
+    "languages": [],
+    "packages": [],
+    "hosts": [
+        { "pattern": "(^|\\.)api\\.paypal\\.com$", "isRegex": true, "provider": "paypal" },
+        { "pattern": "(^|\\.)api-m\\.paypal\\.com$", "isRegex": true, "provider": "paypal" },
+        { "pattern": "(^|\\.)braintreegateway\\.com$", "isRegex": true, "provider": "braintree" },
+        { "pattern": "(^|\\.)square\\.com$", "isRegex": true, "provider": "square" }
+    ],
+    "methods": []
+}

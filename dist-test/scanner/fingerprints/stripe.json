@@ -5,7 +5,8 @@
     "languages": ["javascript", "typescript", "python", "ruby", "go", "java"],
     "packages": ["stripe"],
     "hosts": [
-        { "pattern": "api.stripe.com" }
+        { "pattern": "api.stripe.com" },
+        { "pattern": "(^|\\.)stripe\\.com$", "isRegex": true }
     ],
     "methods": [
         {

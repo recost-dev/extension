@@ -1,0 +1,13 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "databases-extended",
+    "displayName": "Databases & BaaS (extended)",
+    "languages": [],
+    "packages": [],
+    "hosts": [
+        { "pattern": "(^|\\.)neon\\.tech$", "isRegex": true, "provider": "neon" },
+        { "pattern": "(^|\\.)planetscale\\.com$", "isRegex": true, "provider": "planetscale" },
+        { "pattern": "(^|\\.)airtable\\.com$", "isRegex": true, "provider": "airtable" }
+    ],
+    "methods": []
+}

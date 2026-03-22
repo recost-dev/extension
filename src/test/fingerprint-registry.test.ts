@@ -431,3 +431,69 @@ run("getProviderMethods: case-insensitive provider name", () => {
   assert.equal(lower.length, upper.length);
   assert.ok(lower.length > 0);
 });
+
+// ── 7. HOST_MAP_PROVIDERS host lookups (Phase 1.6) ───────────────────────────
+
+run("lookupHost: api.github.com → github", () => {
+  assert.equal(lookupHost("api.github.com"), "github");
+});
+
+run("lookupHost: api.stripe.com → stripe (exact beats regex)", () => {
+  assert.equal(lookupHost("api.stripe.com"), "stripe");
+});
+
+run("lookupHost: dashboard.stripe.com → stripe (regex)", () => {
+  assert.equal(lookupHost("dashboard.stripe.com"), "stripe");
+});
+
+run("lookupHost: hooks.slack.com → slack", () => {
+  assert.equal(lookupHost("hooks.slack.com"), "slack");
+});
+
+run("lookupHost: ingest.sentry.io → sentry", () => {
+  assert.equal(lookupHost("ingest.sentry.io"), "sentry");
+});
+
+run("lookupHost: bucket.s3.us-east-1.amazonaws.com → aws-s3", () => {
+  assert.equal(lookupHost("bucket.s3.us-east-1.amazonaws.com"), "aws-s3");
+});
+
+run("lookupHost: abc123.execute-api.eu-west-1.amazonaws.com → aws-api-gateway", () => {
+  assert.equal(lookupHost("abc123.execute-api.eu-west-1.amazonaws.com"), "aws-api-gateway");
+});
+
+run("lookupHost: maps.googleapis.com → google-maps", () => {
+  assert.equal(lookupHost("maps.googleapis.com"), "google-maps");
+});
+
+run("lookupHost: firestore.googleapis.com → firestore (provider override)", () => {
+  assert.equal(lookupHost("firestore.googleapis.com"), "firestore");
+});
+
+run("lookupHost: api.openrouter.ai → openrouter", () => {
+  assert.equal(lookupHost("api.openrouter.ai"), "openrouter");
+});
+
+run("lookupHost: api.groq.com → groq", () => {
+  assert.equal(lookupHost("api.groq.com"), "groq");
+});
+
+run("lookupHost: api.deepseek.com → deepseek", () => {
+  assert.equal(lookupHost("api.deepseek.com"), "deepseek");
+});
+
+run("lookupHost: localhost → local-openai-compatible", () => {
+  assert.equal(lookupHost("localhost"), "local-openai-compatible");
+});
+
+run("lookupHost: 127.0.0.1 → local-openai-compatible", () => {
+  assert.equal(lookupHost("127.0.0.1"), "local-openai-compatible");
+});
+
+run("lookupHost: api.algolia.net → algolia", () => {
+  assert.equal(lookupHost("api.algolia.net"), "algolia");
+});
+
+run("lookupHost: api.segment.io → segment", () => {
+  assert.equal(lookupHost("api.segment.io"), "segment");
+});

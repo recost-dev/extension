@@ -5,7 +5,7 @@
     "languages": ["javascript", "typescript"],
     "packages": ["firebase"],
     "hosts": [
-        { "pattern": "firestore.googleapis.com" },
+        { "pattern": "firestore.googleapis.com", "provider": "firestore" },
         { "pattern": "firebasestorage.googleapis.com" },
         { "pattern": "firebase.googleapis.com" }
     ],

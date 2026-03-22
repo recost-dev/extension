@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "provider": "analytics",
+  "displayName": "Analytics & Monitoring",
+  "languages": [],
+  "packages": [],
+  "hosts": [
+    { "pattern": "(^|\\.)mixpanel\\.com$", "isRegex": true, "provider": "mixpanel" },
+    { "pattern": "(^|\\.)segment\\.io$", "isRegex": true, "provider": "segment" },
+    { "pattern": "(^|\\.)segment\\.com$", "isRegex": true, "provider": "segment" },
+    { "pattern": "(^|\\.)amplitude\\.com$", "isRegex": true, "provider": "amplitude" },
+    { "pattern": "(^|\\.)datadoghq\\.com$", "isRegex": true, "provider": "datadog" },
+    { "pattern": "(^|\\.)sentry\\.io$", "isRegex": true, "provider": "sentry" }
+  ],
+  "methods": []
+}

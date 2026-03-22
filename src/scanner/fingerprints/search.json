@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "provider": "search",
+  "displayName": "Search Providers",
+  "languages": [],
+  "packages": [],
+  "hosts": [
+    { "pattern": "(^|\\.)algolia\\.net$", "isRegex": true, "provider": "algolia" },
+    { "pattern": "(^|\\.)algolia\\.io$", "isRegex": true, "provider": "algolia" },
+    { "pattern": "(^|\\.)elastic\\.co$", "isRegex": true, "provider": "elasticsearch" }
+  ],
+  "methods": []
+}

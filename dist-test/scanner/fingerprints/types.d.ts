@@ -27,6 +27,11 @@ export interface HostPattern {
     pattern: string;
     /** When true, pattern is a regex; when false/omitted, pattern is an exact hostname */
     isRegex?: boolean;
+    /**
+     * When set, lookupHost() returns this provider id instead of the file's top-level
+     * provider. Useful for grouping multiple distinct providers into one JSON file.
+     */
+    provider?: string;
 }
 export interface ProviderFingerprint {
     schemaVersion: string;
