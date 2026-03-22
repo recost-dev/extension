@@ -145,7 +145,7 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
                   <span
                     className="eco-chevron"
                     style={{
-                      fontSize: "22px",
+                      fontSize: "15px",
                       transform: isExpanded ? "rotate(0deg)" : "rotate(90deg)",
                       color: "var(--vscode-descriptionForeground)",
                     }}

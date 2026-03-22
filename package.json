@@ -9,7 +9,7 @@
     "url": "https://github.com/ecoapi-dev/extension"
   },
   "publisher": "recost",
-  "icon": "media/eco-icon.png",
+  "icon": "media/recost-icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -25,7 +25,7 @@
         {
           "id": "recost-sidebar",
           "title": "ReCost",
-          "icon": "media/eco-icon.svg"
+          "icon": "media/recost-icon.svg"
         }
       ]
     },
@@ -35,7 +35,7 @@
           "type": "webview",
           "id": "recost.sidebarView",
           "name": "ReCost",
-          "icon": "media/eco-icon.svg"
+          "icon": "media/recost-icon.svg"
         }
       ]
     },
@@ -43,6 +43,16 @@
       {
         "command": "recost.openPanel",
         "title": "ReCost: Open API Analyzer"
+      },
+      {
+        "command": "recost.statusOnline",
+        "title": "ReCost: Online",
+        "icon": { "light": "./media/status-online.svg", "dark": "./media/status-online.svg" }
+      },
+      {
+        "command": "recost.statusLocal",
+        "title": "ReCost: Local mode",
+        "icon": { "light": "./media/status-local.svg", "dark": "./media/status-local.svg" }
       },
       {
         "command": "recost.scanWorkspace",
@@ -57,6 +67,16 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "recost.statusOnline",
+          "when": "view == recost.sidebarView && recost.keyOnline",
+          "group": "navigation"
+        },
+        {
+          "command": "recost.statusLocal",
+          "when": "view == recost.sidebarView && !recost.keyOnline",
+          "group": "navigation"
+        },
         {
           "command": "recost.openKeys",
           "when": "view == recost.sidebarView",

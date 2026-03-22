@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useParams } from 'react-router';
-import { LayoutDashboard, Radio, Lightbulb, Share2, Settings, Leaf, Calculator } from 'lucide-react';
+import { LayoutDashboard, Radio, Lightbulb, Share2, Settings, Calculator } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import { useProject } from '@/lib/queries';
 import { ThemeProvider } from '../theme-context';
@@ -48,7 +48,10 @@ export function Layout() {
           {/* Nav Rail */}
           <nav className="w-[73px] shrink-0 flex flex-col items-center py-4 border-r border-white/[0.07] bg-black/50 backdrop-blur-xl z-10">
             <Link to={base} className="mb-5 flex items-center justify-center w-[52px] h-[52px] rounded-lg hover:bg-white/[0.06] transition-colors">
-              <Leaf size={29} className="text-[#4EAA57]" strokeWidth={2.5} />
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="30" height="30">
+                <path d="M55 85 L240 85 L240 140 L105 140 L105 315 L55 315 Z" fill="none" stroke="#fafafa" strokeWidth="14" strokeLinejoin="round" strokeLinecap="round"/>
+                <path d="M345 315 L160 315 L160 260 L295 260 L295 85 L345 85 Z" fill="#fafafa" stroke="#fafafa" strokeWidth="14" strokeLinejoin="round" strokeLinecap="round"/>
+              </svg>
             </Link>
 
             <div className="flex-1 flex flex-col gap-1.5 w-full px-3">
