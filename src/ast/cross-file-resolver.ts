@@ -357,17 +357,13 @@ function resolveExportedMatches(
 export function runCrossFileResolution(
   files: PerFileResult[]
 ): Map<string, AstCallMatch[]> {
-  const knownFiles = new Set(files.map((f) => normalizePath(f.filePath)));
+  const normalizedKnown = new Set(files.map((f) => normalizePath(f.filePath)));
   const sourceByFile = new Map(files.map((f) => [normalizePath(f.filePath), f.source]));
-  const resultByRelPath = new Map(files.map((f) => [f.relativePath, f]));
 
   // Normalize registry keys
   const rawRegistry = buildExportRegistry(files);
   const registry: ExportRegistry = new Map();
   for (const [k, v] of rawRegistry) registry.set(normalizePath(k), v);
-
-  // Build knownFiles from normalized paths
-  const normalizedKnown = new Set(files.map((f) => normalizePath(f.filePath)));
 
   const output = new Map<string, AstCallMatch[]>();
 

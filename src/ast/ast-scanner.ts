@@ -228,7 +228,6 @@ function collectClassMethods(classNode: SyntaxNode): Map<string, SyntaxNode> {
     for (let j = 0; j < body.childCount; j++) {
       const m = body.child(j);
       if (!m || m.type !== "method_definition") continue;
-      const nameNode = m.child(0);
       // skip the async keyword if present; find property_identifier
       for (let k = 0; k < m.childCount; k++) {
         const c = m.child(k);

@@ -67,6 +67,13 @@
       "description": "Retrieve file metadata"
     },
     {
+      "pattern": "files.upload",
+      "httpMethod": "POST",
+      "endpoint": "https://api.mistral.ai/v1/files",
+      "costModel": "free",
+      "description": "Upload a file (alias for files.create)"
+    },
+    {
       "pattern": "files.delete",
       "httpMethod": "DELETE",
       "endpoint": "https://api.mistral.ai/v1/files/{id}",

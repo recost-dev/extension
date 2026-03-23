@@ -299,7 +299,13 @@ export async function detectLocalWastePatterns(): Promise<LocalWasteFinding[]> {
   }
 
   // ── Second pass: cross-file resolution + AST waste detection ────────────
-  const augmented = runCrossFileResolution(perFileResults);
+  let augmented: Map<string, AstCallMatch[]>;
+  try {
+    augmented = runCrossFileResolution(perFileResults);
+  } catch {
+    // Cross-file resolution failed — fall back to per-file matches only
+    augmented = new Map(perFileResults.map((pf) => [pf.relativePath, pf.result.matches]));
+  }
   const astFindings: LocalWasteFinding[] = [];
 
   for (const pf of perFileResults) {

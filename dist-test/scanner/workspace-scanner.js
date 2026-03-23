@@ -318,7 +318,14 @@ async function detectLocalWastePatterns() {
         }
     }
     // ── Second pass: cross-file resolution + AST waste detection ────────────
-    const augmented = (0, cross_file_resolver_1.runCrossFileResolution)(perFileResults);
+    let augmented;
+    try {
+        augmented = (0, cross_file_resolver_1.runCrossFileResolution)(perFileResults);
+    }
+    catch {
+        // Cross-file resolution failed — fall back to per-file matches only
+        augmented = new Map(perFileResults.map((pf) => [pf.relativePath, pf.result.matches]));
+    }
     const astFindings = [];
     for (const pf of perFileResults) {
         const matches = augmented.get(pf.relativePath) ?? pf.result.matches;
