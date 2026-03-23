@@ -28,6 +28,7 @@ import { ScenarioCompare } from '@/components/ScenarioCompare';
 
 function fmt(n: number): string {
   if (n < 0.01) return '<$0.01';
+  if (n >= 1_000) return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return `$${n.toFixed(2)}`;
 }
 function fmtRange(low: number, high: number): string {

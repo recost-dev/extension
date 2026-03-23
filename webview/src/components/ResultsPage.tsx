@@ -14,6 +14,12 @@ interface ResultsPageProps {
   onAskAI: (context: SuggestionContext) => void;
 }
 
+function formatCost(n: number): string {
+  if (n < 0.01) return '<$0.01';
+  if (n >= 1_000) return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `$${n.toFixed(2)}`;
+}
+
 const typeLabels: Record<string, string> = {
   n_plus_one: "n+1",
   cache: "cache",
@@ -322,23 +328,20 @@ function CodeFix({ codeFix, file, line }: { codeFix: string; file?: string; line
 
 function SuggestionCard({
   suggestion,
-  expanded,
-  onToggle,
   onAskAI,
   target,
 }: {
   suggestion: Suggestion;
-  expanded: boolean;
-  onToggle: () => void;
   onAskAI: (s: Suggestion) => void;
   target: { file?: string; line?: number };
 }) {
+  const [expanded, setExpanded] = useState(false);
   const firstLine = suggestion.description.split("\n")[0];
   const descShort = firstLine.length > 90 ? `${firstLine.slice(0, 90)}...` : firstLine;
 
   return (
     <div className="eco-suggestion">
-      <button className="eco-suggestion-header" onClick={onToggle}>
+      <button className="eco-suggestion-header" onClick={() => setExpanded((v) => !v)}>
         <span aria-hidden="true" className={`eco-disclosure${expanded ? " open" : ""}`} />
         <TypeBadge type={suggestion.type} />
         <SourceBadge source={suggestion.source} />
@@ -346,7 +349,7 @@ function SuggestionCard({
         <span style={{ flex: 1, lineHeight: 1.4, overflow: "hidden" }}>{descShort}</span>
         {suggestion.estimatedMonthlySavings > 0 && (
           <span style={{ color: "var(--vscode-charts-green, #4caf50)", fontSize: "11px", flexShrink: 0, whiteSpace: "nowrap" }}>
-            ${suggestion.estimatedMonthlySavings.toFixed(2)}/mo
+            {formatCost(suggestion.estimatedMonthlySavings)}/mo
           </span>
         )}
       </button>
@@ -412,8 +415,6 @@ function SeverityGroup({
   suggestions,
   open,
   onToggleGroup,
-  expanded,
-  onToggle,
   onAskAI,
   resolveTarget,
 }: {
@@ -421,8 +422,6 @@ function SeverityGroup({
   suggestions: Suggestion[];
   open: boolean;
   onToggleGroup: () => void;
-  expanded: Set<string>;
-  onToggle: (id: string) => void;
   onAskAI: (s: Suggestion) => void;
   resolveTarget: (s: Suggestion) => { file?: string; line?: number };
 }) {
@@ -446,8 +445,6 @@ function SeverityGroup({
           <SuggestionCard
             key={s.id}
             suggestion={s}
-            expanded={expanded.has(s.id)}
-            onToggle={() => onToggle(s.id)}
             onAskAI={onAskAI}
             target={resolveTarget(s)}
           />
@@ -465,7 +462,7 @@ function EndpointRow({ ep }: { ep: EndpointRecord }) {
       : "var(--vscode-descriptionForeground)";
 
   const costLabel =
-    ep.costModel === "free" ? "Free" : `$${ep.monthlyCost.toFixed(2)}/mo`;
+    ep.costModel === "free" ? "Free" : `${formatCost(ep.monthlyCost)}/mo`;
 
   return (
     <div>
@@ -613,21 +610,11 @@ export function ResultsPage({
   aiReviewStats,
   onAskAI,
 }: ResultsPageProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openGroups, setOpenGroups] = useState<Record<"HIGH" | "MEDIUM" | "LOW", boolean>>({
     HIGH: true,
     MEDIUM: true,
     LOW: true,
   });
-
-  const toggleCard = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const handleAskAI = (suggestion: Suggestion) => {
     const target = resolveSuggestionTarget(suggestion, endpoints);
@@ -669,7 +656,7 @@ export function ResultsPage({
           <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
           {suggestions.length} suggestions
           <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-          ${summary.totalMonthlyCost.toFixed(2)}/mo
+          {formatCost(summary.totalMonthlyCost)}/mo
           {summary.highRiskCount > 0 && (
             <>
               <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
@@ -723,8 +710,6 @@ export function ResultsPage({
               suggestions={high}
               open={openGroups.HIGH}
               onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
-              expanded={expanded}
-              onToggle={toggleCard}
               onAskAI={handleAskAI}
               resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
             />
@@ -733,8 +718,6 @@ export function ResultsPage({
               suggestions={medium}
               open={openGroups.MEDIUM}
               onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
-              expanded={expanded}
-              onToggle={toggleCard}
               onAskAI={handleAskAI}
               resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
             />
@@ -743,15 +726,25 @@ export function ResultsPage({
               suggestions={low}
               open={openGroups.LOW}
               onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
-              expanded={expanded}
-              onToggle={toggleCard}
               onAskAI={handleAskAI}
               resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
             />
           </>
         )}
 
+        {endpoints.length === 0 && suggestions.length === 0 && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
+            <span className="codicon codicon-search" style={{ fontSize: "24px" }} />
+            <span>No API calls detected</span>
+            <span style={{ fontSize: "10px", opacity: 0.6 }}>Check your scan glob settings or try re-scanning</span>
+          </div>
+        )}
         {endpoints.length > 0 && <EndpointsList endpoints={endpoints} topBorder={suggestions.length === 0} />}
+        {endpoints.length > 0 && endpoints.every((ep) => ep.costModel === "free") && (
+          <div style={{ padding: "8px 12px", fontSize: "11px", color: "var(--vscode-charts-green)", opacity: 0.8 }}>
+            All detected calls are free tier
+          </div>
+        )}
       </div>
     </div>
   );

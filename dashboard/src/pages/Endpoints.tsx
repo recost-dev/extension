@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router';
 import { Search, Loader2, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { useEndpoints } from '@/lib/queries';
+import { formatCost } from '@/lib/format';
 import type { EndpointStatus, EndpointRecord } from '@/lib/types';
 import { Select } from '@/components/Select';
 
@@ -71,7 +72,7 @@ function EndpointCard({ ep }: { ep: EndpointRecord }) {
   if (ep.cacheCapable) caps.push('cache');
   if (ep.isMiddleware) caps.push('middleware');
 
-  const costLabel = ep.costModel === 'free' ? 'Free' : `$${ep.monthlyCost.toFixed(2)}`;
+  const costLabel = ep.costModel === 'free' ? 'Free' : formatCost(ep.monthlyCost);
 
   return (
     <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl hover:border-white/[0.15] transition-colors overflow-hidden">

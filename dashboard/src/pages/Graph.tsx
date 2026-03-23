@@ -5,6 +5,7 @@ import { X, Loader2 } from 'lucide-react';
 import { useGraph } from '@/lib/queries';
 import type { EndpointStatus } from '@/lib/types';
 import { Select } from '@/components/Select';
+import { formatCost } from '@/lib/format';
 
 const STATUS_COLOR: Record<string, string> = {
   normal:          '#4EAA57',
@@ -418,7 +419,7 @@ export default function Graph() {
                 ['Cost model',   selected.costModel ? COST_MODEL_LABELS[selected.costModel] ?? selected.costModel : '—'],
                 ['Frequency',    selected.frequencyClass ? FREQ_LABELS[selected.frequencyClass] ?? selected.frequencyClass : '—'],
                 ['Calls / day',  selected.callsPerDay?.toLocaleString() ?? '—'],
-                ['Monthly cost', `$${selected.monthlyCost?.toFixed(2) ?? '0.00'}`],
+                ['Monthly cost', selected.monthlyCost != null ? formatCost(selected.monthlyCost) : '$0.00'],
               ] as [string, string][]).map(([key, val]) => (
                 <div key={key} className="flex justify-between items-center">
                   <span className="text-[12px]" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: "'JetBrains Mono', monospace" }}>{key}</span>

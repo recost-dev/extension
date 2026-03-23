@@ -3,6 +3,7 @@ import type { ElementType } from 'react';
 import { useParams } from 'react-router';
 import { AlertTriangle, AlertCircle, Info, Leaf, RefreshCw, Layers, Zap, Archive, Loader2 } from 'lucide-react';
 import { useSuggestions } from '@/lib/queries';
+import { formatCost } from '@/lib/format';
 import type { Severity, SuggestionType, Suggestion } from '@/lib/types';
 import { Select } from '@/components/Select';
 
@@ -85,7 +86,7 @@ export default function Suggestions() {
               Suggestions
             </h1>
             <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
-              {suggestions.length} optimizations found · Save ${totalSavings.toFixed(2)}/mo
+              {suggestions.length} optimizations found · Save {formatCost(totalSavings)}/mo
             </p>
           </div>
 
@@ -188,7 +189,7 @@ export default function Suggestions() {
                       <div className="flex flex-col items-end gap-2 shrink-0">
                         <div className="flex items-center gap-1.5 bg-[#4EAA57]/10 px-3 py-1.5 rounded-md border border-[#4EAA57]/20">
                           <Leaf size={13} className="text-[#4EAA57]" />
-                          <span className="text-[13px] text-[#4EAA57]">${s.estimatedMonthlySavings.toFixed(2)}/mo</span>
+                          <span className="text-[13px] text-[#4EAA57]">{formatCost(s.estimatedMonthlySavings)}/mo</span>
                         </div>
                       </div>
                     </div>

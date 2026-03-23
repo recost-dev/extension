@@ -3,6 +3,7 @@ import { useParams } from 'react-router';
 import { Server, Activity, DollarSign, AlertTriangle, TrendingDown, Loader2, Lightbulb } from 'lucide-react';
 import { useProject, useCost, useCostByProvider, useSuggestions, useCreateScan, useSustainability, useEndpoints } from '@/lib/queries';
 import type { ApiCallInput } from '@/lib/types';
+import { formatCost } from '@/lib/format';
 
 const PROVIDER_COLORS: Record<string, string> = {
   openai: '#4EAA57',
@@ -190,10 +191,10 @@ export default function Dashboard() {
   const stats = [
     { label: 'Endpoints',         value: cost?.endpointCount,    format: (n: number) => Math.round(n).toString(),                                              icon: Server },
     { label: 'Daily Calls',       value: cost?.totalCallsPerDay, format: (n: number) => Math.round(n).toLocaleString(undefined, { maximumFractionDigits: 0 }), icon: Activity },
-    { label: 'Monthly Cost',      value: cost?.totalMonthlyCost, format: (n: number) => `$${n.toFixed(2)}`,                                                    icon: DollarSign },
+    { label: 'Monthly Cost',      value: cost?.totalMonthlyCost, format: (n: number) => formatCost(n),                                                         icon: DollarSign },
     { label: 'Suggestions',       value: totalSuggestions,       format: (n: number) => Math.round(n).toString(),                                              icon: Lightbulb },
     { label: 'High Risk',         value: highRisk,               format: (n: number) => Math.round(n).toString(),                                              icon: AlertTriangle },
-    { label: 'Pot. Savings',      value: totalSavings,           format: (n: number) => `$${n.toFixed(2)}/mo`,                                                 icon: TrendingDown },
+    { label: 'Pot. Savings',      value: totalSavings,           format: (n: number) => `${formatCost(n)}/mo`,                                                 icon: TrendingDown },
   ];
 
   const sustainabilityStats = [
@@ -290,7 +291,7 @@ export default function Dashboard() {
                   <div className="flex-1 h-6 bg-black/50 rounded-md overflow-hidden relative">
                     <AnimatedBar percent={percent} backgroundColor={pColor} />
                   </div>
-                  <span className="text-[13px] text-white w-20 text-right">${p.monthlyCost.toFixed(2)}</span>
+                  <span className="text-[13px] text-white w-20 text-right">{formatCost(p.monthlyCost)}</span>
                   <span className="text-[12px] w-10 text-right" style={{ color: 'rgba(255,255,255,0.4)' }}>{percent}%</span>
                 </div>
               );
@@ -318,7 +319,7 @@ export default function Dashboard() {
                     <div className="flex-1 h-4 bg-black/50 rounded-md overflow-hidden">
                       <div className="h-full rounded-md transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: color }} />
                     </div>
-                    <span className="text-[12px] text-white w-16 text-right">${cost.toFixed(2)}/mo</span>
+                    <span className="text-[12px] text-white w-16 text-right">{formatCost(cost)}/mo</span>
                   </div>
                 );
               })}
