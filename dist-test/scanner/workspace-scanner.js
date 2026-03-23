@@ -42,6 +42,10 @@ const patterns_1 = require("./patterns");
 const local_waste_detector_1 = require("./local-waste-detector");
 const ast_scanner_1 = require("../ast/ast-scanner");
 const parser_loader_1 = require("../ast/parser-loader");
+const cross_file_resolver_1 = require("../ast/cross-file-resolver");
+const cache_detector_1 = require("../ast/waste/cache-detector");
+const batch_detector_1 = require("../ast/waste/batch-detector");
+const concurrency_detector_1 = require("../ast/waste/concurrency-detector");
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT = /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
 const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
@@ -274,17 +278,62 @@ async function scanWorkspace(onProgress) {
 async function detectLocalWastePatterns() {
     const config = vscode.workspace.getConfiguration("recost");
     const uris = await findScopedUris(config);
-    const findings = [];
+    const perFileResults = [];
+    const nonAstFindings = [];
+    // ── First pass: scan all files ───────────────────────────────────────────
     for (const uri of uris) {
         try {
             const relativePath = vscode.workspace.asRelativePath(uri, false);
+            const absPath = uri.fsPath;
             const text = await readUriText(uri);
-            findings.push(...(0, local_waste_detector_1.detectLocalWasteFindingsInText)(relativePath, text));
+            const ext = path.extname(relativePath);
+            if ((0, parser_loader_1.getLanguageForExtension)(ext)) {
+                // AST-capable file — accumulate for cross-file resolution
+                try {
+                    const fileReader = async (fp) => {
+                        if (fp === absPath)
+                            return text;
+                        try {
+                            return await readUriText(vscode.Uri.file(fp));
+                        }
+                        catch {
+                            return null;
+                        }
+                    };
+                    const result = await (0, ast_scanner_1.scanFileWithAst)(absPath, fileReader);
+                    perFileResults.push({ filePath: absPath, relativePath, source: text, result });
+                }
+                catch {
+                    // AST failed — fall back to regex for this file
+                    nonAstFindings.push(...(0, local_waste_detector_1.detectLocalWasteFindingsInText)(relativePath, text));
+                }
+            }
+            else {
+                // Non-AST file (Python, Go, etc.) — use regex detector
+                nonAstFindings.push(...(0, local_waste_detector_1.detectLocalWasteFindingsInText)(relativePath, text));
+            }
         }
         catch {
             // Skip files that can't be read
         }
     }
-    return findings;
+    // ── Second pass: cross-file resolution + AST waste detection ────────────
+    const augmented = (0, cross_file_resolver_1.runCrossFileResolution)(perFileResults);
+    const astFindings = [];
+    for (const pf of perFileResults) {
+        const matches = augmented.get(pf.relativePath) ?? pf.result.matches;
+        astFindings.push(...(0, cache_detector_1.detectCacheWaste)(matches, pf.source, pf.relativePath));
+        astFindings.push(...(0, batch_detector_1.detectBatchWaste)(matches, pf.source, pf.relativePath));
+        astFindings.push(...(0, concurrency_detector_1.detectConcurrencyWaste)(matches, pf.source, pf.relativePath));
+    }
+    // Deduplicate across all findings by (type, file, line)
+    const seen = new Map();
+    for (const f of [...astFindings, ...nonAstFindings]) {
+        const key = `${f.type}:${f.affectedFile}:${f.line ?? 0}`;
+        const existing = seen.get(key);
+        if (!existing || f.confidence > existing.confidence)
+            seen.set(key, f);
+    }
+    return [...seen.values()];
 }
 //# sourceMappingURL=workspace-scanner.js.map

@@ -5,6 +5,10 @@ import { matchLine, matchRouteDefinitionLine, isInsideLoop } from "./patterns";
 import { detectLocalWasteFindingsInText, type LocalWasteFinding } from "./local-waste-detector";
 import { scanFileWithAst, type AstCallMatch } from "../ast/ast-scanner";
 import { getLanguageForExtension } from "../ast/parser-loader";
+import { runCrossFileResolution, type PerFileResult } from "../ast/cross-file-resolver";
+import { detectCacheWaste } from "../ast/waste/cache-detector";
+import { detectBatchWaste } from "../ast/waste/batch-detector";
+import { detectConcurrencyWaste } from "../ast/waste/concurrency-detector";
 
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT =
@@ -260,17 +264,57 @@ export async function scanWorkspace(
 export async function detectLocalWastePatterns(): Promise<LocalWasteFinding[]> {
   const config = vscode.workspace.getConfiguration("recost");
   const uris = await findScopedUris(config);
-  const findings: LocalWasteFinding[] = [];
 
+  const perFileResults: PerFileResult[] = [];
+  const nonAstFindings: LocalWasteFinding[] = [];
+
+  // ── First pass: scan all files ───────────────────────────────────────────
   for (const uri of uris) {
     try {
       const relativePath = vscode.workspace.asRelativePath(uri, false);
+      const absPath = uri.fsPath;
       const text = await readUriText(uri);
-      findings.push(...detectLocalWasteFindingsInText(relativePath, text));
+      const ext = path.extname(relativePath);
+
+      if (getLanguageForExtension(ext)) {
+        // AST-capable file — accumulate for cross-file resolution
+        try {
+          const fileReader = async (fp: string): Promise<string | null> => {
+            if (fp === absPath) return text;
+            try { return await readUriText(vscode.Uri.file(fp)); } catch { return null; }
+          };
+          const result = await scanFileWithAst(absPath, fileReader);
+          perFileResults.push({ filePath: absPath, relativePath, source: text, result });
+        } catch {
+          // AST failed — fall back to regex for this file
+          nonAstFindings.push(...detectLocalWasteFindingsInText(relativePath, text));
+        }
+      } else {
+        // Non-AST file (Python, Go, etc.) — use regex detector
+        nonAstFindings.push(...detectLocalWasteFindingsInText(relativePath, text));
+      }
     } catch {
       // Skip files that can't be read
     }
   }
 
-  return findings;
+  // ── Second pass: cross-file resolution + AST waste detection ────────────
+  const augmented = runCrossFileResolution(perFileResults);
+  const astFindings: LocalWasteFinding[] = [];
+
+  for (const pf of perFileResults) {
+    const matches = augmented.get(pf.relativePath) ?? pf.result.matches;
+    astFindings.push(...detectCacheWaste(matches, pf.source, pf.relativePath));
+    astFindings.push(...detectBatchWaste(matches, pf.source, pf.relativePath));
+    astFindings.push(...detectConcurrencyWaste(matches, pf.source, pf.relativePath));
+  }
+
+  // Deduplicate across all findings by (type, file, line)
+  const seen = new Map<string, LocalWasteFinding>();
+  for (const f of [...astFindings, ...nonAstFindings]) {
+    const key = `${f.type}:${f.affectedFile}:${f.line ?? 0}`;
+    const existing = seen.get(key);
+    if (!existing || f.confidence > existing.confidence) seen.set(key, f);
+  }
+  return [...seen.values()];
 }

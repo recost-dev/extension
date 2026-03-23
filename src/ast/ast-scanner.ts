@@ -52,6 +52,10 @@ export interface AstCallMatch {
   cacheCapable?: boolean;
   /** True when emitted from middleware detection (per-request cost) */
   isMiddleware?: boolean;
+  /** True when this match was propagated from a callee file via cross-file resolution. */
+  crossFile?: boolean;
+  /** Absolute path of the file where the API call actually lives (for cross-file matches). */
+  sourceFile?: string;
 }
 
 /** Per-class metadata collected during scanning (for cross-file use in 3.5). */
