@@ -20,6 +20,7 @@ import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./an
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
+import { lookupMethod } from "./scanner/fingerprints/registry";
 import {
   buildKeyStatusSummary,
   getKeyService,
@@ -171,7 +172,29 @@ const LOCAL_PRICING: Record<string, number> = {
 };
 const DEFAULT_PER_CALL_COST = 0.0001;
 
-function estimateLocalMonthlyCost(provider: string, callsPerDay: number): number {
+function estimateLocalMonthlyCost(provider: string, callsPerDay: number, methodSignature?: string): number {
+  if (methodSignature) {
+    const fingerprint = lookupMethod(provider, methodSignature);
+    if (fingerprint) {
+      if (fingerprint.costModel === "free") return 0;
+      if (fingerprint.costModel === "per_token") {
+        const inputTokens = 500;
+        const outputTokens = 200;
+        const inputCost = (inputTokens / 1_000_000) * (fingerprint.inputPricePer1M ?? 0);
+        const outputCost = (outputTokens / 1_000_000) * (fingerprint.outputPricePer1M ?? 0);
+        return Math.round((inputCost + outputCost) * callsPerDay * 30 * 100) / 100;
+      }
+      if (fingerprint.costModel === "per_transaction") {
+        const txValue = 50;
+        const fee = (fingerprint.fixedFee ?? 0) + txValue * (fingerprint.percentageFee ?? 0);
+        return Math.round(fee * callsPerDay * 30 * 100) / 100;
+      }
+      if (fingerprint.costModel === "per_request") {
+        return Math.round((fingerprint.fixedFee ?? fingerprint.perRequestCostUsd ?? 0.0001) * callsPerDay * 30 * 100) / 100;
+      }
+    }
+  }
+  // Fallback to flat-rate table
   const perCall = LOCAL_PRICING[provider] ?? DEFAULT_PER_CALL_COST;
   return Math.round(callsPerDay * perCall * 30 * 100) / 100;
 }
@@ -409,6 +432,23 @@ function pickDisplayUrl(current: string, candidate: string): string {
   return candidateScore > currentScore ? candidateCanonical : currentCanonical;
 }
 
+const FREQUENCY_SEVERITY: Record<string, number> = {
+  polling: 6,
+  "unbounded-loop": 5,
+  parallel: 4,
+  "bounded-loop": 3,
+  conditional: 2,
+  "cache-guarded": 1,
+  single: 0,
+};
+
+function pickMostSevereFrequency(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a && !b) return undefined;
+  if (!a) return b;
+  if (!b) return a;
+  return (FREQUENCY_SEVERITY[a] ?? 0) >= (FREQUENCY_SEVERITY[b] ?? 0) ? a : b;
+}
+
 function mergeRemoteAndLocalEndpoints(
   remote: EndpointRecord[],
   localCalls: ApiCallInput[],
@@ -441,20 +481,36 @@ function mergeRemoteAndLocalEndpoints(
         endpoint.callSites.push({
           file: call.file,
           line: call.line,
-          library: call.library,
+          library: call.library ?? "",
           frequency: call.frequency,
+          frequencyClass: call.frequencyClass,
+          crossFileOrigin: call.crossFileOrigin ?? null,
         });
+      }
+      // Propagate enriched fields to endpoint
+      if (!endpoint.methodSignature && call.methodSignature) endpoint.methodSignature = call.methodSignature;
+      if (!endpoint.costModel && call.costModel) endpoint.costModel = call.costModel;
+      endpoint.frequencyClass = pickMostSevereFrequency(endpoint.frequencyClass, call.frequencyClass);
+      if (call.batchCapable) endpoint.batchCapable = true;
+      if (call.cacheCapable) endpoint.cacheCapable = true;
+      if (call.streaming) endpoint.streaming = true;
+      if (call.isMiddleware) endpoint.isMiddleware = true;
+      if (call.crossFileOrigin) {
+        endpoint.crossFileOrigins = endpoint.crossFileOrigins ?? [];
+        endpoint.crossFileOrigins.push(call.crossFileOrigin);
       }
       continue;
     }
 
     if (!syntheticByMethodUrl.has(key)) {
       const canonicalUrl = canonicalizeEndpointUrl(call.url);
+      const provider = call.provider ?? detectEndpointProvider(canonicalUrl);
+      const callsPerDay = call.frequency === "per-request" ? 100 : call.library === "route-def" ? 0 : 1;
       syntheticByMethodUrl.set(key, {
         id: `local-${scanId}-${syntheticByMethodUrl.size + 1}`,
         projectId,
         scanId,
-        provider: detectEndpointProvider(canonicalUrl),
+        provider,
         method: call.method,
         url: canonicalUrl,
         scope: classifyEndpointScope(canonicalUrl),
@@ -462,20 +518,27 @@ function mergeRemoteAndLocalEndpoints(
         callSites: [{
           file: call.file,
           line: call.line,
-          library: call.library,
+          library: call.library ?? "",
           frequency: call.frequency,
+          frequencyClass: call.frequencyClass,
+          crossFileOrigin: call.crossFileOrigin ?? null,
         }],
-        callsPerDay: call.frequency === "per-request" ? 100 : call.library === "route-def" ? 0 : 1,
-        monthlyCost: estimateLocalMonthlyCost(
-          detectEndpointProvider(canonicalizeEndpointUrl(call.url)),
-          call.frequency === "per-request" ? 100 : call.library === "route-def" ? 0 : 1
-        ),
+        callsPerDay,
+        monthlyCost: estimateLocalMonthlyCost(provider, callsPerDay, call.methodSignature),
         status:
           call.frequency === "per-request"
             ? "n_plus_one_risk"
             : call.library === "route-def"
             ? "normal"
             : "normal",
+        methodSignature: call.methodSignature,
+        costModel: call.costModel,
+        frequencyClass: call.frequencyClass,
+        batchCapable: call.batchCapable,
+        cacheCapable: call.cacheCapable,
+        streaming: call.streaming,
+        isMiddleware: call.isMiddleware,
+        crossFileOrigins: call.crossFileOrigin ? [call.crossFileOrigin] : undefined,
       });
       continue;
     }
@@ -483,7 +546,7 @@ function mergeRemoteAndLocalEndpoints(
     const synthetic = syntheticByMethodUrl.get(key)!;
     synthetic.url = pickDisplayUrl(synthetic.url, call.url);
     synthetic.scope = classifyEndpointScope(synthetic.url);
-    synthetic.provider = detectEndpointProvider(synthetic.url);
+    synthetic.provider = call.provider ?? detectEndpointProvider(synthetic.url);
     if (!synthetic.files.includes(call.file)) {
       synthetic.files.push(call.file);
     }
@@ -494,13 +557,26 @@ function mergeRemoteAndLocalEndpoints(
       synthetic.callSites.push({
         file: call.file,
         line: call.line,
-        library: call.library,
+        library: call.library ?? "",
         frequency: call.frequency,
+        frequencyClass: call.frequencyClass,
+        crossFileOrigin: call.crossFileOrigin ?? null,
       });
     }
     if (call.frequency === "per-request") {
       synthetic.status = "n_plus_one_risk";
       synthetic.callsPerDay = Math.max(synthetic.callsPerDay, 100);
+    }
+    if (!synthetic.methodSignature && call.methodSignature) synthetic.methodSignature = call.methodSignature;
+    if (!synthetic.costModel && call.costModel) synthetic.costModel = call.costModel;
+    synthetic.frequencyClass = pickMostSevereFrequency(synthetic.frequencyClass, call.frequencyClass);
+    if (call.batchCapable) synthetic.batchCapable = true;
+    if (call.cacheCapable) synthetic.cacheCapable = true;
+    if (call.streaming) synthetic.streaming = true;
+    if (call.isMiddleware) synthetic.isMiddleware = true;
+    if (call.crossFileOrigin) {
+      synthetic.crossFileOrigins = synthetic.crossFileOrigins ?? [];
+      synthetic.crossFileOrigins.push(call.crossFileOrigin);
     }
   }
 
@@ -837,8 +913,8 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       // Ensure we have a project on the remote API
-      let ecoApiKey = await this.getEcoApiKey();
-      if (!ecoApiKey) {
+      let rcApiKey = await this.getRcApiKey();
+      if (!rcApiKey) {
         publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
         this.postMessage({
           type: "scanNotification",
@@ -857,18 +933,18 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
 
       try {
-        let projectId = await this.getOrCreateProject(ecoApiKey);
+        let projectId = await this.getOrCreateProject(rcApiKey);
         let scanResult;
         try {
-          scanResult = await submitScan(projectId, remoteApiCalls, ecoApiKey);
+          scanResult = await submitScan(projectId, remoteApiCalls, rcApiKey);
         } catch (err: unknown) {
           // Project may have been deleted, create a fresh one and retry once.
           if ((err as { status?: number }).status === 404) {
-            const freshId = await createProject(this.getWorkspaceName(), ecoApiKey);
+            const freshId = await createProject(this.getWorkspaceName(), rcApiKey);
             this.projectId = freshId;
             projectId = freshId;
             await this.context.globalState.update("recost.projectId", freshId);
-            scanResult = await submitScan(projectId, remoteApiCalls, ecoApiKey);
+            scanResult = await submitScan(projectId, remoteApiCalls, rcApiKey);
           } else {
             throw err;
           }
@@ -1367,11 +1443,11 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async getOrCreateProject(ecoApiKey?: string): Promise<string> {
+  private async getOrCreateProject(rcApiKey?: string): Promise<string> {
     if (this.projectId) {
       return this.projectId;
     }
-    const id = await createProject(this.getWorkspaceName(), ecoApiKey);
+    const id = await createProject(this.getWorkspaceName(), rcApiKey);
     this.projectId = id;
     await this.context.globalState.update("recost.projectId", id);
     return id;
@@ -1381,7 +1457,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     return vscode.workspace.workspaceFolders?.[0]?.name ?? "recost-workspace";
   }
 
-  private async getEcoApiKey(): Promise<string | undefined> {
+  private async getRcApiKey(): Promise<string | undefined> {
     return readStoredSecret(getKeyService("ecoapi"), this.context.secrets);
   }
 

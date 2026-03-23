@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0.0",
+  "provider": "anthropic",
+  "displayName": "Anthropic",
+  "languages": ["javascript", "typescript", "python"],
+  "packages": ["@anthropic-ai/sdk"],
+  "hosts": [
+    { "pattern": "api.anthropic.com" },
+    { "pattern": "(^|\\.)anthropic\\.com$", "isRegex": true }
+  ],
+  "methods": [
+    {
+      "pattern": "messages.create",
+      "httpMethod": "POST",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "costModel": "per_token",
+      "inputPricePer1M": 1.00,
+      "outputPricePer1M": 5.00,
+      "cacheCapable": true,
+      "description": "Create a message — claude-haiku-4-5 representative pricing"
+    },
+    {
+      "pattern": "messages.stream",
+      "httpMethod": "POST",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "costModel": "per_token",
+      "inputPricePer1M": 1.00,
+      "outputPricePer1M": 5.00,
+      "streaming": true,
+      "description": "Streaming message creation"
+    },
+    {
+      "pattern": "messages.countTokens",
+      "httpMethod": "POST",
+      "endpoint": "https://api.anthropic.com/v1/messages/count_tokens",
+      "costModel": "free",
+      "description": "Count tokens in a message (no charge)"
+    },
+    {
+      "pattern": "messageBatches.create",
+      "httpMethod": "POST",
+      "endpoint": "https://api.anthropic.com/v1/messages/batches",
+      "costModel": "per_token",
+      "inputPricePer1M": 0.50,
+      "outputPricePer1M": 2.50,
+      "batchCapable": true,
+      "description": "Create a message batch — 50% discount vs. synchronous"
+    },
+    {
+      "pattern": "messageBatches.list",
+      "httpMethod": "GET",
+      "endpoint": "https://api.anthropic.com/v1/messages/batches",
+      "costModel": "free",
+      "description": "List message batches"
+    },
+    {
+      "pattern": "messageBatches.retrieve",
+      "httpMethod": "GET",
+      "endpoint": "https://api.anthropic.com/v1/messages/batches/{id}",
+      "costModel": "free",
+      "description": "Retrieve a message batch"
+    },
+    {
+      "pattern": "messageBatches.cancel",
+      "httpMethod": "POST",
+      "endpoint": "https://api.anthropic.com/v1/messages/batches/{id}/cancel",
+      "costModel": "free",
+      "description": "Cancel a message batch"
+    },
+    {
+      "pattern": "files.create",
+      "httpMethod": "POST",
+      "endpoint": "https://api.anthropic.com/v1/files",
+      "costModel": "free",
+      "description": "Upload a file"
+    },
+    {
+      "pattern": "files.list",
+      "httpMethod": "GET",
+      "endpoint": "https://api.anthropic.com/v1/files",
+      "costModel": "free",
+      "description": "List files"
+    },
+    {
+      "pattern": "files.retrieve",
+      "httpMethod": "GET",
+      "endpoint": "https://api.anthropic.com/v1/files/{id}",
+      "costModel": "free",
+      "description": "Retrieve file metadata"
+    },
+    {
+      "pattern": "files.delete",
+      "httpMethod": "DELETE",
+      "endpoint": "https://api.anthropic.com/v1/files/{id}",
+      "costModel": "free",
+      "description": "Delete a file"
+    }
+  ]
+}

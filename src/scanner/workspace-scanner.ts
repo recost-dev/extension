@@ -1,7 +1,15 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { ApiCallInput } from "../analysis/types";
 import { matchLine, matchRouteDefinitionLine, isInsideLoop } from "./patterns";
 import { detectLocalWasteFindingsInText, type LocalWasteFinding } from "./local-waste-detector";
+import { scanFileWithAst, type AstCallMatch } from "../ast/ast-scanner";
+import { getLanguageForExtension } from "../ast/parser-loader";
+import { runCrossFileResolution, type PerFileResult } from "../ast/cross-file-resolver";
+import { detectCacheWaste } from "../ast/waste/cache-detector";
+import { detectBatchWaste } from "../ast/waste/batch-detector";
+import { detectConcurrencyWaste } from "../ast/waste/concurrency-detector";
+import { lookupMethod } from "./fingerprints/registry";
 
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT =
@@ -132,6 +140,57 @@ export async function readWorkspaceFileExcerpt(
   }
 }
 
+function astMatchToApiCallInput(match: AstCallMatch, file: string): ApiCallInput {
+  const method = match.method ?? "CALL";
+  const url =
+    match.endpoint ??
+    (match.provider
+      ? `sdk://${match.provider}/${match.methodChain}`
+      : `ast:${match.methodChain}`);
+  const library =
+    match.packageName ?? match.provider ?? match.methodChain.split(".")[0];
+  const isHighFreq =
+    match.isMiddleware ||
+    match.frequency === "unbounded-loop" ||
+    match.frequency === "polling" ||
+    match.frequency === "parallel" ||
+    match.frequency === "bounded-loop";
+  const frequency = isHighFreq ? "per-request" : "daily";
+
+  // Look up costModel from fingerprint registry
+  let costModel: ApiCallInput["costModel"];
+  if (match.provider && match.methodChain) {
+    const fingerprint = lookupMethod(match.provider, match.methodChain);
+    if (fingerprint) {
+      costModel = fingerprint.costModel;
+    }
+  }
+
+  // Cross-file origin: use methodChain as functionName proxy
+  const crossFileOrigin =
+    match.crossFile && match.sourceFile
+      ? { file: match.sourceFile, functionName: match.methodChain }
+      : null;
+
+  return {
+    file,
+    line: match.line,
+    method,
+    url,
+    library,
+    frequency,
+    frequencyClass: match.frequency,
+    provider: match.provider,
+    methodSignature: match.methodChain,
+    costModel,
+    batchCapable: match.batchCapable,
+    cacheCapable: match.cacheCapable,
+    streaming: match.streaming,
+    isMiddleware: match.isMiddleware,
+    crossFileOrigin,
+  };
+}
+
 export async function scanWorkspace(
   onProgress?: (progress: ScanProgress) => void
 ): Promise<ApiCallInput[]> {
@@ -149,7 +208,36 @@ export async function scanWorkspace(
       const text = await readUriText(uri);
       const lines = text.split("\n");
 
+      // ── AST scan (JS/TS only) ──────────────────────────────────────────────
+      const astCoveredLines = new Set<number>();
+      const ext = path.extname(relativePath);
+      if (getLanguageForExtension(ext)) {
+        try {
+          const absPath = uri.fsPath;
+          const fileReader = async (fp: string): Promise<string | null> => {
+            if (fp === absPath) return text;
+            try { return await readUriText(vscode.Uri.file(fp)); } catch { return null; }
+          };
+          const astResult = await scanFileWithAst(absPath, fileReader);
+          for (const match of astResult.matches) {
+            const apiCall = astMatchToApiCallInput(match, relativePath);
+            const key = `${relativePath}:${match.line}:${apiCall.method}:${apiCall.url}`;
+            if (dedupe.has(key)) continue;
+            dedupe.add(key);
+            astCoveredLines.add(match.line);
+            uniqueEndpointKeys.add(`${apiCall.method} ${apiCall.url}`);
+            allCalls.push(apiCall);
+          }
+        } catch {
+          // AST failed — fall through to regex-only for this file
+        }
+      }
+
+      // ── Regex scan ────────────────────────────────────────────────────────
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        const lineNum = lineIndex + 1;
+        if (astCoveredLines.has(lineNum)) continue;
+
         const line = lines[lineIndex];
         const routeMatches = matchRouteDefinitionLine(line);
         for (const route of routeMatches) {
@@ -209,17 +297,63 @@ export async function scanWorkspace(
 export async function detectLocalWastePatterns(): Promise<LocalWasteFinding[]> {
   const config = vscode.workspace.getConfiguration("recost");
   const uris = await findScopedUris(config);
-  const findings: LocalWasteFinding[] = [];
 
+  const perFileResults: PerFileResult[] = [];
+  const nonAstFindings: LocalWasteFinding[] = [];
+
+  // ── First pass: scan all files ───────────────────────────────────────────
   for (const uri of uris) {
     try {
       const relativePath = vscode.workspace.asRelativePath(uri, false);
+      const absPath = uri.fsPath;
       const text = await readUriText(uri);
-      findings.push(...detectLocalWasteFindingsInText(relativePath, text));
+      const ext = path.extname(relativePath);
+
+      if (getLanguageForExtension(ext)) {
+        // AST-capable file — accumulate for cross-file resolution
+        try {
+          const fileReader = async (fp: string): Promise<string | null> => {
+            if (fp === absPath) return text;
+            try { return await readUriText(vscode.Uri.file(fp)); } catch { return null; }
+          };
+          const result = await scanFileWithAst(absPath, fileReader);
+          perFileResults.push({ filePath: absPath, relativePath, source: text, result });
+        } catch {
+          // AST failed — fall back to regex for this file
+          nonAstFindings.push(...detectLocalWasteFindingsInText(relativePath, text));
+        }
+      } else {
+        // Non-AST file (Python, Go, etc.) — use regex detector
+        nonAstFindings.push(...detectLocalWasteFindingsInText(relativePath, text));
+      }
     } catch {
       // Skip files that can't be read
     }
   }
 
-  return findings;
+  // ── Second pass: cross-file resolution + AST waste detection ────────────
+  let augmented: Map<string, AstCallMatch[]>;
+  try {
+    augmented = runCrossFileResolution(perFileResults);
+  } catch {
+    // Cross-file resolution failed — fall back to per-file matches only
+    augmented = new Map(perFileResults.map((pf) => [pf.relativePath, pf.result.matches]));
+  }
+  const astFindings: LocalWasteFinding[] = [];
+
+  for (const pf of perFileResults) {
+    const matches = augmented.get(pf.relativePath) ?? pf.result.matches;
+    astFindings.push(...detectCacheWaste(matches, pf.source, pf.relativePath));
+    astFindings.push(...detectBatchWaste(matches, pf.source, pf.relativePath));
+    astFindings.push(...detectConcurrencyWaste(matches, pf.source, pf.relativePath));
+  }
+
+  // Deduplicate across all findings by (type, file, line)
+  const seen = new Map<string, LocalWasteFinding>();
+  for (const f of [...astFindings, ...nonAstFindings]) {
+    const key = `${f.type}:${f.affectedFile}:${f.line ?? 0}`;
+    const existing = seen.get(key);
+    if (!existing || f.confidence > existing.confidence) seen.set(key, f);
+  }
+  return [...seen.values()];
 }

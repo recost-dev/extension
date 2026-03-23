@@ -18,7 +18,7 @@ function test(name, fn) {
 }
 test("registry exposes all provider adapters", () => {
     const ids = (0, chat_1.listProviderAdapters)().map((provider) => provider.id);
-    strict_1.default.deepEqual(ids, ["eco", "openai", "anthropic", "gemini", "xai", "cohere", "mistral", "perplexity"]);
+    strict_1.default.deepEqual(ids, ["recost", "openai", "anthropic", "gemini", "xai", "cohere", "mistral", "perplexity"]);
 });
 test("openai adapter builds chat completions payload", () => {
     const adapter = (0, chat_1.getProviderAdapter)("openai");
@@ -74,6 +74,17 @@ test("unsupported model errors are normalized", () => {
     const adapter = (0, chat_1.getProviderAdapter)("mistral");
     strict_1.default.throws(() => adapter.validateRequest({ provider: "mistral", model: "bad-model", messages: [], stream: false }), (error) => error instanceof errors_1.ChatAdapterError && error.code === "unsupported_model");
 });
+test("openai-compatible providers validate against their own model lists", () => {
+    const adapter = (0, chat_1.getProviderAdapter)("mistral");
+    const built = adapter.toRequestBody({
+        provider: "mistral",
+        model: "mistral-small-latest",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: false,
+    }, "test-key");
+    strict_1.default.equal(built.url, "https://api.mistral.ai/v1/chat/completions");
+    strict_1.default.equal(built.body.model, "mistral-small-latest");
+});
 test("missing auth resolves to normalized error", async () => {
     delete process.env.OPENAI_API_KEY;
     await strict_1.default.rejects(() => (0, chat_1.resolveProviderAuth)("openai", { get: async () => undefined }), (error) => error instanceof errors_1.ChatAdapterError && error.code === "missing_api_key" && error.envKeyName === "OPENAI_API_KEY");
@@ -90,17 +101,17 @@ test("http 429 maps to rate_limited", async () => {
         fetchImpl: async () => new Response(JSON.stringify({ error: { message: "too many" } }), { status: 429 }),
     }), (error) => error instanceof errors_1.ChatAdapterError && error.code === "rate_limited");
 });
-test("eco adapter preserves current response shape", async () => {
+test("recost adapter preserves current response shape", async () => {
     const response = await (0, chat_1.executeChat)({
         request: {
-            provider: "eco",
-            model: "eco-ai",
+            provider: "recost",
+            model: "recost-ai",
             messages: [{ role: "user", content: "Hello" }],
             stream: false,
         },
-        fetchImpl: async () => new Response(JSON.stringify({ data: { response: "eco reply" } }), { status: 200 }),
+        fetchImpl: async () => new Response(JSON.stringify({ data: { response: "recost reply" } }), { status: 200 }),
     });
-    strict_1.default.equal(response.content, "eco reply");
+    strict_1.default.equal(response.content, "recost reply");
 });
 test("key services include ecoapi and supported providers", () => {
     const ids = (0, key_management_1.listKeyServices)().map((service) => service.serviceId);
@@ -113,7 +124,7 @@ test("key status summary prefers environment over secret", async () => {
     const summary = await (0, key_management_1.buildKeyStatusSummary)(gemini, { get: async () => "stored-gemini-key" });
     strict_1.default.equal(summary.source, "env");
     strict_1.default.equal(summary.state, "from_environment");
-    strict_1.default.equal(summary.maskedPreview, "env-...-key");
+    strict_1.default.equal(summary.maskedPreview, "env-ge••••••••••");
     delete process.env.GEMINI_API_KEY;
 });
 test("key status summary reports saved for stored secrets", async () => {
@@ -122,10 +133,10 @@ test("key status summary reports saved for stored secrets", async () => {
     const summary = await (0, key_management_1.buildKeyStatusSummary)(openai, { get: async (key) => (key === "eco.providerApiKey.openai" ? "sk-test-secret" : undefined) });
     strict_1.default.equal(summary.source, "secret");
     strict_1.default.equal(summary.state, "saved");
-    strict_1.default.equal(summary.maskedPreview, "sk-t...cret");
+    strict_1.default.equal(summary.maskedPreview, "sk-tes••••••••••");
 });
 test("maskKeyPreview returns stable preview", () => {
-    strict_1.default.equal((0, key_management_1.maskKeyPreview)("abc12345"), "ab...45");
-    strict_1.default.equal((0, key_management_1.maskKeyPreview)("sk-super-secret"), "sk-s...cret");
+    strict_1.default.equal((0, key_management_1.maskKeyPreview)("abc12345"), "abc123••••••••••");
+    strict_1.default.equal((0, key_management_1.maskKeyPreview)("sk-super-secret"), "sk-sup••••••••••");
 });
 //# sourceMappingURL=chat-providers.test.js.map

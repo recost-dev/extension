@@ -1,6 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.geminiMatcher = void 0;
+const registry_1 = require("../fingerprints/registry");
+function toCamel(s) {
+    return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+// Fallback for model action → endpoint suffix mapping
 function mapGeminiAction(action) {
     const normalized = action.toLowerCase();
     if (normalized === "generatecontent" || normalized === "generate_content") {
@@ -25,20 +30,23 @@ exports.geminiMatcher = {
         let modelMatch;
         while ((modelMatch = modelCallRegex.exec(line)) !== null) {
             const action = modelMatch[1];
-            const mapped = mapGeminiAction(action);
-            if (!mapped)
-                continue;
+            const pattern = `models.${toCamel(action)}`;
+            const reg = (0, registry_1.lookupMethod)("gemini", pattern);
+            const fb = mapGeminiAction(action);
+            if (!reg)
+                console.warn(`[fingerprints] no registry entry for gemini/${pattern}`);
+            const fbEndpoint = fb ? `https://generativelanguage.googleapis.com/v1beta/models/{model}${fb.endpointSuffix}` : undefined;
             matches.push({
                 kind: "sdk",
                 provider: "gemini",
                 sdk: "google-genai",
-                method: mapped.method,
-                endpoint: `https://generativelanguage.googleapis.com/v1beta/models/{model}${mapped.endpointSuffix}`,
+                method: reg?.httpMethod ?? fb?.method ?? "POST",
+                endpoint: reg?.endpoint ?? fbEndpoint ?? "",
                 resource: "models/{model}",
                 action,
-                streaming: mapped.streaming,
-                batchCapable: mapped.batchCapable,
-                cacheCapable: /generate/i.test(action),
+                streaming: reg?.streaming ?? fb?.streaming,
+                batchCapable: reg?.batchCapable ?? fb?.batchCapable,
+                cacheCapable: reg?.cacheCapable ?? /generate/i.test(action),
                 rawMatch: modelMatch[0],
             });
         }
@@ -46,20 +54,27 @@ exports.geminiMatcher = {
         let fileMatch;
         while ((fileMatch = fileRegex.exec(line)) !== null) {
             const action = fileMatch[1].toLowerCase();
-            const method = action === "get" || action === "list" ? "GET" : action === "delete" ? "DELETE" : "POST";
-            const endpoint = action === "list"
+            const pattern = `files.${action}`;
+            const reg = (0, registry_1.lookupMethod)("gemini", pattern);
+            // Fallback endpoint construction
+            const fbEndpoint = action === "list"
                 ? "https://generativelanguage.googleapis.com/v1beta/files"
                 : action === "upload"
                     ? "https://generativelanguage.googleapis.com/upload/v1beta/files"
                     : "https://generativelanguage.googleapis.com/v1beta/files/{id}";
+            const fbMethod = action === "get" || action === "list" ? "GET" : action === "delete" ? "DELETE" : "POST";
+            if (!reg)
+                console.warn(`[fingerprints] no registry entry for gemini/${pattern}`);
             matches.push({
                 kind: "sdk",
                 provider: "gemini",
                 sdk: "google-genai",
-                method,
-                endpoint,
+                method: reg?.httpMethod ?? fbMethod,
+                endpoint: reg?.endpoint ?? fbEndpoint,
                 resource: "files",
                 action,
+                batchCapable: reg?.batchCapable,
+                cacheCapable: reg?.cacheCapable,
                 rawMatch: fileMatch[0],
             });
         }

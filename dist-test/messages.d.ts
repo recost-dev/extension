@@ -132,6 +132,9 @@ export type HostMessage = {
     type: "error";
     message: string;
 } | {
+    type: "scanNotification";
+    message: string;
+} | {
     type: "simulationResult";
     result: SimulatorResult;
 } | {

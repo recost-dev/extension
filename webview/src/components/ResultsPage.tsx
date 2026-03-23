@@ -14,6 +14,12 @@ interface ResultsPageProps {
   onAskAI: (context: SuggestionContext) => void;
 }
 
+function formatCost(n: number): string {
+  if (n < 0.01) return '<$0.01';
+  if (n >= 1_000) return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `$${n.toFixed(2)}`;
+}
+
 const typeLabels: Record<string, string> = {
   n_plus_one: "n+1",
   cache: "cache",
@@ -21,7 +27,25 @@ const typeLabels: Record<string, string> = {
   redundancy: "redundancy",
   rate_limit: "rate-limit",
   concurrency_control: "concurrency",
+  retry_storm: "retry storm",
+  event_amplification: "event amp",
+  sequential: "sequential",
 };
+
+const PROVIDER_COLORS: Record<string, string> = {
+  openai: "var(--vscode-charts-green)",
+  anthropic: "var(--vscode-charts-orange)",
+  stripe: "var(--vscode-charts-purple)",
+  supabase: "var(--vscode-charts-green)",
+  firebase: "var(--vscode-charts-yellow)",
+  sendgrid: "var(--vscode-charts-blue)",
+  twilio: "var(--vscode-charts-red)",
+};
+
+
+function providerColor(provider: string): string {
+  return PROVIDER_COLORS[provider.toLowerCase()] ?? "var(--vscode-descriptionForeground)";
+}
 
 function extractCode(raw: string): { code: string; language: string } {
   const fenced = raw.match(/^```(\w*)\n([\s\S]*?)```\s*$/);
@@ -99,6 +123,28 @@ function SourceBadge({ source }: { source?: Suggestion["source"] }) {
   );
 }
 
+
+function ConfidenceBadge({ confidence }: { confidence?: number }) {
+  if (typeof confidence !== "number") return null;
+  const pct = Math.round(confidence * 100);
+  const color =
+    confidence >= 0.8
+      ? "var(--vscode-charts-green)"
+      : confidence >= 0.6
+      ? "var(--vscode-foreground)"
+      : confidence >= 0.4
+      ? "var(--vscode-editorWarning-foreground)"
+      : "var(--vscode-editorError-foreground)";
+  return (
+    <span
+      title="How certain the detector is about this finding"
+      style={{ color, fontSize: "10px", flexShrink: 0, whiteSpace: "nowrap" }}
+    >
+      {pct}% confidence
+    </span>
+  );
+}
+
 function CodeFix({ codeFix, file, line }: { codeFix: string; file?: string; line?: number }) {
   const [copied, setCopied] = useState(false);
   const { code, language } = extractCode(codeFix);
@@ -169,35 +215,27 @@ function CodeFix({ codeFix, file, line }: { codeFix: string; file?: string; line
 
 function SuggestionCard({
   suggestion,
-  expanded,
-  onToggle,
   onAskAI,
   target,
 }: {
   suggestion: Suggestion;
-  expanded: boolean;
-  onToggle: () => void;
   onAskAI: (s: Suggestion) => void;
   target: { file?: string; line?: number };
 }) {
-  const firstLine = suggestion.description.split("\n")[0];
-  const descShort = firstLine.length > 90 ? `${firstLine.slice(0, 90)}...` : firstLine;
+  const [expanded, setExpanded] = useState(false);
+
 
   return (
     <div className="eco-suggestion">
-      <button className="eco-suggestion-header" onClick={onToggle}>
+      <button className="eco-suggestion-header" onClick={() => setExpanded((v) => !v)}>
         <span aria-hidden="true" className={`eco-disclosure${expanded ? " open" : ""}`} />
         <TypeBadge type={suggestion.type} />
         <SourceBadge source={suggestion.source} />
-        {typeof suggestion.confidence === "number" && suggestion.source === "ai" && (
-          <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px", flexShrink: 0, whiteSpace: "nowrap" }}>
-            {Math.round(suggestion.confidence * 100)}%
-          </span>
-        )}
-        <span style={{ flex: 1, lineHeight: 1.4, overflow: "hidden" }}>{descShort}</span>
+        <ConfidenceBadge confidence={suggestion.confidence} />
+        <span style={{ flex: 1 }} />
         {suggestion.estimatedMonthlySavings > 0 && (
           <span style={{ color: "var(--vscode-charts-green, #4caf50)", fontSize: "11px", flexShrink: 0, whiteSpace: "nowrap" }}>
-            ${suggestion.estimatedMonthlySavings.toFixed(2)}/mo
+            {formatCost(suggestion.estimatedMonthlySavings)}/mo
           </span>
         )}
       </button>
@@ -263,8 +301,6 @@ function SeverityGroup({
   suggestions,
   open,
   onToggleGroup,
-  expanded,
-  onToggle,
   onAskAI,
   resolveTarget,
 }: {
@@ -272,8 +308,6 @@ function SeverityGroup({
   suggestions: Suggestion[];
   open: boolean;
   onToggleGroup: () => void;
-  expanded: Set<string>;
-  onToggle: (id: string) => void;
   onAskAI: (s: Suggestion) => void;
   resolveTarget: (s: Suggestion) => { file?: string; line?: number };
 }) {
@@ -297,8 +331,6 @@ function SeverityGroup({
           <SuggestionCard
             key={s.id}
             suggestion={s}
-            expanded={expanded.has(s.id)}
-            onToggle={() => onToggle(s.id)}
             onAskAI={onAskAI}
             target={resolveTarget(s)}
           />
@@ -307,50 +339,175 @@ function SeverityGroup({
   );
 }
 
-function EndpointsList({ endpoints, topBorder }: { endpoints: EndpointRecord[]; topBorder: boolean }) {
-  const [open, setOpen] = useState(false);
-  const scopeBadge = (ep: EndpointRecord): string => ep.scope ?? "unknown";
+// ── Simple endpoint list ──────────────────────────────────────────────────────
+
+const RISK_STATUSES = new Set(["redundant", "n_plus_one_risk", "rate_limit_risk", "cacheable", "batchable"]);
+const RISK_FREQUENCIES = new Set(["unbounded-loop", "polling", "bounded-loop", "parallel"]);
+function isAtRisk(ep: EndpointRecord): boolean {
+  return RISK_STATUSES.has(ep.status) || Boolean(ep.frequencyClass && RISK_FREQUENCIES.has(ep.frequencyClass));
+}
+
+const METHOD_ORDER = ["POST", "GET", "PUT", "PATCH", "DELETE"];
+
+function atRiskTooltip(ep: EndpointRecord): string {
+  const reasons: string[] = [];
+  if (ep.status === "redundant") reasons.push("redundant call");
+  if (ep.status === "n_plus_one_risk") reasons.push("N+1 risk");
+  if (ep.status === "rate_limit_risk") reasons.push("rate limit risk");
+  if (ep.status === "cacheable") reasons.push("cacheable but not cached");
+  if (ep.status === "batchable") reasons.push("batchable but not batched");
+  if (ep.frequencyClass === "unbounded-loop") reasons.push("inside unbounded loop");
+  if (ep.frequencyClass === "polling") reasons.push("polling on timer");
+  if (ep.frequencyClass === "bounded-loop") reasons.push("inside loop");
+  if (ep.frequencyClass === "parallel") reasons.push("parallel calls");
+  return `At risk: ${reasons.join(", ")}`;
+}
+
+function ProviderGroup({ provider, eps, pColor }: { provider: string; eps: EndpointRecord[]; pColor: string }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          width: "100%", padding: "3px 12px 3px 16px",
+          background: "none", border: "none", cursor: "pointer",
+          borderBottom: "1px solid var(--vscode-panel-border)",
+        }}
+      >
+        <span style={{ fontSize: "13px", color: pColor, fontWeight: 600 }}>{provider}</span>
+        <span style={{ fontSize: "10px", opacity: 0.35, color: "var(--vscode-descriptionForeground)" }}>{eps.length}</span>
+        <span className="eco-chevron" style={{ marginLeft: "auto", fontSize: "14px", opacity: 0.5, transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+      </button>
+      {open && eps.map((ep) => {
+        const site = ep.callSites?.[0];
+        const filePath = site?.file ?? ep.files?.[0];
+        const fileName = filePath ? filePath.replace(/\\/g, "/").split("/").pop() : undefined;
+        const risk = isAtRisk(ep);
+        return (
+          <div key={ep.id} style={{ padding: "5px 12px 5px 24px", borderBottom: "1px solid var(--vscode-panel-border)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+              <div style={{ fontSize: "12px", color: "var(--vscode-foreground)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }} title={ep.url}>
+                {ep.url}
+              </div>
+              {risk && (
+                <span title={atRiskTooltip(ep)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "40px", height: "40px", flexShrink: 0, cursor: "default" }}>
+                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--vscode-editorError-foreground)", display: "block", pointerEvents: "none" }} />
+                </span>
+              )}
+            </div>
+            {fileName && filePath && (
+              <button
+                className="eco-btn-link"
+                style={{ fontSize: "10px", opacity: 0.7, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={filePath}
+                onClick={() => postMessage({ type: "openFile", file: filePath, line: site?.line })}
+              >
+                {fileName}{site?.line ? `:${site.line}` : ""}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MethodGroup({ method, providerMap, pColor }: { method: string; providerMap: Map<string, EndpointRecord[]>; pColor: (p: string) => string }) {
+  const [open, setOpen] = useState(true);
+  const sortedProviders = [...providerMap.keys()].sort((a, b) => a.localeCompare(b));
+  const total = [...providerMap.values()].reduce((s, v) => s + v.length, 0);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          width: "100%", padding: "6px 12px",
+          background: "var(--vscode-editorGroupHeader-tabsBackground)",
+          border: "none", cursor: "pointer",
+          borderBottom: "1px solid var(--vscode-panel-border)",
+        }}
+      >
+        <span style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--vscode-foreground)" }}>{method}</span>
+        <span style={{ fontWeight: 400, opacity: 0.45, fontSize: "10px" }}>{total}</span>
+        <span className="eco-chevron" style={{ marginLeft: "auto", fontSize: "16px", opacity: 0.5, transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+      </button>
+      {open && sortedProviders.map((provider) => (
+        <ProviderGroup key={provider} provider={provider} eps={providerMap.get(provider)!} pColor={pColor(provider)} />
+      ))}
+    </div>
+  );
+}
+
+function GroupedEndpointList({ endpoints }: { endpoints: EndpointRecord[] }) {
+  const byMethod = new Map<string, Map<string, EndpointRecord[]>>();
+  const methodsSeen: string[] = [];
+  for (const ep of endpoints) {
+    const m = ep.method.toUpperCase();
+    if (!byMethod.has(m)) { byMethod.set(m, new Map()); methodsSeen.push(m); }
+    const byProvider = byMethod.get(m)!;
+    const p = ep.provider || "unknown";
+    if (!byProvider.has(p)) byProvider.set(p, []);
+    byProvider.get(p)!.push(ep);
+  }
+  const sortedMethods = methodsSeen.sort((a, b) => {
+    const ia = METHOD_ORDER.indexOf(a), ib = METHOD_ORDER.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    if (ia !== -1) return -1; if (ib !== -1) return 1;
+    return a.localeCompare(b);
+  });
+  const pColor = (p: string) => PROVIDER_COLORS[p.toLowerCase()] ?? "var(--vscode-descriptionForeground)";
+  return (
+    <div>
+      {sortedMethods.map((method) => (
+        <MethodGroup key={method} method={method} providerMap={byMethod.get(method)!} pColor={pColor} />
+      ))}
+    </div>
+  );
+}
+
+function EndpointsTab({ endpoints }: { endpoints: EndpointRecord[] }) {
+
+  // Provider counts
+  const providerCounts = new Map<string, number>();
+  for (const ep of endpoints) {
+    if (ep.provider && ep.provider !== "unknown") {
+      providerCounts.set(ep.provider, (providerCounts.get(ep.provider) ?? 0) + 1);
+    }
+  }
+  const sortedProviders = [...providerCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  if (endpoints.length === 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
+        <span className="codicon codicon-search" style={{ fontSize: "24px" }} />
+        <span>No API calls detected</span>
+        <span style={{ fontSize: "10px", opacity: 0.6 }}>Check your scan glob settings or try re-scanning</span>
+      </div>
+    );
+  }
 
   return (
-    <div style={topBorder ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}>
-      <button className="eco-section-header" onClick={() => setOpen((v) => !v)}>
-        Endpoints ({endpoints.length})
-      </button>
+    <div>
+      {/* Provider summary counts */}
+      {sortedProviders.length > 0 && (
+        <div style={{ padding: "6px 12px 4px", borderBottom: "1px solid var(--vscode-panel-border)", display: "flex", flexWrap: "wrap", gap: "4px", fontSize: "10px" }}>
+          {sortedProviders.map(([provider, count], i) => (
+            <span key={provider}>
+              <span style={{ color: providerColor(provider) }}>{provider}</span>
+              <span style={{ color: "var(--vscode-descriptionForeground)" }}> ×{count}</span>
+              {i < sortedProviders.length - 1 && <span style={{ opacity: 0.3, marginLeft: "4px" }}>·</span>}
+            </span>
+          ))}
+          {endpoints.every((ep) => ep.costModel === "free") && (
+            <span style={{ color: "var(--vscode-charts-green)", marginLeft: "4px" }}>· all free tier</span>
+          )}
+        </div>
+      )}
 
-      {open &&
-        endpoints.map((ep) => (
-          <div key={ep.id} className="eco-endpoint-row">
-            <span style={{ background: "var(--vscode-badge-background)", color: "var(--vscode-badge-foreground)", fontSize: "10px", padding: "1px 4px", borderRadius: "2px", fontWeight: 700, flexShrink: 0, letterSpacing: "0.04em" }}>
-              {ep.method}
-            </span>
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11px" }} title={ep.url}>
-              {ep.url}
-            </span>
-            <span style={{ background: "var(--vscode-editorGroupHeader-tabsBackground)", color: "var(--vscode-descriptionForeground)", fontSize: "10px", padding: "1px 5px", borderRadius: "10px", flexShrink: 0, border: "1px solid var(--vscode-panel-border)" }}>
-              {scopeBadge(ep)}
-            </span>
-            <span style={{ background: "var(--vscode-editorGroupHeader-tabsBackground)", color: "var(--vscode-descriptionForeground)", fontSize: "10px", padding: "1px 5px", borderRadius: "10px", flexShrink: 0, border: "1px solid var(--vscode-panel-border)" }}>
-              {ep.provider}
-            </span>
-            <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px", flexShrink: 0 }}>
-              ${ep.monthlyCost.toFixed(2)}/mo
-            </span>
-            <span
-              style={{
-                fontSize: "10px",
-                flexShrink: 0,
-                color:
-                  ep.status === "redundant" || ep.status === "n_plus_one_risk"
-                    ? "var(--vscode-editorError-foreground)"
-                    : ep.status === "cacheable" || ep.status === "batchable" || ep.status === "rate_limit_risk"
-                    ? "var(--vscode-editorWarning-foreground)"
-                    : "var(--vscode-descriptionForeground)",
-              }}
-            >
-              {ep.status.replace(/_/g, " ")}
-            </span>
-          </div>
-        ))}
+      <GroupedEndpointList endpoints={endpoints} />
     </div>
   );
 }
@@ -365,21 +522,13 @@ export function ResultsPage({
   aiReviewStats,
   onAskAI,
 }: ResultsPageProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [findingsTab, setFindingsTab] = useState<"issues" | "endpoints">("issues");
   const [openGroups, setOpenGroups] = useState<Record<"HIGH" | "MEDIUM" | "LOW", boolean>>({
     HIGH: true,
     MEDIUM: true,
     LOW: true,
   });
-
-  const toggleCard = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const [typeFilter, setTypeFilter] = useState<string>("all");
 
   const handleAskAI = (suggestion: Suggestion) => {
     const target = resolveSuggestionTarget(suggestion, endpoints);
@@ -398,12 +547,19 @@ export function ResultsPage({
     });
   };
 
-  const high = suggestions.filter((s) => s.severity === "high");
-  const medium = suggestions.filter((s) => s.severity === "medium");
-  const low = suggestions.filter((s) => s.severity === "low");
+  const presentTypes = Array.from(new Set(suggestions.map((s) => s.type))).sort();
+  const visibleSuggestions = typeFilter === "all" ? suggestions : suggestions.filter((s) => s.type === typeFilter);
+  const high = visibleSuggestions.filter((s) => s.severity === "high");
+  const medium = visibleSuggestions.filter((s) => s.severity === "medium");
+  const low = visibleSuggestions.filter((s) => s.severity === "low");
+
+  const freeCount = endpoints.filter((ep) => ep.costModel === "free").length;
+  const inLoopsCount = endpoints.filter((ep) => ep.frequencyClass && ep.frequencyClass.includes("loop")).length;
+  const atRiskCount = endpoints.filter(isAtRisk).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+      {/* Summary bar */}
       <div
         style={{
           padding: "5px 12px",
@@ -413,79 +569,125 @@ export function ResultsPage({
           fontSize: "11px",
         }}
       >
-        {summary.totalEndpoints} endpoints
-        <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-        {suggestions.length} suggestions
-        <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-        ${summary.totalMonthlyCost.toFixed(2)}/mo
-        {summary.highRiskCount > 0 && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span style={{ color: "var(--vscode-editorError-foreground)" }}>{summary.highRiskCount} high</span>
-          </>
-        )}
-        {aiReviewRunning && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span>{aiReviewStage || "Running AI review..."}</span>
-          </>
-        )}
-        {!aiReviewRunning && aiReviewStats && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span>AI added {aiReviewStats.added}, filtered {aiReviewStats.filtered}</span>
-          </>
-        )}
-        {!aiReviewRunning && aiReviewError && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span style={{ color: "var(--vscode-editorError-foreground)" }}>{aiReviewError}</span>
-          </>
-        )}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0" }}>
+          {summary.totalEndpoints} endpoints
+          <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+          {suggestions.length} issues
+          <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+          {formatCost(summary.totalMonthlyCost)}/mo
+          {summary.highRiskCount > 0 && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-editorError-foreground)" }}>{summary.highRiskCount} high</span>
+            </>
+          )}
+          {freeCount > 0 && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-charts-green)" }}>{freeCount} free</span>
+            </>
+          )}
+          {inLoopsCount > 0 && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-editorWarning-foreground)" }}>{inLoopsCount} in loops</span>
+            </>
+          )}
+          {aiReviewRunning && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span>{aiReviewStage || "Running AI review..."}</span>
+            </>
+          )}
+          {!aiReviewRunning && aiReviewStats && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span>AI added {aiReviewStats.added}, filtered {aiReviewStats.filtered}</span>
+            </>
+          )}
+          {!aiReviewRunning && aiReviewError && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-editorError-foreground)" }}>{aiReviewError}</span>
+            </>
+          )}
+        </div>
       </div>
 
+      {/* Subtab bar */}
+      <div style={{ display: "flex", flexShrink: 0, borderBottom: "1px solid var(--vscode-panel-border)", background: "var(--vscode-editorGroupHeader-tabsBackground)" }}>
+        <button
+          className={`eco-tab${findingsTab === "issues" ? " active" : ""}`}
+          onClick={() => setFindingsTab("issues")}
+        >
+          Issues{suggestions.length > 0 && <span style={{ marginLeft: "4px", opacity: 0.6, fontSize: "10px" }}>{suggestions.length}</span>}
+        </button>
+        <button
+          className={`eco-tab${findingsTab === "endpoints" ? " active" : ""}`}
+          onClick={() => setFindingsTab("endpoints")}
+        >
+          Endpoints{endpoints.length > 0 && <span style={{ marginLeft: "4px", opacity: 0.6, fontSize: "10px" }}>{endpoints.length}</span>}
+          {atRiskCount > 0 && <span style={{ marginLeft: "3px", color: "var(--vscode-editorError-foreground)", fontSize: "10px" }}>({atRiskCount} at risk)</span>}
+        </button>
+      </div>
+
+      {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        {suggestions.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
-            <span className="codicon codicon-check" style={{ fontSize: "24px" }} />
-            <span>No issues found</span>
-          </div>
-        ) : (
+        {findingsTab === "issues" && (
           <>
-            <SeverityGroup
-              label="HIGH"
-              suggestions={high}
-              open={openGroups.HIGH}
-              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
-              expanded={expanded}
-              onToggle={toggleCard}
-              onAskAI={handleAskAI}
-              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-            />
-            <SeverityGroup
-              label="MEDIUM"
-              suggestions={medium}
-              open={openGroups.MEDIUM}
-              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
-              expanded={expanded}
-              onToggle={toggleCard}
-              onAskAI={handleAskAI}
-              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-            />
-            <SeverityGroup
-              label="LOW"
-              suggestions={low}
-              open={openGroups.LOW}
-              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
-              expanded={expanded}
-              onToggle={toggleCard}
-              onAskAI={handleAskAI}
-              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-            />
+            {suggestions.length === 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
+                <span className="codicon codicon-check" style={{ fontSize: "24px" }} />
+                <span>No issues found</span>
+              </div>
+            ) : (
+              <>
+                {presentTypes.length > 1 && (
+                  <div style={{ padding: "5px 12px", borderBottom: "1px solid var(--vscode-panel-border)", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", flexShrink: 0 }}>Type</span>
+                    <select
+                      className="eco-input"
+                      style={{ fontSize: "10px", padding: "2px 6px", height: "22px" }}
+                      value={typeFilter}
+                      onChange={(e) => setTypeFilter(e.target.value)}
+                    >
+                      <option value="all">All ({suggestions.length})</option>
+                      {presentTypes.map((t) => (
+                        <option key={t} value={t}>{t} ({suggestions.filter((s) => s.type === t).length})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <SeverityGroup
+                  label="HIGH"
+                  suggestions={high}
+                  open={openGroups.HIGH}
+                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
+                  onAskAI={handleAskAI}
+                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+                />
+                <SeverityGroup
+                  label="MEDIUM"
+                  suggestions={medium}
+                  open={openGroups.MEDIUM}
+                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
+                  onAskAI={handleAskAI}
+                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+                />
+                <SeverityGroup
+                  label="LOW"
+                  suggestions={low}
+                  open={openGroups.LOW}
+                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
+                  onAskAI={handleAskAI}
+                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+                />
+              </>
+            )}
           </>
         )}
 
-        {endpoints.length > 0 && <EndpointsList endpoints={endpoints} topBorder={suggestions.length === 0} />}
+        {findingsTab === "endpoints" && <EndpointsTab endpoints={endpoints} />}
       </div>
     </div>
   );

@@ -12,14 +12,14 @@ const errors_1 = require("./chat/errors");
 const api_client_1 = require("./api-client");
 const ECOAPI_SERVICE = {
     serviceId: "ecoapi",
-    displayName: "EcoAPI",
+    displayName: "ReCost",
     kind: "ecoapi",
-    secretStorageKey: "eco.ecoApiKey",
+    secretStorageKey: "recost.apiKey",
     supportsTest: true,
 };
 function listKeyServices() {
     const providerServices = (0, chat_1.listProviderAdapters)()
-        .filter((provider) => provider.id !== "eco" && provider.auth.required)
+        .filter((provider) => provider.id !== "recost" && provider.auth.required)
         .map((provider) => ({
         serviceId: provider.id,
         displayName: provider.displayName,
@@ -42,9 +42,7 @@ function maskKeyPreview(value) {
     if (!value?.trim())
         return undefined;
     const trimmed = value.trim();
-    if (trimmed.length <= 8)
-        return `${trimmed.slice(0, 2)}...${trimmed.slice(-2)}`;
-    return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+    return `${trimmed.slice(0, 6)}••••••••••`;
 }
 function resolveKeyState(source, validation) {
     if (validation)
@@ -62,7 +60,7 @@ async function readStoredSecret(service, secrets) {
     if (direct?.trim())
         return direct.trim();
     if (service.serviceId === "openai") {
-        const legacy = await secrets.get("eco.openaiApiKey");
+        const legacy = await secrets.get("recost.openaiApiKey");
         if (legacy?.trim())
             return legacy.trim();
     }
@@ -111,7 +109,7 @@ async function validateServiceKey(service, apiKey) {
                 get: async (key) => {
                     if (key === adapter.auth.secretStorageKey)
                         return apiKey;
-                    if (adapter.id === "openai" && key === "eco.openaiApiKey")
+                    if (adapter.id === "openai" && key === "recost.openaiApiKey")
                         return apiKey;
                     return undefined;
                 },

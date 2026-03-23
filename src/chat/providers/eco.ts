@@ -4,7 +4,7 @@ import type { ChatProviderAdapter, HttpErrorContext, NormalizedChatResponse } fr
 export const ecoAdapter: ChatProviderAdapter = {
   id: "recost",
   displayName: "ReCost AI",
-  baseUrl: "https://api.ecoapi.dev",
+  baseUrl: "https://api.recost.dev",
   defaultChatEndpoint: "/chat",
   authHeaderFormat: "none",
   supportsStreaming: false,

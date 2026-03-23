@@ -1,4 +1,4 @@
-export type ChatProviderId = "eco" | "openai" | "anthropic" | "gemini" | "xai" | "cohere" | "mistral" | "perplexity";
+export type ChatProviderId = "recost" | "openai" | "anthropic" | "gemini" | "xai" | "cohere" | "mistral" | "perplexity";
 export type ChatRole = "system" | "user" | "assistant";
 export interface NormalizedChatMessage {
     role: ChatRole;

@@ -1,7 +1,7 @@
 import { executeChat, getProviderAdapter, listProviderAdapters, type ChatProviderId } from "./chat";
 import { ChatAdapterError } from "./chat/errors";
 import type { KeyServiceId, KeyStatusSource, KeyStatusState, KeyStatusSummary } from "./messages";
-import { validateEcoApiKey } from "./api-client";
+import { validateRcApiKey } from "./api-client";
 
 export interface KeyValidationSnapshot {
   state: Extract<KeyStatusState, "valid" | "invalid">;
@@ -107,7 +107,7 @@ export async function validateServiceKey(
   const lastCheckedAt = new Date().toISOString();
   try {
     if (service.kind === "ecoapi") {
-      await validateEcoApiKey(apiKey);
+      await validateRcApiKey(apiKey);
       return { state: "valid", lastCheckedAt };
     }
 

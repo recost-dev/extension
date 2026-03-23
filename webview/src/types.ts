@@ -18,10 +18,26 @@ export interface EndpointRecord {
   method: string;
   url: string;
   files: string[];
-  callSites: { file: string; line: number; library: string; frequency?: string }[];
+  callSites: {
+    file: string;
+    line: number;
+    library: string;
+    frequency?: string;
+    frequencyClass?: string;
+    crossFileOrigin?: { file: string; functionName: string } | null;
+  }[];
   callsPerDay: number;
   monthlyCost: number;
   status: EndpointStatus;
+  // Enriched fields from AST engine
+  methodSignature?: string;
+  costModel?: "per_token" | "per_transaction" | "per_request" | "free";
+  frequencyClass?: string;
+  batchCapable?: boolean;
+  cacheCapable?: boolean;
+  streaming?: boolean;
+  isMiddleware?: boolean;
+  crossFileOrigins?: { file: string; functionName: string }[];
 }
 
 export interface Suggestion {
@@ -139,6 +155,7 @@ export interface EndpointSimResult {
   dailyCost: CostRange;
   monthlyCost: CostRange;
   percentOfTotal: number;
+  costModel?: "per_token" | "per_transaction" | "per_request" | "free";
 }
 
 export interface ProviderSimResult {

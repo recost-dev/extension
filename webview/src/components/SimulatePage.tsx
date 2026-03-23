@@ -509,7 +509,7 @@ export function SimulatePage({ endpoints }: SimulatePageProps) {
                 marginTop: "6px",
                 border: "1px solid var(--vscode-panel-border)",
                 borderRadius: "4px",
-                maxHeight: "140px",
+                maxHeight: "420px",
                 overflowY: "auto",
               }}
             >

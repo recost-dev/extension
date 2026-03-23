@@ -8,6 +8,21 @@ import type {
 } from "./types";
 import { UNCERTAINTY_FACTOR } from "./types";
 
+/**
+ * Default call-volume multipliers derived from the AST frequency class.
+ * Applied when no user override is set, making the simulation reflect
+ * real-world patterns (e.g. a polling call fires many times per session).
+ */
+const FREQUENCY_CLASS_MULTIPLIERS: Record<string, number> = {
+  "unbounded-loop": 10,
+  "polling": 8,
+  "parallel": 3,
+  "bounded-loop": 3,
+  "conditional": 0.5,
+  "cache-guarded": 0.1,
+  "single": 1,
+};
+
 function makeCostRange(mid: number): CostRange {
   return {
     low: mid * (1 - UNCERTAINTY_FACTOR),
@@ -48,18 +63,22 @@ export function runSimulation(
   );
 
   const endpointResults: EndpointSimResult[] = endpoints.map((ep) => {
-    // Each endpoint gets a proportional share of the total simulated volume
     const baseShare =
       baselineTotal > 0 ? ep.baseCallsPerDay / baselineTotal : 0;
     let scaledCalls = totalCalls * baseShare;
 
-    // Apply per-endpoint frequency override (multiplier on top of distribution)
+    // Apply frequency class multiplier as default when no user override set.
+    // This makes polling/loop endpoints reflect their real call amplification.
     const override = input.frequencyOverrides?.[ep.id];
     if (override !== undefined && override >= 0) {
       scaledCalls = scaledCalls * override;
+    } else if (ep.frequencyClass && ep.frequencyClass in FREQUENCY_CLASS_MULTIPLIERS) {
+      scaledCalls = scaledCalls * FREQUENCY_CLASS_MULTIPLIERS[ep.frequencyClass];
     }
 
-    const dailyCostMid = scaledCalls * ep.perCallCost;
+    // Free endpoints always cost $0
+    const perCallCost = ep.costModel === "free" ? 0 : ep.perCallCost;
+    const dailyCostMid = scaledCalls * perCallCost;
     const monthlyMid = dailyCostMid * 30;
 
     return {
@@ -70,7 +89,8 @@ export function runSimulation(
       scaledCallsPerDay: scaledCalls,
       dailyCost: makeCostRange(dailyCostMid),
       monthlyCost: makeCostRange(monthlyMid),
-      percentOfTotal: 0, // filled in after totals are computed
+      percentOfTotal: 0,
+      costModel: ep.costModel,
     };
   });
 
@@ -125,12 +145,18 @@ export function runSimulation(
   // Sort providers by monthly cost descending
   byProvider.sort((a, b) => b.monthlyCost.mid - a.monthlyCost.mid);
 
+  // Confidence reflects how much enriched AST data is available
+  const enrichedCount = endpoints.filter((ep) => ep.costModel || ep.frequencyClass).length;
+  const enrichedRatio = endpoints.length > 0 ? enrichedCount / endpoints.length : 0;
+  const confidence =
+    enrichedRatio >= 0.7 ? "high" : enrichedRatio >= 0.3 ? "medium" : "low";
+
   return {
     input,
     totalDailyCost,
     totalMonthlyCost,
     byProvider,
-    confidence: "low",
+    confidence,
     computedAt: new Date().toISOString(),
   };
 }

@@ -5,6 +5,7 @@ exports.validateEcoApiKey = validateEcoApiKey;
 exports.submitScan = submitScan;
 exports.getAllEndpoints = getAllEndpoints;
 exports.getAllSuggestions = getAllSuggestions;
+exports.validateApiKey = validateApiKey;
 const BASE_URL = "https://api.ecoapi.dev";
 async function apiFetch(path, init, ecoApiKey) {
     const authHeaders = ecoApiKey
@@ -60,5 +61,24 @@ async function getAllSuggestions(projectId, scanId) {
         page++;
     }
     return results;
+}
+/**
+ * Validates an API key against GET /auth/me.
+ * Returns AuthMeUser on success, null for 404 (dev mode — endpoint not yet deployed).
+ * Throws with err.status === 401 for invalid key.
+ * Throws without .status for network errors.
+ */
+async function validateApiKey(key) {
+    try {
+        const { data } = await apiFetch("/auth/me", undefined, key);
+        return data;
+    }
+    catch (err) {
+        const error = err;
+        if (error.status === 404) {
+            return null; // Dev mode: auth endpoint not deployed, treat key as valid
+        }
+        throw err;
+    }
 }
 //# sourceMappingURL=api-client.js.map

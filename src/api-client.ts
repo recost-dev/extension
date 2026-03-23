@@ -1,14 +1,14 @@
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 
-const BASE_URL = "https://api.ecoapi.dev";
+const BASE_URL = "https://api.recost.dev";
 
 interface ApiError {
   error?: { message?: string };
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit, ecoApiKey?: string): Promise<T> {
-  const authHeaders: Record<string, string> = ecoApiKey
-    ? { "Authorization": `Bearer ${ecoApiKey}` }
+async function apiFetch<T>(path: string, init?: RequestInit, rcApiKey?: string): Promise<T> {
+  const authHeaders: Record<string, string> = rcApiKey
+    ? { "Authorization": `Bearer ${rcApiKey}` }
     : {};
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
@@ -24,16 +24,21 @@ async function apiFetch<T>(path: string, init?: RequestInit, ecoApiKey?: string)
   return res.json() as Promise<T>;
 }
 
-export async function createProject(name: string, ecoApiKey?: string): Promise<string> {
+export async function createProject(name: string, rcApiKey?: string): Promise<string> {
   const { data } = await apiFetch<{ data: { id: string } }>("/projects", {
     method: "POST",
     body: JSON.stringify({ name }),
-  }, ecoApiKey);
+  }, rcApiKey);
   return data.id;
 }
 
-export async function validateEcoApiKey(ecoApiKey: string): Promise<void> {
-  await apiFetch("/projects?limit=1", undefined, ecoApiKey);
+export async function validateRcApiKey(rcApiKey: string): Promise<void> {
+  if (!rcApiKey.startsWith("rc-")) {
+    const err = new Error("Invalid ReCost API key — keys must start with rc-") as Error & { status: number };
+    err.status = 401;
+    throw err;
+  }
+  await apiFetch("/projects?limit=1", undefined, rcApiKey);
 }
 
 export interface ScanResult {
@@ -41,11 +46,11 @@ export interface ScanResult {
   summary: ScanSummary;
 }
 
-export async function submitScan(projectId: string, apiCalls: ApiCallInput[], ecoApiKey?: string): Promise<ScanResult> {
+export async function submitScan(projectId: string, apiCalls: ApiCallInput[], rcApiKey?: string): Promise<ScanResult> {
   const { data } = await apiFetch<{ data: { id: string; summary: ScanSummary } }>(
     `/projects/${projectId}/scans`,
     { method: "POST", body: JSON.stringify({ apiCalls }) },
-    ecoApiKey
+    rcApiKey
   );
   return { scanId: data.id, summary: data.summary };
 }
@@ -91,6 +96,11 @@ export interface AuthMeUser {
  * Throws without .status for network errors.
  */
 export async function validateApiKey(key: string): Promise<AuthMeUser | null> {
+  if (!key.startsWith("rc-")) {
+    const err = new Error("Invalid ReCost API key — keys must start with rc-") as Error & { status: number };
+    err.status = 401;
+    throw err;
+  }
   try {
     const { data } = await apiFetch<{ data: AuthMeUser }>("/auth/me", undefined, key);
     return data;

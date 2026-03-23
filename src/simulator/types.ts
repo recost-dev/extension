@@ -25,6 +25,10 @@ export interface EndpointSnapshot {
   baseCallsPerDay: number;
   /** Estimated cost per single call in USD */
   perCallCost: number;
+  /** AST-derived call frequency pattern — used to suggest default multipliers */
+  frequencyClass?: string;
+  /** AST-derived pricing model */
+  costModel?: "per_token" | "per_transaction" | "per_request" | "free";
 }
 
 export interface SimulatorDataSource {
@@ -51,6 +55,7 @@ export interface EndpointSimResult {
   dailyCost: CostRange;
   monthlyCost: CostRange;
   percentOfTotal: number;
+  costModel?: "per_token" | "per_transaction" | "per_request" | "free";
 }
 
 export interface ProviderSimResult {

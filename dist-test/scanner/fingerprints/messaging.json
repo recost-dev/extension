@@ -1,0 +1,19 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "messaging",
+    "displayName": "Messaging & Communication",
+    "languages": [],
+    "packages": [],
+    "hosts": [
+        { "pattern": "(^|\\.)twilio\\.com$", "isRegex": true, "provider": "twilio" },
+        { "pattern": "(^|\\.)sendgrid\\.com$", "isRegex": true, "provider": "sendgrid" },
+        { "pattern": "(^|\\.)mailgun\\.net$", "isRegex": true, "provider": "mailgun" },
+        { "pattern": "api.postmarkapp.com", "provider": "postmark" },
+        { "pattern": "(^|\\.)slack\\.com$", "isRegex": true, "provider": "slack" },
+        { "pattern": "(^|\\.)discord\\.com$", "isRegex": true, "provider": "discord" },
+        { "pattern": "(^|\\.)graph\\.facebook\\.com$", "isRegex": true, "provider": "facebook" },
+        { "pattern": "(^|\\.)api\\.twitter\\.com$", "isRegex": true, "provider": "twitter" },
+        { "pattern": "(^|\\.)api\\.x\\.com$", "isRegex": true, "provider": "twitter" }
+    ],
+    "methods": []
+}

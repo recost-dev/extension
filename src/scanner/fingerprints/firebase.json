@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0.0",
+  "provider": "firebase",
+  "displayName": "Firebase",
+  "languages": ["javascript", "typescript"],
+  "packages": ["firebase"],
+  "hosts": [
+    { "pattern": "firestore.googleapis.com", "provider": "firestore" },
+    { "pattern": "firebasestorage.googleapis.com" },
+    { "pattern": "firebase.googleapis.com" }
+  ],
+  "methods": [
+    {
+      "pattern": "getDoc",
+      "httpMethod": "GET",
+      "endpoint": "https://firestore.googleapis.com/v1/{documentPath}",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000003,
+      "cacheCapable": true,
+      "description": "Read a single Firestore document — $0.03/100K reads"
+    },
+    {
+      "pattern": "getDocs",
+      "httpMethod": "GET",
+      "endpoint": "https://firestore.googleapis.com/v1/{collectionPath}",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000003,
+      "cacheCapable": true,
+      "description": "Read multiple Firestore documents — $0.03/100K reads"
+    },
+    {
+      "pattern": "setDoc",
+      "httpMethod": "POST",
+      "endpoint": "https://firestore.googleapis.com/v1/{documentPath}",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000009,
+      "batchCapable": true,
+      "description": "Write/overwrite a Firestore document — $0.09/100K writes"
+    },
+    {
+      "pattern": "updateDoc",
+      "httpMethod": "PATCH",
+      "endpoint": "https://firestore.googleapis.com/v1/{documentPath}",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000009,
+      "batchCapable": true,
+      "description": "Update fields in a Firestore document — $0.09/100K writes"
+    },
+    {
+      "pattern": "addDoc",
+      "httpMethod": "POST",
+      "endpoint": "https://firestore.googleapis.com/v1/{collectionPath}",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000009,
+      "description": "Add a new document to a Firestore collection — $0.09/100K writes"
+    },
+    {
+      "pattern": "deleteDoc",
+      "httpMethod": "DELETE",
+      "endpoint": "https://firestore.googleapis.com/v1/{documentPath}",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000009,
+      "description": "Delete a Firestore document — $0.09/100K deletes"
+    },
+    {
+      "pattern": "onSnapshot",
+      "httpMethod": "SUBSCRIBE",
+      "endpoint": "firestore://listener",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000003,
+      "streaming": true,
+      "description": "Real-time listener on a Firestore document/query — counted as reads"
+    },
+    {
+      "pattern": "onValue",
+      "httpMethod": "SUBSCRIBE",
+      "endpoint": "firestore://listener",
+      "costModel": "per_transaction",
+      "fixedFee": 0.000001,
+      "streaming": true,
+      "description": "Real-time listener on a Firebase Realtime Database path — charged per download byte"
+    },
+    {
+      "pattern": "addSnapshotListener",
+      "httpMethod": "SUBSCRIBE",
+      "endpoint": "firestore://listener",
+      "costModel": "per_transaction",
+      "fixedFee": 0.0000003,
+      "streaming": true,
+      "description": "Real-time snapshot listener (iOS/Android SDK style)"
+    },
+    {
+      "pattern": "uploadBytes",
+      "httpMethod": "POST",
+      "endpoint": "https://firebasestorage.googleapis.com/v0/b/{bucket}/o",
+      "costModel": "per_request",
+      "description": "Upload bytes to Firebase Storage"
+    },
+    {
+      "pattern": "uploadBytesResumable",
+      "httpMethod": "POST",
+      "endpoint": "https://firebasestorage.googleapis.com/v0/b/{bucket}/o",
+      "costModel": "per_request",
+      "description": "Resumable upload to Firebase Storage"
+    },
+    {
+      "pattern": "getDownloadURL",
+      "httpMethod": "GET",
+      "endpoint": "https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}",
+      "costModel": "per_request",
+      "cacheCapable": true,
+      "description": "Get a download URL for a Firebase Storage object"
+    },
+    {
+      "pattern": "deleteObject",
+      "httpMethod": "DELETE",
+      "endpoint": "https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}",
+      "costModel": "per_request",
+      "description": "Delete an object from Firebase Storage"
+    },
+    {
+      "pattern": "listAll",
+      "httpMethod": "GET",
+      "endpoint": "https://firebasestorage.googleapis.com/v0/b/{bucket}/o",
+      "costModel": "per_request",
+      "description": "List all objects in a Firebase Storage reference"
+    }
+  ]
+}

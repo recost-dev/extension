@@ -23,6 +23,27 @@ exports.xAiAdapter = {
             throw new errors_1.ChatAdapterError("unsupported_model", `Unsupported xAI model: ${request.model}`, { provider: "xai" });
         }
     },
+    toRequestBody(request, apiKey) {
+        exports.xAiAdapter.validateRequest(request);
+        const body = {
+            model: request.model,
+            messages: request.messages,
+        };
+        if (typeof request.temperature === "number")
+            body.temperature = request.temperature;
+        if (typeof request.maxTokens === "number")
+            body.max_tokens = request.maxTokens;
+        if (request.stream)
+            body.stream = true;
+        return {
+            url: `${exports.xAiAdapter.baseUrl}${exports.xAiAdapter.defaultChatEndpoint}`,
+            headers: {
+                "Content-Type": "application/json",
+                ...exports.xAiAdapter.authHeaders(apiKey ?? ""),
+            },
+            body,
+        };
+    },
     mapHttpError(context) {
         if (context.status === 401 || context.status === 403) {
             return new errors_1.ChatAdapterError("bad_auth", "xAI authentication failed. Check XAI_API_KEY or saved credentials.", { provider: "xai", status: context.status });

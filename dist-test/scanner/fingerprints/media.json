@@ -1,0 +1,12 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "media",
+    "displayName": "Media & Video",
+    "languages": [],
+    "packages": [],
+    "hosts": [
+        { "pattern": "(^|\\.)api\\.cloudinary\\.com$", "isRegex": true, "provider": "cloudinary" },
+        { "pattern": "(^|\\.)mux\\.com$", "isRegex": true, "provider": "mux" }
+    ],
+    "methods": []
+}

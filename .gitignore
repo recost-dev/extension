@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-test/
 npm-debug.log*
 
 # Wrangler local state

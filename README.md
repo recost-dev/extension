@@ -1,6 +1,6 @@
 # ReCost - API Usage Analyzer
 
-VSCode extension that scans your workspace for API call patterns, estimates costs, and generates optimization suggestions — all locally, no remote server required.
+VSCode extension that scans your workspace for API call patterns using an AST-powered parsing engine, estimates costs, and generates optimization suggestions — all locally, no remote server required.
 
 ## Why This Exists
 
@@ -13,17 +13,18 @@ ReCost turns parsed API call data into actionable diagnostics:
 - Cost analytics with per-endpoint breakdowns
 - Endpoint-level risk/status and scope classification (internal vs external)
 - Optimization suggestions with estimated savings
-- Interactive dependency graph visualization
-- **Cost Simulator** — project API spend at scale with user-centric or volume-centric models, save/compare scenarios, export CSV
+- **AST-powered detection** — tree-sitter parses JS/TS/Python to find call frequency class, pricing model, batch/cache capability, and cross-file origins
+- **Cost Simulator** — project API spend at scale; frequency class (polling, loops) auto-amplifies call volume; free endpoints always $0; save/compare scenarios, export CSV
 - **Sustainability stats** — electricity (kWh), water (L), and CO2 (g) footprint estimated from API call volume, with AI vs non-AI breakdown
-- **Local waste detection** — identifies redundant patterns, missing caching, unbatched requests without needing the remote API
+- **Local waste detection** — identifies N+1 patterns, unbounded loops, polling without exponential backoff, missing cache guards, and unbatched parallel calls without needing the remote API
 
 ## Tech Stack
 
 - **TypeScript** — extension backend
 - **React 18** — sidebar webview UI
 - **Vite** + **esbuild** — bundlers
-- **TanStack Query v5**, **Tailwind CSS v4**, **D3.js**, **Radix UI** — dashboard UI
+- **web-tree-sitter** — WASM-based AST parsing (JS/TS/Python)
+- **TanStack Query v5**, **Tailwind CSS v4**, **Radix UI** — dashboard UI
 - **Multi-provider AI chat** — ReCost AI (free, default), OpenAI, Anthropic, Gemini, xAI, Cohere, Mistral, Perplexity
 
 ## Project Structure
@@ -31,43 +32,39 @@ ReCost turns parsed API call data into actionable diagnostics:
 ```
 src/                        # Extension backend
   extension.ts              # Entry point
-  api-client.ts             # HTTP client for remote ReCost API
+  api-client.ts             # HTTP client for remote ReCost API (rc- prefix key validation)
   local-server.ts           # Embedded server (dashboard + local analysis)
   webview-provider.ts       # Sidebar webview provider
   messages.ts               # IPC message types
-  analysis/types.ts
+  ast/
+    parser-loader.ts        # web-tree-sitter WASM loader
+    scanner.ts              # AST-based API call scanner
+    frequency-analyzer.ts   # Call frequency classification (single, polling, loop, parallel, etc.)
+    cross-file-resolver.ts  # Traces calls through helper functions to origin
+    fingerprint-registry.ts # Per-method pricing fingerprints (costModel, per-call rates)
   chat/
-    prompts.ts              # AI prompt templates
-    types.ts                # Shared chat types
-    provider-registry.ts    # Provider registry & auth resolution
+    providers/              # Per-provider adapters (recost, openai, anthropic, gemini, xai, cohere, mistral, perplexity)
+    provider-registry.ts    # Auth resolution (env var → SecretStorage)
     index.ts                # executeChat() dispatcher
-    errors.ts               # ChatAdapterError
-    providers/              # Per-provider adapters (eco, openai, anthropic, gemini, xai, cohere, mistral, perplexity)
   scanner/
-    patterns.ts             # API call detection regex
-    patterns/               # 16 provider-specific pattern scanners (Firebase, GraphQL, OpenAI, Stripe, etc.)
-    workspace-scanner.ts    # Workspace file scanner
-    endpoint-classification.ts  # Classifies endpoints as internal/external, detects 50+ providers
-    local-waste-detector.ts # Detects waste patterns locally (redundancy, missing cache, unbatched)
-  simulator/                # Cost Simulator computation layer
+    patterns/               # 16 provider-specific regex scanners (Firebase, GraphQL, OpenAI, Stripe, etc.)
+    workspace-scanner.ts    # Orchestrates AST + regex scanning
+    endpoint-classification.ts  # Classifies endpoints, detects 50+ providers
+    local-waste-detector.ts # AST-signal waste detection
+  simulator/                # Cost Simulator — pure computation, no side effects
+    engine.ts               # runSimulation() — frequency multipliers, free zeroing, dynamic confidence
+    static-source.ts        # EndpointRecord[] → SimulatorDataSource (passes frequencyClass + costModel)
     types.ts                # SimulatorInput, SimulatorResult, SavedScenario, scale presets
-    engine.ts               # runSimulation() — scales endpoints, ±30% uncertainty, groups by provider
-    static-source.ts        # StaticDataSource adapter (EndpointRecord[] → SimulatorDataSource)
-    index.ts                # Barrel re-export
 webview/                    # React sidebar UI
   src/
-    App.tsx
-    vscode.ts               # VSCode API bridge
     components/
-      LandingPage.tsx
-      ScanningPage.tsx
-      ResultsPage.tsx        # Main results view with tabs
-      ChatPage.tsx           # AI chat tab
+      ResultsPage.tsx        # Findings (Issues + Endpoints subtabs), Chat, Simulate tabs
+      ChatPage.tsx           # AI chat — key-missing warning shown inline
       SimulatePage.tsx       # Cost Simulator tab
 dashboard/                  # Full React dashboard (built into dashboard-dist/)
   src/
-    pages/                  # Dashboard, Endpoints, Graph, Suggestions, Simulator
-    lib/                    # API client, TanStack Query hooks, types
+    pages/                  # Dashboard, Endpoints, Suggestions, Simulator
+    lib/                    # API client, TanStack Query hooks, format utilities
     components/             # ScenarioCompare, Select, animated-tree, particles
 dashboard-dist/             # Built dashboard (generated — do not edit)
 scripts/
@@ -126,7 +123,7 @@ npm run build && npm run package
 
 ### ReCost API Key
 
-An API key is required to sync scan results with the ReCost API and unlock full cost estimates (provider pricing, per-endpoint breakdowns, monthly projections).
+An API key (prefixed `rc-`) is required to sync scan results with the ReCost API and unlock full cost estimates.
 
 **Get a key:** [https://recost.dev/dashboard/account](https://recost.dev/dashboard/account)
 
@@ -134,25 +131,13 @@ An API key is required to sync scan results with the ReCost API and unlock full 
 
 1. Open the command palette: `Ctrl+Shift+P` (macOS: `Cmd+Shift+P`)
 2. Run: **EcoAPI: Change API Key**
-3. Paste your key — it is validated against the API before being saved, and stored in VS Code's encrypted secret storage (never in any file)
+3. Paste your `rc-` key — it is validated before saving and stored in VS Code's encrypted secret storage
 
-You can also click the **ReCost status bar item** (bottom-right of the VS Code window) to open the same prompt. On first launch, a notification appears automatically if no key is configured.
-
-**Status bar states:**
-
-| Text | Meaning |
-|------|---------|
-| `EcoAPI: Not Configured` | No key stored — click to configure |
-| `EcoAPI: user@email.com` | Connected and authenticated |
-| `EcoAPI: Connected` | Admin/dev key configured (auth endpoint not yet live) |
-| `EcoAPI: Invalid Key` | Key rejected by server — run **EcoAPI: Change API Key** to update |
-| `EcoAPI: Unreachable` | Network issue — check your connection |
-
-**Dev mode / admin key:** Use **EcoAPI: Change API Key** to set any key, including an admin key for local development. If the `/auth/me` endpoint isn't deployed yet, the extension accepts the key and shows `EcoAPI: Connected`. No `eco-` prefix is required.
+You can also click the **ReCost status bar item** (bottom-right) to open the same prompt.
 
 ### AI Chat Keys (optional)
 
-The Chat tab supports multiple AI providers. **ReCost AI is free and requires no key** — it is the default. For other providers, enter your API key via the extension UI when prompted, or set the corresponding environment variable:
+**ReCost AI is free and requires no key** — it is the default. For other providers, enter your API key via the extension UI or set the corresponding environment variable:
 
 | Provider | Environment variable |
 |----------|---------------------|
@@ -164,7 +149,7 @@ The Chat tab supports multiple AI providers. **ReCost AI is free and requires no
 | Mistral | `MISTRAL_API_KEY` |
 | Perplexity | `PPLX_API_KEY` |
 
-Environment variables can be set in your shell profile or in a `.env` file in your project root. Keys entered via the UI are stored in VS Code's encrypted secret storage.
+Keys entered via the UI are stored in VS Code's encrypted secret storage.
 
 ---
 

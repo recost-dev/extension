@@ -10,10 +10,11 @@ export class StaticDataSource implements SimulatorDataSource {
 
   getEndpoints(): EndpointSnapshot[] {
     return this.endpoints.map((ep) => {
-      // Derive per-call cost from monthly cost and daily calls
-      // monthlyCost = callsPerDay * 30 * perCallCost
       const dailyCalls = ep.callsPerDay > 0 ? ep.callsPerDay : 1;
-      const perCallCost = ep.monthlyCost / (dailyCalls * 30);
+      // Free endpoints always have zero cost regardless of monthlyCost estimate
+      const perCallCostRaw = ep.costModel === "free"
+        ? 0
+        : ep.monthlyCost / (dailyCalls * 30);
 
       return {
         id: ep.id,
@@ -21,7 +22,9 @@ export class StaticDataSource implements SimulatorDataSource {
         method: ep.method,
         url: ep.url,
         baseCallsPerDay: dailyCalls,
-        perCallCost: isFinite(perCallCost) && perCallCost > 0 ? perCallCost : 0,
+        perCallCost: isFinite(perCallCostRaw) && perCallCostRaw > 0 ? perCallCostRaw : 0,
+        frequencyClass: ep.frequencyClass,
+        costModel: ep.costModel,
       };
     });
   }

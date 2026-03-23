@@ -1,0 +1,91 @@
+{
+    "schemaVersion": "1.0.0",
+    "provider": "mistral",
+    "displayName": "Mistral AI",
+    "languages": ["javascript", "typescript", "python"],
+    "packages": ["@mistralai/mistralai"],
+    "hosts": [
+        { "pattern": "api.mistral.ai" }
+    ],
+    "methods": [
+        {
+            "pattern": "chat.complete",
+            "httpMethod": "POST",
+            "endpoint": "https://api.mistral.ai/v1/chat/completions",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.07,
+            "outputPricePer1M": 0.20,
+            "cacheCapable": true,
+            "description": "Chat completions — Mistral Small 3.2 ($0.07/$0.20 per 1M tokens)"
+        },
+        {
+            "pattern": "chat.stream",
+            "httpMethod": "POST",
+            "endpoint": "https://api.mistral.ai/v1/chat/completions",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.07,
+            "outputPricePer1M": 0.20,
+            "streaming": true,
+            "description": "Streaming chat completions"
+        },
+        {
+            "pattern": "embeddings.create",
+            "httpMethod": "POST",
+            "endpoint": "https://api.mistral.ai/v1/embeddings",
+            "costModel": "per_token",
+            "inputPricePer1M": 0.10,
+            "batchCapable": true,
+            "description": "Generate embeddings — Mistral Embed ($0.10/1M tokens)"
+        },
+        {
+            "pattern": "ocr.process",
+            "httpMethod": "POST",
+            "endpoint": "https://api.mistral.ai/v1/ocr",
+            "costModel": "per_request",
+            "fixedFee": 0.001,
+            "description": "OCR document processing — Mistral OCR ($1.00/1K pages)"
+        },
+        {
+            "pattern": "files.create",
+            "httpMethod": "POST",
+            "endpoint": "https://api.mistral.ai/v1/files",
+            "costModel": "free",
+            "description": "Upload a file"
+        },
+        {
+            "pattern": "files.list",
+            "httpMethod": "GET",
+            "endpoint": "https://api.mistral.ai/v1/files",
+            "costModel": "free",
+            "description": "List uploaded files"
+        },
+        {
+            "pattern": "files.retrieve",
+            "httpMethod": "GET",
+            "endpoint": "https://api.mistral.ai/v1/files/{id}",
+            "costModel": "free",
+            "description": "Retrieve file metadata"
+        },
+        {
+            "pattern": "files.upload",
+            "httpMethod": "POST",
+            "endpoint": "https://api.mistral.ai/v1/files",
+            "costModel": "free",
+            "description": "Upload a file (alias for files.create)"
+        },
+        {
+            "pattern": "files.delete",
+            "httpMethod": "DELETE",
+            "endpoint": "https://api.mistral.ai/v1/files/{id}",
+            "costModel": "free",
+            "description": "Delete a file"
+        },
+        {
+            "pattern": "models.list",
+            "httpMethod": "GET",
+            "endpoint": "https://api.mistral.ai/v1/models",
+            "costModel": "free",
+            "description": "List available models"
+        }
+    ]
+}

@@ -24,6 +24,27 @@ exports.perplexityAdapter = {
             throw new errors_1.ChatAdapterError("unsupported_model", `Unsupported Perplexity model: ${request.model}`, { provider: "perplexity" });
         }
     },
+    toRequestBody(request, apiKey) {
+        exports.perplexityAdapter.validateRequest(request);
+        const body = {
+            model: request.model,
+            messages: request.messages,
+        };
+        if (typeof request.temperature === "number")
+            body.temperature = request.temperature;
+        if (typeof request.maxTokens === "number")
+            body.max_tokens = request.maxTokens;
+        if (request.stream)
+            body.stream = true;
+        return {
+            url: `${exports.perplexityAdapter.baseUrl}${exports.perplexityAdapter.defaultChatEndpoint}`,
+            headers: {
+                "Content-Type": "application/json",
+                ...exports.perplexityAdapter.authHeaders(apiKey ?? ""),
+            },
+            body,
+        };
+    },
     mapHttpError(context) {
         if (context.status === 401 || context.status === 403) {
             return new errors_1.ChatAdapterError("bad_auth", "Perplexity authentication failed. Check PERPLEXITY_API_KEY or saved credentials.", { provider: "perplexity", status: context.status });
