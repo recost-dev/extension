@@ -369,13 +369,12 @@ html, body, #root {
   gap: 9px;
   padding: 6px 12px;
   font-size: 11px;
-  transition: background 170ms var(--eco-ease-standard), transform 170ms var(--eco-ease-standard);
+  transition: background 170ms var(--eco-ease-standard);
   animation: eco-fade-up 220ms var(--eco-ease-emphasis);
 }
 
 .eco-endpoint-row:hover {
   background: var(--vscode-list-hoverBackground);
-  transform: translateX(1px);
 }
 
 /* ─── Section header (collapsible) ─── */

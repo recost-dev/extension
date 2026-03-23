@@ -42,21 +42,6 @@ const PROVIDER_COLORS: Record<string, string> = {
   twilio: "var(--vscode-charts-red)",
 };
 
-const FREQUENCY_TOOLTIPS: Record<string, string> = {
-  "bounded-loop": "This call is inside a loop iterating over a collection",
-  "unbounded-loop": "This call is inside a loop with no fixed bound",
-  parallel: "This call runs in parallel via Promise.all or similar",
-  polling: "This call runs on a timer interval",
-  conditional: "This call is inside a conditional branch",
-  "cache-guarded": "This call is guarded by a cache check",
-};
-
-const COST_MODEL_TOOLTIPS: Record<string, string> = {
-  per_token: "Priced per input/output token",
-  per_transaction: "Fixed fee + percentage per transaction",
-  per_request: "Fixed price per API request",
-  free: "No charge for this call",
-};
 
 function providerColor(provider: string): string {
   return PROVIDER_COLORS[provider.toLowerCase()] ?? "var(--vscode-descriptionForeground)";
@@ -138,104 +123,6 @@ function SourceBadge({ source }: { source?: Suggestion["source"] }) {
   );
 }
 
-function ProviderBadge({ provider }: { provider: string }) {
-  const color = providerColor(provider);
-  return (
-    <span
-      style={{
-        color,
-        background: "var(--vscode-editorGroupHeader-tabsBackground)",
-        border: `1px solid ${color}`,
-        fontSize: "10px",
-        padding: "1px 5px",
-        borderRadius: "10px",
-        fontWeight: 600,
-        flexShrink: 0,
-        whiteSpace: "nowrap",
-        opacity: 0.9,
-      }}
-    >
-      {provider}
-    </span>
-  );
-}
-
-function CostModelBadge({ costModel }: { costModel?: EndpointRecord["costModel"] }) {
-  if (!costModel) return null;
-  const map: Record<string, { label: string; color: string }> = {
-    per_token: { label: "token", color: "var(--vscode-charts-blue)" },
-    per_transaction: { label: "txn", color: "var(--vscode-charts-purple)" },
-    per_request: { label: "call", color: "var(--vscode-descriptionForeground)" },
-    free: { label: "free", color: "var(--vscode-charts-green)" },
-  };
-  const entry = map[costModel];
-  if (!entry) return null;
-  return (
-    <span
-      title={COST_MODEL_TOOLTIPS[costModel]}
-      style={{
-        color: entry.color,
-        fontSize: "10px",
-        padding: "1px 5px",
-        borderRadius: "10px",
-        border: `1px solid ${entry.color}`,
-        flexShrink: 0,
-        whiteSpace: "nowrap",
-        opacity: 0.85,
-      }}
-    >
-      {entry.label}
-    </span>
-  );
-}
-
-function FrequencyBadge({ frequencyClass }: { frequencyClass?: string }) {
-  if (!frequencyClass || frequencyClass === "single") return null;
-  const map: Record<string, { label: string; color: string }> = {
-    "bounded-loop": { label: "loop", color: "var(--vscode-editorWarning-foreground)" },
-    "unbounded-loop": { label: "loop ∞", color: "var(--vscode-editorError-foreground)" },
-    parallel: { label: "parallel", color: "var(--vscode-charts-blue)" },
-    polling: { label: "polling", color: "var(--vscode-editorError-foreground)" },
-    conditional: { label: "if", color: "var(--vscode-descriptionForeground)" },
-    "cache-guarded": { label: "cached", color: "var(--vscode-charts-green)" },
-  };
-  const entry = map[frequencyClass];
-  if (!entry) return null;
-  return (
-    <span
-      title={FREQUENCY_TOOLTIPS[frequencyClass]}
-      style={{
-        color: entry.color,
-        fontSize: "10px",
-        padding: "1px 5px",
-        borderRadius: "10px",
-        border: `1px solid ${entry.color}`,
-        flexShrink: 0,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {entry.label}
-    </span>
-  );
-}
-
-function CapabilityIndicators({ ep }: { ep: EndpointRecord }) {
-  const caps: string[] = [];
-  if (ep.streaming) caps.push("stream");
-  if (ep.batchCapable) caps.push("batch");
-  if (ep.cacheCapable) caps.push("cache");
-  if (ep.isMiddleware) caps.push("middleware");
-  if (caps.length === 0) return null;
-  return (
-    <span style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
-      {caps.map((c) => (
-        <span key={c} style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px" }}>
-          {c}
-        </span>
-      ))}
-    </span>
-  );
-}
 
 function ConfidenceBadge({ confidence }: { confidence?: number }) {
   if (typeof confidence !== "number") return null;
@@ -336,8 +223,7 @@ function SuggestionCard({
   target: { file?: string; line?: number };
 }) {
   const [expanded, setExpanded] = useState(false);
-  const firstLine = suggestion.description.split("\n")[0];
-  const descShort = firstLine.length > 90 ? `${firstLine.slice(0, 90)}...` : firstLine;
+
 
   return (
     <div className="eco-suggestion">
@@ -346,7 +232,7 @@ function SuggestionCard({
         <TypeBadge type={suggestion.type} />
         <SourceBadge source={suggestion.source} />
         <ConfidenceBadge confidence={suggestion.confidence} />
-        <span style={{ flex: 1, lineHeight: 1.4, overflow: "hidden" }}>{descShort}</span>
+        <span style={{ flex: 1 }} />
         {suggestion.estimatedMonthlySavings > 0 && (
           <span style={{ color: "var(--vscode-charts-green, #4caf50)", fontSize: "11px", flexShrink: 0, whiteSpace: "nowrap" }}>
             {formatCost(suggestion.estimatedMonthlySavings)}/mo
@@ -453,149 +339,175 @@ function SeverityGroup({
   );
 }
 
-function EndpointRow({ ep }: { ep: EndpointRecord }) {
-  const [expanded, setExpanded] = useState(false);
+// ── Simple endpoint list ──────────────────────────────────────────────────────
 
-  const costColor =
-    ep.costModel === "free"
-      ? "var(--vscode-charts-green)"
-      : "var(--vscode-descriptionForeground)";
+const RISK_STATUSES = new Set(["redundant", "n_plus_one_risk", "rate_limit_risk", "cacheable", "batchable"]);
+const RISK_FREQUENCIES = new Set(["unbounded-loop", "polling", "bounded-loop", "parallel"]);
+function isAtRisk(ep: EndpointRecord): boolean {
+  return RISK_STATUSES.has(ep.status) || Boolean(ep.frequencyClass && RISK_FREQUENCIES.has(ep.frequencyClass));
+}
 
-  const costLabel =
-    ep.costModel === "free" ? "Free" : `${formatCost(ep.monthlyCost)}/mo`;
+const METHOD_ORDER = ["POST", "GET", "PUT", "PATCH", "DELETE"];
 
+function atRiskTooltip(ep: EndpointRecord): string {
+  const reasons: string[] = [];
+  if (ep.status === "redundant") reasons.push("redundant call");
+  if (ep.status === "n_plus_one_risk") reasons.push("N+1 risk");
+  if (ep.status === "rate_limit_risk") reasons.push("rate limit risk");
+  if (ep.status === "cacheable") reasons.push("cacheable but not cached");
+  if (ep.status === "batchable") reasons.push("batchable but not batched");
+  if (ep.frequencyClass === "unbounded-loop") reasons.push("inside unbounded loop");
+  if (ep.frequencyClass === "polling") reasons.push("polling on timer");
+  if (ep.frequencyClass === "bounded-loop") reasons.push("inside loop");
+  if (ep.frequencyClass === "parallel") reasons.push("parallel calls");
+  return `At risk: ${reasons.join(", ")}`;
+}
+
+function ProviderGroup({ provider, eps, pColor }: { provider: string; eps: EndpointRecord[]; pColor: string }) {
+  const [open, setOpen] = useState(true);
   return (
     <div>
       <button
-        className="eco-endpoint-row"
-        onClick={() => setExpanded((v) => !v)}
-        style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          width: "100%", padding: "3px 12px 3px 16px",
+          background: "none", border: "none", cursor: "pointer",
+          borderBottom: "1px solid var(--vscode-panel-border)",
+        }}
       >
-        <span style={{ background: "var(--vscode-badge-background)", color: "var(--vscode-badge-foreground)", fontSize: "10px", padding: "1px 4px", borderRadius: "2px", fontWeight: 700, flexShrink: 0, letterSpacing: "0.04em" }}>
-          {ep.method}
-        </span>
-        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11px" }} title={ep.url}>
-          {ep.url}
-        </span>
-        <CapabilityIndicators ep={ep} />
-        <ProviderBadge provider={ep.provider} />
-        <CostModelBadge costModel={ep.costModel} />
-        <span style={{ color: costColor, fontSize: "10px", flexShrink: 0 }}>
-          {costLabel}
-        </span>
-        <FrequencyBadge frequencyClass={ep.frequencyClass} />
-        <span
-          style={{
-            fontSize: "10px",
-            flexShrink: 0,
-            color:
-              ep.status === "redundant" || ep.status === "n_plus_one_risk"
-                ? "var(--vscode-editorError-foreground)"
-                : ep.status === "cacheable" || ep.status === "batchable" || ep.status === "rate_limit_risk"
-                ? "var(--vscode-editorWarning-foreground)"
-                : "var(--vscode-descriptionForeground)",
-          }}
-        >
-          {ep.status.replace(/_/g, " ")}
-        </span>
+        <span style={{ fontSize: "13px", color: pColor, fontWeight: 600 }}>{provider}</span>
+        <span style={{ fontSize: "10px", opacity: 0.35, color: "var(--vscode-descriptionForeground)" }}>{eps.length}</span>
+        <span className="eco-chevron" style={{ marginLeft: "auto", fontSize: "14px", opacity: 0.5, transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
       </button>
+      {open && eps.map((ep) => {
+        const site = ep.callSites?.[0];
+        const filePath = site?.file ?? ep.files?.[0];
+        const fileName = filePath ? filePath.replace(/\\/g, "/").split("/").pop() : undefined;
+        const risk = isAtRisk(ep);
+        return (
+          <div key={ep.id} style={{ padding: "5px 12px 5px 24px", borderBottom: "1px solid var(--vscode-panel-border)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+              <div style={{ fontSize: "12px", color: "var(--vscode-foreground)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }} title={ep.url}>
+                {ep.url}
+              </div>
+              {risk && (
+                <span title={atRiskTooltip(ep)} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: "40px", height: "40px", flexShrink: 0, cursor: "default" }}>
+                  <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--vscode-editorError-foreground)", display: "block", pointerEvents: "none" }} />
+                </span>
+              )}
+            </div>
+            {fileName && filePath && (
+              <button
+                className="eco-btn-link"
+                style={{ fontSize: "10px", opacity: 0.7, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={filePath}
+                onClick={() => postMessage({ type: "openFile", file: filePath, line: site?.line })}
+              >
+                {fileName}{site?.line ? `:${site.line}` : ""}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-      {expanded && (
-        <div
-          style={{
-            padding: "6px 12px 8px 24px",
-            borderBottom: "1px solid var(--vscode-panel-border)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-          }}
-        >
-          {ep.methodSignature && (
-            <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", fontFamily: "var(--vscode-editor-font-family)" }}>
-              {ep.methodSignature}
+function MethodGroup({ method, providerMap, pColor }: { method: string; providerMap: Map<string, EndpointRecord[]>; pColor: (p: string) => string }) {
+  const [open, setOpen] = useState(true);
+  const sortedProviders = [...providerMap.keys()].sort((a, b) => a.localeCompare(b));
+  const total = [...providerMap.values()].reduce((s, v) => s + v.length, 0);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          width: "100%", padding: "6px 12px",
+          background: "var(--vscode-editorGroupHeader-tabsBackground)",
+          border: "none", cursor: "pointer",
+          borderBottom: "1px solid var(--vscode-panel-border)",
+        }}
+      >
+        <span style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--vscode-foreground)" }}>{method}</span>
+        <span style={{ fontWeight: 400, opacity: 0.45, fontSize: "10px" }}>{total}</span>
+        <span className="eco-chevron" style={{ marginLeft: "auto", fontSize: "16px", opacity: 0.5, transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+      </button>
+      {open && sortedProviders.map((provider) => (
+        <ProviderGroup key={provider} provider={provider} eps={providerMap.get(provider)!} pColor={pColor(provider)} />
+      ))}
+    </div>
+  );
+}
+
+function GroupedEndpointList({ endpoints }: { endpoints: EndpointRecord[] }) {
+  const byMethod = new Map<string, Map<string, EndpointRecord[]>>();
+  const methodsSeen: string[] = [];
+  for (const ep of endpoints) {
+    const m = ep.method.toUpperCase();
+    if (!byMethod.has(m)) { byMethod.set(m, new Map()); methodsSeen.push(m); }
+    const byProvider = byMethod.get(m)!;
+    const p = ep.provider || "unknown";
+    if (!byProvider.has(p)) byProvider.set(p, []);
+    byProvider.get(p)!.push(ep);
+  }
+  const sortedMethods = methodsSeen.sort((a, b) => {
+    const ia = METHOD_ORDER.indexOf(a), ib = METHOD_ORDER.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    if (ia !== -1) return -1; if (ib !== -1) return 1;
+    return a.localeCompare(b);
+  });
+  const pColor = (p: string) => PROVIDER_COLORS[p.toLowerCase()] ?? "var(--vscode-descriptionForeground)";
+  return (
+    <div>
+      {sortedMethods.map((method) => (
+        <MethodGroup key={method} method={method} providerMap={byMethod.get(method)!} pColor={pColor} />
+      ))}
+    </div>
+  );
+}
+
+function EndpointsTab({ endpoints }: { endpoints: EndpointRecord[] }) {
+
+  // Provider counts
+  const providerCounts = new Map<string, number>();
+  for (const ep of endpoints) {
+    if (ep.provider && ep.provider !== "unknown") {
+      providerCounts.set(ep.provider, (providerCounts.get(ep.provider) ?? 0) + 1);
+    }
+  }
+  const sortedProviders = [...providerCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  if (endpoints.length === 0) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
+        <span className="codicon codicon-search" style={{ fontSize: "24px" }} />
+        <span>No API calls detected</span>
+        <span style={{ fontSize: "10px", opacity: 0.6 }}>Check your scan glob settings or try re-scanning</span>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Provider summary counts */}
+      {sortedProviders.length > 0 && (
+        <div style={{ padding: "6px 12px 4px", borderBottom: "1px solid var(--vscode-panel-border)", display: "flex", flexWrap: "wrap", gap: "4px", fontSize: "10px" }}>
+          {sortedProviders.map(([provider, count], i) => (
+            <span key={provider}>
+              <span style={{ color: providerColor(provider) }}>{provider}</span>
+              <span style={{ color: "var(--vscode-descriptionForeground)" }}> ×{count}</span>
+              {i < sortedProviders.length - 1 && <span style={{ opacity: 0.3, marginLeft: "4px" }}>·</span>}
             </span>
-          )}
-
-          {ep.crossFileOrigins && ep.crossFileOrigins.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-              {ep.crossFileOrigins.map((origin, i) => (
-                <button
-                  key={i}
-                  className="eco-btn-link"
-                  style={{ fontSize: "10px" }}
-                  onClick={() => postMessage({ type: "openFile", file: origin.file })}
-                >
-                  via {origin.functionName}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {ep.callSites.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginTop: "2px" }}>
-              {ep.callSites.map((site, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <button
-                    className="eco-btn-link"
-                    style={{ fontSize: "10px" }}
-                    onClick={() => postMessage({ type: "openFile", file: site.file, line: site.line })}
-                  >
-                    {site.file}:{site.line}
-                  </button>
-                  {site.frequencyClass && site.frequencyClass !== "single" && (
-                    <FrequencyBadge frequencyClass={site.frequencyClass} />
-                  )}
-                  {site.crossFileOrigin && (
-                    <button
-                      className="eco-btn-link"
-                      style={{ fontSize: "10px" }}
-                      onClick={() => postMessage({ type: "openFile", file: site.crossFileOrigin!.file })}
-                    >
-                      via {site.crossFileOrigin.functionName}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+          ))}
+          {endpoints.every((ep) => ep.costModel === "free") && (
+            <span style={{ color: "var(--vscode-charts-green)", marginLeft: "4px" }}>· all free tier</span>
           )}
         </div>
       )}
-    </div>
-  );
-}
 
-function EndpointsList({ endpoints, topBorder }: { endpoints: EndpointRecord[]; topBorder: boolean }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div style={topBorder ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}>
-      <button className="eco-section-header" onClick={() => setOpen((v) => !v)}>
-        Endpoints ({endpoints.length})
-      </button>
-
-      {open && endpoints.map((ep) => <EndpointRow key={ep.id} ep={ep} />)}
-    </div>
-  );
-}
-
-function ProviderBreakdown({ endpoints }: { endpoints: EndpointRecord[] }) {
-  const counts = new Map<string, number>();
-  for (const ep of endpoints) {
-    if (ep.provider && ep.provider !== "unknown") {
-      counts.set(ep.provider, (counts.get(ep.provider) ?? 0) + 1);
-    }
-  }
-  if (counts.size === 0) return null;
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  return (
-    <div style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "2px" }}>
-      {sorted.map(([provider, count], i) => (
-        <span key={provider}>
-          <span style={{ color: providerColor(provider) }}>{provider}</span>
-          {` ×${count}`}
-          {i < sorted.length - 1 && <span style={{ opacity: 0.4, marginLeft: "4px" }}>·</span>}
-        </span>
-      ))}
+      <GroupedEndpointList endpoints={endpoints} />
     </div>
   );
 }
@@ -610,11 +522,13 @@ export function ResultsPage({
   aiReviewStats,
   onAskAI,
 }: ResultsPageProps) {
+  const [findingsTab, setFindingsTab] = useState<"issues" | "endpoints">("issues");
   const [openGroups, setOpenGroups] = useState<Record<"HIGH" | "MEDIUM" | "LOW", boolean>>({
     HIGH: true,
     MEDIUM: true,
     LOW: true,
   });
+  const [typeFilter, setTypeFilter] = useState<string>("all");
 
   const handleAskAI = (suggestion: Suggestion) => {
     const target = resolveSuggestionTarget(suggestion, endpoints);
@@ -633,15 +547,19 @@ export function ResultsPage({
     });
   };
 
-  const high = suggestions.filter((s) => s.severity === "high");
-  const medium = suggestions.filter((s) => s.severity === "medium");
-  const low = suggestions.filter((s) => s.severity === "low");
+  const presentTypes = Array.from(new Set(suggestions.map((s) => s.type))).sort();
+  const visibleSuggestions = typeFilter === "all" ? suggestions : suggestions.filter((s) => s.type === typeFilter);
+  const high = visibleSuggestions.filter((s) => s.severity === "high");
+  const medium = visibleSuggestions.filter((s) => s.severity === "medium");
+  const low = visibleSuggestions.filter((s) => s.severity === "low");
 
   const freeCount = endpoints.filter((ep) => ep.costModel === "free").length;
   const inLoopsCount = endpoints.filter((ep) => ep.frequencyClass && ep.frequencyClass.includes("loop")).length;
+  const atRiskCount = endpoints.filter(isAtRisk).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+      {/* Summary bar */}
       <div
         style={{
           padding: "5px 12px",
@@ -654,7 +572,7 @@ export function ResultsPage({
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0" }}>
           {summary.totalEndpoints} endpoints
           <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-          {suggestions.length} suggestions
+          {suggestions.length} issues
           <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
           {formatCost(summary.totalMonthlyCost)}/mo
           {summary.highRiskCount > 0 && (
@@ -694,57 +612,82 @@ export function ResultsPage({
             </>
           )}
         </div>
-        <ProviderBreakdown endpoints={endpoints} />
       </div>
 
+      {/* Subtab bar */}
+      <div style={{ display: "flex", flexShrink: 0, borderBottom: "1px solid var(--vscode-panel-border)", background: "var(--vscode-editorGroupHeader-tabsBackground)" }}>
+        <button
+          className={`eco-tab${findingsTab === "issues" ? " active" : ""}`}
+          onClick={() => setFindingsTab("issues")}
+        >
+          Issues{suggestions.length > 0 && <span style={{ marginLeft: "4px", opacity: 0.6, fontSize: "10px" }}>{suggestions.length}</span>}
+        </button>
+        <button
+          className={`eco-tab${findingsTab === "endpoints" ? " active" : ""}`}
+          onClick={() => setFindingsTab("endpoints")}
+        >
+          Endpoints{endpoints.length > 0 && <span style={{ marginLeft: "4px", opacity: 0.6, fontSize: "10px" }}>{endpoints.length}</span>}
+          {atRiskCount > 0 && <span style={{ marginLeft: "3px", color: "var(--vscode-editorError-foreground)", fontSize: "10px" }}>({atRiskCount} at risk)</span>}
+        </button>
+      </div>
+
+      {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        {suggestions.length === 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
-            <span className="codicon codicon-check" style={{ fontSize: "24px" }} />
-            <span>No issues found</span>
-          </div>
-        ) : (
+        {findingsTab === "issues" && (
           <>
-            <SeverityGroup
-              label="HIGH"
-              suggestions={high}
-              open={openGroups.HIGH}
-              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
-              onAskAI={handleAskAI}
-              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-            />
-            <SeverityGroup
-              label="MEDIUM"
-              suggestions={medium}
-              open={openGroups.MEDIUM}
-              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
-              onAskAI={handleAskAI}
-              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-            />
-            <SeverityGroup
-              label="LOW"
-              suggestions={low}
-              open={openGroups.LOW}
-              onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
-              onAskAI={handleAskAI}
-              resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-            />
+            {suggestions.length === 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
+                <span className="codicon codicon-check" style={{ fontSize: "24px" }} />
+                <span>No issues found</span>
+              </div>
+            ) : (
+              <>
+                {presentTypes.length > 1 && (
+                  <div style={{ padding: "5px 12px", borderBottom: "1px solid var(--vscode-panel-border)", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", flexShrink: 0 }}>Type</span>
+                    <select
+                      className="eco-input"
+                      style={{ fontSize: "10px", padding: "2px 6px", height: "22px" }}
+                      value={typeFilter}
+                      onChange={(e) => setTypeFilter(e.target.value)}
+                    >
+                      <option value="all">All ({suggestions.length})</option>
+                      {presentTypes.map((t) => (
+                        <option key={t} value={t}>{t} ({suggestions.filter((s) => s.type === t).length})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <SeverityGroup
+                  label="HIGH"
+                  suggestions={high}
+                  open={openGroups.HIGH}
+                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
+                  onAskAI={handleAskAI}
+                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+                />
+                <SeverityGroup
+                  label="MEDIUM"
+                  suggestions={medium}
+                  open={openGroups.MEDIUM}
+                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
+                  onAskAI={handleAskAI}
+                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+                />
+                <SeverityGroup
+                  label="LOW"
+                  suggestions={low}
+                  open={openGroups.LOW}
+                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
+                  onAskAI={handleAskAI}
+                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
+                />
+              </>
+            )}
           </>
         )}
 
-        {endpoints.length === 0 && suggestions.length === 0 && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 16px", gap: "8px", color: "var(--vscode-descriptionForeground)" }}>
-            <span className="codicon codicon-search" style={{ fontSize: "24px" }} />
-            <span>No API calls detected</span>
-            <span style={{ fontSize: "10px", opacity: 0.6 }}>Check your scan glob settings or try re-scanning</span>
-          </div>
-        )}
-        {endpoints.length > 0 && <EndpointsList endpoints={endpoints} topBorder={suggestions.length === 0} />}
-        {endpoints.length > 0 && endpoints.every((ep) => ep.costModel === "free") && (
-          <div style={{ padding: "8px 12px", fontSize: "11px", color: "var(--vscode-charts-green)", opacity: 0.8 }}>
-            All detected calls are free tier
-          </div>
-        )}
+        {findingsTab === "endpoints" && <EndpointsTab endpoints={endpoints} />}
       </div>
     </div>
   );

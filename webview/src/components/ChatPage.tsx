@@ -221,39 +221,10 @@ export function ChatPage({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--vscode-panel-border)", display: "flex", flexDirection: "column", gap: "8px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
-          <div style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}>
-            {selectedProviderName} · {selectedModelName}
-          </div>
+      <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--vscode-panel-border)" }}>
+        <div style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}>
+          {selectedProviderName} · {selectedModelName}
         </div>
-        {selection.provider !== "recost" && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "12px",
-              border: "1px solid var(--vscode-panel-border)",
-              background: currentProviderStatus?.state === "invalid" || currentProviderStatus?.state === "missing"
-                ? "color-mix(in srgb, var(--vscode-editorWarning-background, #f8d568) 45%, transparent)"
-                : "var(--vscode-editorGroupHeader-tabsBackground)",
-              borderRadius: "8px",
-              padding: "8px 10px",
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-              <span style={{ fontSize: "12px", fontWeight: 600 }}>{selectedProviderName} key status: {statusLabel(currentProviderStatus)}</span>
-              <span style={{ fontSize: "11px", color: "var(--vscode-descriptionForeground)" }}>
-                {currentProviderStatus?.message
-                  ?? (chatUsable ? "This model is ready for chat." : "This model is not ready until its provider key is configured.")}
-              </span>
-            </div>
-            <button className="eco-btn-secondary" onClick={onManageKeys}>
-              Manage Keys
-            </button>
-          </div>
-        )}
       </div>
 
       <div
@@ -287,6 +258,31 @@ export function ChatPage({
             )}
           </div>
         ))}
+
+        {selection.provider !== "recost" && !chatUsable && (
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            padding: "10px 12px",
+            borderRadius: "8px",
+            border: "1px solid var(--vscode-editorWarning-foreground)",
+            background: "color-mix(in srgb, var(--vscode-editorWarning-foreground) 10%, transparent)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span className="codicon codicon-warning" style={{ color: "var(--vscode-editorWarning-foreground)", fontSize: "14px" }} />
+              <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--vscode-editorWarning-foreground)" }}>
+                {selectedProviderName} key {statusLabel(currentProviderStatus).toLowerCase()}
+              </span>
+            </div>
+            <span style={{ fontSize: "11px", color: "var(--vscode-foreground)", opacity: 0.85 }}>
+              {currentProviderStatus?.message ?? `Configure your ${selectedProviderName} API key to start chatting.`}
+            </span>
+            <button className="eco-btn-secondary" style={{ alignSelf: "flex-start" }} onClick={onManageKeys}>
+              Manage Keys
+            </button>
+          </div>
+        )}
 
         {isLoading && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", maxWidth: "100%", width: "100%" }}>

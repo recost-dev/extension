@@ -40,13 +40,20 @@ const COST_MODEL_CONFIG: Record<string, { label: string; color: string }> = {
   free:           { label: 'free',   color: '#4EAA57' },
 };
 
-const FREQ_CONFIG: Record<string, { label: string; color: string }> = {
-  'bounded-loop':   { label: 'loop',     color: '#B8A038' },
-  'unbounded-loop': { label: 'loop ∞',   color: '#C45A4A' },
-  'parallel':       { label: 'parallel', color: '#1A82E2' },
-  'polling':        { label: 'polling',  color: '#C45A4A' },
-  'conditional':    { label: 'if',       color: 'rgba(255,255,255,0.4)' },
-  'cache-guarded':  { label: 'cached',   color: '#4EAA57' },
+const FREQ_CONFIG: Record<string, { label: string; color: string; tooltip: string }> = {
+  'bounded-loop':   { label: 'loop',     color: '#B8A038', tooltip: 'Inside a loop iterating over a collection' },
+  'unbounded-loop': { label: 'loop ∞',   color: '#C45A4A', tooltip: 'Inside a loop with no fixed bound' },
+  'parallel':       { label: 'parallel', color: '#1A82E2', tooltip: 'Runs in parallel via Promise.all or similar' },
+  'polling':        { label: 'polling',  color: '#C45A4A', tooltip: 'Runs on a timer interval' },
+  'conditional':    { label: 'if',       color: 'rgba(255,255,255,0.4)', tooltip: 'Inside a conditional branch' },
+  'cache-guarded':  { label: 'cached',   color: '#4EAA57', tooltip: 'Guarded by a cache check' },
+};
+
+const COST_MODEL_TOOLTIPS: Record<string, string> = {
+  per_token: 'Priced per input/output token',
+  per_transaction: 'Fixed fee + percentage per transaction',
+  per_request: 'Fixed price per API request',
+  free: 'No charge for this call',
 };
 
 const allStatuses: (EndpointStatus | '')[] = ['', 'normal', 'cacheable', 'batchable', 'redundant', 'n_plus_one_risk', 'rate_limit_risk'];
@@ -89,12 +96,12 @@ function EndpointCard({ ep }: { ep: EndpointRecord }) {
                 {ep.provider}
               </span>
               {costCfg && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded border" style={{ color: costCfg.color, borderColor: costCfg.color }}>
+                <span className="text-[10px] px-1.5 py-0.5 rounded border" title={ep.costModel ? COST_MODEL_TOOLTIPS[ep.costModel] : undefined} style={{ color: costCfg.color, borderColor: costCfg.color }}>
                   {costCfg.label}
                 </span>
               )}
               {freqCfg && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded border" style={{ color: freqCfg.color, borderColor: freqCfg.color }}>
+                <span className="text-[10px] px-1.5 py-0.5 rounded border" title={freqCfg.tooltip} style={{ color: freqCfg.color, borderColor: freqCfg.color }}>
                   {freqCfg.label}
                 </span>
               )}

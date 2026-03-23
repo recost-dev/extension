@@ -13,9 +13,9 @@ export type { Tree, Node as SyntaxNode } from "web-tree-sitter";
 
 // ── WASM asset directory ──────────────────────────────────────────────────────
 
-// Compiled output lives in dist/ast/ or dist-test/ast/ — both are two levels
-// below the project root, so '../../assets/parsers' resolves correctly.
-let wasmDir = path.join(__dirname, "..", "..", "assets", "parsers");
+// Compiled output lives in dist/extension.js — one level below the project root,
+// so '../assets/parsers' resolves correctly.
+let wasmDir = path.join(__dirname, "..", "assets", "parsers");
 
 /** Override the directory containing the grammar WASM files.  Used in tests. */
 export function setWasmDir(dir: string): void {
