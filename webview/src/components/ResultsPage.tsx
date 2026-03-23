@@ -21,7 +21,40 @@ const typeLabels: Record<string, string> = {
   redundancy: "redundancy",
   rate_limit: "rate-limit",
   concurrency_control: "concurrency",
+  retry_storm: "retry storm",
+  event_amplification: "event amp",
+  sequential: "sequential",
 };
+
+const PROVIDER_COLORS: Record<string, string> = {
+  openai: "var(--vscode-charts-green)",
+  anthropic: "var(--vscode-charts-orange)",
+  stripe: "var(--vscode-charts-purple)",
+  supabase: "var(--vscode-charts-green)",
+  firebase: "var(--vscode-charts-yellow)",
+  sendgrid: "var(--vscode-charts-blue)",
+  twilio: "var(--vscode-charts-red)",
+};
+
+const FREQUENCY_TOOLTIPS: Record<string, string> = {
+  "bounded-loop": "This call is inside a loop iterating over a collection",
+  "unbounded-loop": "This call is inside a loop with no fixed bound",
+  parallel: "This call runs in parallel via Promise.all or similar",
+  polling: "This call runs on a timer interval",
+  conditional: "This call is inside a conditional branch",
+  "cache-guarded": "This call is guarded by a cache check",
+};
+
+const COST_MODEL_TOOLTIPS: Record<string, string> = {
+  per_token: "Priced per input/output token",
+  per_transaction: "Fixed fee + percentage per transaction",
+  per_request: "Fixed price per API request",
+  free: "No charge for this call",
+};
+
+function providerColor(provider: string): string {
+  return PROVIDER_COLORS[provider.toLowerCase()] ?? "var(--vscode-descriptionForeground)";
+}
 
 function extractCode(raw: string): { code: string; language: string } {
   const fenced = raw.match(/^```(\w*)\n([\s\S]*?)```\s*$/);
@@ -95,6 +128,126 @@ function SourceBadge({ source }: { source?: Suggestion["source"] }) {
       }}
     >
       {label}
+    </span>
+  );
+}
+
+function ProviderBadge({ provider }: { provider: string }) {
+  const color = providerColor(provider);
+  return (
+    <span
+      style={{
+        color,
+        background: "var(--vscode-editorGroupHeader-tabsBackground)",
+        border: `1px solid ${color}`,
+        fontSize: "10px",
+        padding: "1px 5px",
+        borderRadius: "10px",
+        fontWeight: 600,
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+        opacity: 0.9,
+      }}
+    >
+      {provider}
+    </span>
+  );
+}
+
+function CostModelBadge({ costModel }: { costModel?: EndpointRecord["costModel"] }) {
+  if (!costModel) return null;
+  const map: Record<string, { label: string; color: string }> = {
+    per_token: { label: "token", color: "var(--vscode-charts-blue)" },
+    per_transaction: { label: "txn", color: "var(--vscode-charts-purple)" },
+    per_request: { label: "call", color: "var(--vscode-descriptionForeground)" },
+    free: { label: "free", color: "var(--vscode-charts-green)" },
+  };
+  const entry = map[costModel];
+  if (!entry) return null;
+  return (
+    <span
+      title={COST_MODEL_TOOLTIPS[costModel]}
+      style={{
+        color: entry.color,
+        fontSize: "10px",
+        padding: "1px 5px",
+        borderRadius: "10px",
+        border: `1px solid ${entry.color}`,
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+        opacity: 0.85,
+      }}
+    >
+      {entry.label}
+    </span>
+  );
+}
+
+function FrequencyBadge({ frequencyClass }: { frequencyClass?: string }) {
+  if (!frequencyClass || frequencyClass === "single") return null;
+  const map: Record<string, { label: string; color: string }> = {
+    "bounded-loop": { label: "loop", color: "var(--vscode-editorWarning-foreground)" },
+    "unbounded-loop": { label: "loop ∞", color: "var(--vscode-editorError-foreground)" },
+    parallel: { label: "parallel", color: "var(--vscode-charts-blue)" },
+    polling: { label: "polling", color: "var(--vscode-editorError-foreground)" },
+    conditional: { label: "if", color: "var(--vscode-descriptionForeground)" },
+    "cache-guarded": { label: "cached", color: "var(--vscode-charts-green)" },
+  };
+  const entry = map[frequencyClass];
+  if (!entry) return null;
+  return (
+    <span
+      title={FREQUENCY_TOOLTIPS[frequencyClass]}
+      style={{
+        color: entry.color,
+        fontSize: "10px",
+        padding: "1px 5px",
+        borderRadius: "10px",
+        border: `1px solid ${entry.color}`,
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {entry.label}
+    </span>
+  );
+}
+
+function CapabilityIndicators({ ep }: { ep: EndpointRecord }) {
+  const caps: string[] = [];
+  if (ep.streaming) caps.push("stream");
+  if (ep.batchCapable) caps.push("batch");
+  if (ep.cacheCapable) caps.push("cache");
+  if (ep.isMiddleware) caps.push("middleware");
+  if (caps.length === 0) return null;
+  return (
+    <span style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+      {caps.map((c) => (
+        <span key={c} style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px" }}>
+          {c}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ConfidenceBadge({ confidence }: { confidence?: number }) {
+  if (typeof confidence !== "number") return null;
+  const pct = Math.round(confidence * 100);
+  const color =
+    confidence >= 0.8
+      ? "var(--vscode-charts-green)"
+      : confidence >= 0.6
+      ? "var(--vscode-foreground)"
+      : confidence >= 0.4
+      ? "var(--vscode-editorWarning-foreground)"
+      : "var(--vscode-editorError-foreground)";
+  return (
+    <span
+      title="How certain the detector is about this finding"
+      style={{ color, fontSize: "10px", flexShrink: 0, whiteSpace: "nowrap" }}
+    >
+      {pct}% confidence
     </span>
   );
 }
@@ -189,11 +342,7 @@ function SuggestionCard({
         <span aria-hidden="true" className={`eco-disclosure${expanded ? " open" : ""}`} />
         <TypeBadge type={suggestion.type} />
         <SourceBadge source={suggestion.source} />
-        {typeof suggestion.confidence === "number" && suggestion.source === "ai" && (
-          <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px", flexShrink: 0, whiteSpace: "nowrap" }}>
-            {Math.round(suggestion.confidence * 100)}%
-          </span>
-        )}
+        <ConfidenceBadge confidence={suggestion.confidence} />
         <span style={{ flex: 1, lineHeight: 1.4, overflow: "hidden" }}>{descShort}</span>
         {suggestion.estimatedMonthlySavings > 0 && (
           <span style={{ color: "var(--vscode-charts-green, #4caf50)", fontSize: "11px", flexShrink: 0, whiteSpace: "nowrap" }}>
@@ -307,9 +456,119 @@ function SeverityGroup({
   );
 }
 
+function EndpointRow({ ep }: { ep: EndpointRecord }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const costColor =
+    ep.costModel === "free"
+      ? "var(--vscode-charts-green)"
+      : "var(--vscode-descriptionForeground)";
+
+  const costLabel =
+    ep.costModel === "free" ? "Free" : `$${ep.monthlyCost.toFixed(2)}/mo`;
+
+  return (
+    <div>
+      <button
+        className="eco-endpoint-row"
+        onClick={() => setExpanded((v) => !v)}
+        style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+      >
+        <span style={{ background: "var(--vscode-badge-background)", color: "var(--vscode-badge-foreground)", fontSize: "10px", padding: "1px 4px", borderRadius: "2px", fontWeight: 700, flexShrink: 0, letterSpacing: "0.04em" }}>
+          {ep.method}
+        </span>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11px" }} title={ep.url}>
+          {ep.url}
+        </span>
+        <CapabilityIndicators ep={ep} />
+        <ProviderBadge provider={ep.provider} />
+        <CostModelBadge costModel={ep.costModel} />
+        <span style={{ color: costColor, fontSize: "10px", flexShrink: 0 }}>
+          {costLabel}
+        </span>
+        <FrequencyBadge frequencyClass={ep.frequencyClass} />
+        <span
+          style={{
+            fontSize: "10px",
+            flexShrink: 0,
+            color:
+              ep.status === "redundant" || ep.status === "n_plus_one_risk"
+                ? "var(--vscode-editorError-foreground)"
+                : ep.status === "cacheable" || ep.status === "batchable" || ep.status === "rate_limit_risk"
+                ? "var(--vscode-editorWarning-foreground)"
+                : "var(--vscode-descriptionForeground)",
+          }}
+        >
+          {ep.status.replace(/_/g, " ")}
+        </span>
+      </button>
+
+      {expanded && (
+        <div
+          style={{
+            padding: "6px 12px 8px 24px",
+            borderBottom: "1px solid var(--vscode-panel-border)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}
+        >
+          {ep.methodSignature && (
+            <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", fontFamily: "var(--vscode-editor-font-family)" }}>
+              {ep.methodSignature}
+            </span>
+          )}
+
+          {ep.crossFileOrigins && ep.crossFileOrigins.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+              {ep.crossFileOrigins.map((origin, i) => (
+                <button
+                  key={i}
+                  className="eco-btn-link"
+                  style={{ fontSize: "10px" }}
+                  onClick={() => postMessage({ type: "openFile", file: origin.file })}
+                >
+                  via {origin.functionName}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {ep.callSites.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginTop: "2px" }}>
+              {ep.callSites.map((site, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <button
+                    className="eco-btn-link"
+                    style={{ fontSize: "10px" }}
+                    onClick={() => postMessage({ type: "openFile", file: site.file, line: site.line })}
+                  >
+                    {site.file}:{site.line}
+                  </button>
+                  {site.frequencyClass && site.frequencyClass !== "single" && (
+                    <FrequencyBadge frequencyClass={site.frequencyClass} />
+                  )}
+                  {site.crossFileOrigin && (
+                    <button
+                      className="eco-btn-link"
+                      style={{ fontSize: "10px" }}
+                      onClick={() => postMessage({ type: "openFile", file: site.crossFileOrigin!.file })}
+                    >
+                      via {site.crossFileOrigin.functionName}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EndpointsList({ endpoints, topBorder }: { endpoints: EndpointRecord[]; topBorder: boolean }) {
   const [open, setOpen] = useState(false);
-  const scopeBadge = (ep: EndpointRecord): string => ep.scope ?? "unknown";
 
   return (
     <div style={topBorder ? { borderTop: "1px solid var(--vscode-panel-border)" } : undefined}>
@@ -317,40 +576,29 @@ function EndpointsList({ endpoints, topBorder }: { endpoints: EndpointRecord[]; 
         Endpoints ({endpoints.length})
       </button>
 
-      {open &&
-        endpoints.map((ep) => (
-          <div key={ep.id} className="eco-endpoint-row">
-            <span style={{ background: "var(--vscode-badge-background)", color: "var(--vscode-badge-foreground)", fontSize: "10px", padding: "1px 4px", borderRadius: "2px", fontWeight: 700, flexShrink: 0, letterSpacing: "0.04em" }}>
-              {ep.method}
-            </span>
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11px" }} title={ep.url}>
-              {ep.url}
-            </span>
-            <span style={{ background: "var(--vscode-editorGroupHeader-tabsBackground)", color: "var(--vscode-descriptionForeground)", fontSize: "10px", padding: "1px 5px", borderRadius: "10px", flexShrink: 0, border: "1px solid var(--vscode-panel-border)" }}>
-              {scopeBadge(ep)}
-            </span>
-            <span style={{ background: "var(--vscode-editorGroupHeader-tabsBackground)", color: "var(--vscode-descriptionForeground)", fontSize: "10px", padding: "1px 5px", borderRadius: "10px", flexShrink: 0, border: "1px solid var(--vscode-panel-border)" }}>
-              {ep.provider}
-            </span>
-            <span style={{ color: "var(--vscode-descriptionForeground)", fontSize: "10px", flexShrink: 0 }}>
-              ${ep.monthlyCost.toFixed(2)}/mo
-            </span>
-            <span
-              style={{
-                fontSize: "10px",
-                flexShrink: 0,
-                color:
-                  ep.status === "redundant" || ep.status === "n_plus_one_risk"
-                    ? "var(--vscode-editorError-foreground)"
-                    : ep.status === "cacheable" || ep.status === "batchable" || ep.status === "rate_limit_risk"
-                    ? "var(--vscode-editorWarning-foreground)"
-                    : "var(--vscode-descriptionForeground)",
-              }}
-            >
-              {ep.status.replace(/_/g, " ")}
-            </span>
-          </div>
-        ))}
+      {open && endpoints.map((ep) => <EndpointRow key={ep.id} ep={ep} />)}
+    </div>
+  );
+}
+
+function ProviderBreakdown({ endpoints }: { endpoints: EndpointRecord[] }) {
+  const counts = new Map<string, number>();
+  for (const ep of endpoints) {
+    if (ep.provider && ep.provider !== "unknown") {
+      counts.set(ep.provider, (counts.get(ep.provider) ?? 0) + 1);
+    }
+  }
+  if (counts.size === 0) return null;
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return (
+    <div style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "2px" }}>
+      {sorted.map(([provider, count], i) => (
+        <span key={provider}>
+          <span style={{ color: providerColor(provider) }}>{provider}</span>
+          {` ×${count}`}
+          {i < sorted.length - 1 && <span style={{ opacity: 0.4, marginLeft: "4px" }}>·</span>}
+        </span>
+      ))}
     </div>
   );
 }
@@ -402,6 +650,9 @@ export function ResultsPage({
   const medium = suggestions.filter((s) => s.severity === "medium");
   const low = suggestions.filter((s) => s.severity === "low");
 
+  const freeCount = endpoints.filter((ep) => ep.costModel === "free").length;
+  const inLoopsCount = endpoints.filter((ep) => ep.frequencyClass && ep.frequencyClass.includes("loop")).length;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div
@@ -413,35 +664,50 @@ export function ResultsPage({
           fontSize: "11px",
         }}
       >
-        {summary.totalEndpoints} endpoints
-        <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-        {suggestions.length} suggestions
-        <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-        ${summary.totalMonthlyCost.toFixed(2)}/mo
-        {summary.highRiskCount > 0 && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span style={{ color: "var(--vscode-editorError-foreground)" }}>{summary.highRiskCount} high</span>
-          </>
-        )}
-        {aiReviewRunning && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span>{aiReviewStage || "Running AI review..."}</span>
-          </>
-        )}
-        {!aiReviewRunning && aiReviewStats && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span>AI added {aiReviewStats.added}, filtered {aiReviewStats.filtered}</span>
-          </>
-        )}
-        {!aiReviewRunning && aiReviewError && (
-          <>
-            <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-            <span style={{ color: "var(--vscode-editorError-foreground)" }}>{aiReviewError}</span>
-          </>
-        )}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0" }}>
+          {summary.totalEndpoints} endpoints
+          <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+          {suggestions.length} suggestions
+          <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+          ${summary.totalMonthlyCost.toFixed(2)}/mo
+          {summary.highRiskCount > 0 && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-editorError-foreground)" }}>{summary.highRiskCount} high</span>
+            </>
+          )}
+          {freeCount > 0 && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-charts-green)" }}>{freeCount} free</span>
+            </>
+          )}
+          {inLoopsCount > 0 && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-editorWarning-foreground)" }}>{inLoopsCount} in loops</span>
+            </>
+          )}
+          {aiReviewRunning && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span>{aiReviewStage || "Running AI review..."}</span>
+            </>
+          )}
+          {!aiReviewRunning && aiReviewStats && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span>AI added {aiReviewStats.added}, filtered {aiReviewStats.filtered}</span>
+            </>
+          )}
+          {!aiReviewRunning && aiReviewError && (
+            <>
+              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
+              <span style={{ color: "var(--vscode-editorError-foreground)" }}>{aiReviewError}</span>
+            </>
+          )}
+        </div>
+        <ProviderBreakdown endpoints={endpoints} />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>

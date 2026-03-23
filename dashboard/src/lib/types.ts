@@ -5,7 +5,7 @@ export interface ApiCallInput {
   line: number;
   method: string;
   url: string;
-  library: string;
+  library?: string;
   frequency?: string;
 }
 
@@ -75,6 +75,15 @@ export interface EndpointRecord {
   callsPerDay: number;
   monthlyCost: number;
   status: EndpointStatus;
+  // Enriched fields from AST engine
+  methodSignature?: string;
+  costModel?: "per_token" | "per_transaction" | "per_request" | "free";
+  frequencyClass?: string;
+  batchCapable?: boolean;
+  cacheCapable?: boolean;
+  streaming?: boolean;
+  isMiddleware?: boolean;
+  crossFileOrigins?: { file: string; functionName: string }[];
 }
 
 export interface EndpointCallSite {
@@ -82,6 +91,8 @@ export interface EndpointCallSite {
   line: number;
   library: string;
   frequency?: string;
+  frequencyClass?: string;
+  crossFileOrigin?: { file: string; functionName: string } | null;
 }
 
 export type SuggestionType =
@@ -89,7 +100,8 @@ export type SuggestionType =
   | "batch"
   | "redundancy"
   | "n_plus_one"
-  | "rate_limit";
+  | "rate_limit"
+  | "concurrency_control";
 
 export type Severity = "high" | "medium" | "low";
 
@@ -104,6 +116,9 @@ export interface Suggestion {
   estimatedMonthlySavings: number;
   description: string;
   codeFix: string;
+  source?: "remote" | "local-rule" | "ai";
+  confidence?: number;
+  evidence?: string[];
 }
 
 export interface GraphNode {
@@ -114,12 +129,15 @@ export interface GraphNode {
   callsPerDay: number;
   status: EndpointStatus;
   group: string;
+  frequencyClass?: string;
+  costModel?: "per_token" | "per_transaction" | "per_request" | "free";
 }
 
 export interface GraphEdge {
   source: string;
   target: string;
   line: number;
+  crossFile?: boolean;
 }
 
 export interface GraphData {
@@ -195,6 +213,7 @@ export interface EndpointSimResult {
   dailyCost: CostRange;
   monthlyCost: CostRange;
   percentOfTotal: number;
+  costModel?: 'per_token' | 'per_transaction' | 'per_request' | 'free';
 }
 
 export interface ProviderSimResult {

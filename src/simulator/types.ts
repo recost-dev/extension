@@ -51,6 +51,7 @@ export interface EndpointSimResult {
   dailyCost: CostRange;
   monthlyCost: CostRange;
   percentOfTotal: number;
+  costModel?: "per_token" | "per_transaction" | "per_request" | "free";
 }
 
 export interface ProviderSimResult {

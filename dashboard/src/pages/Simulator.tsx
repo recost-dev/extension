@@ -48,6 +48,13 @@ const METHOD_COLORS: Record<string, string> = {
   GET: '#22c55e', POST: '#3b82f6', PUT: '#f59e0b', PATCH: '#8b5cf6', DELETE: '#ef4444',
 };
 
+const COST_MODEL_CONFIG: Record<string, { label: string; color: string }> = {
+  per_token:       { label: 'token', color: '#1A82E2' },
+  per_transaction: { label: 'txn',   color: '#7C3AED' },
+  per_request:     { label: 'call',  color: 'rgba(255,255,255,0.4)' },
+  free:            { label: 'free',  color: '#4EAA57' },
+};
+
 function MethodBadge({ method }: { method: string }) {
   const color = METHOD_COLORS[method.toUpperCase()] ?? '#6b7280';
   return (
@@ -113,6 +120,7 @@ function ProviderRow({ provider }: { provider: ProviderSimResult }) {
 }
 
 function EndpointRow({ endpoint }: { endpoint: EndpointSimResult }) {
+  const costCfg = endpoint.costModel ? COST_MODEL_CONFIG[endpoint.costModel] : null;
   return (
     <div className="py-2 px-4 border-b border-white/[0.04] last:border-0">
       <div className="flex items-center gap-2 mb-1">
@@ -120,13 +128,25 @@ function EndpointRow({ endpoint }: { endpoint: EndpointSimResult }) {
         <span className="text-[12px] text-white/80 truncate flex-1 min-w-0" title={endpoint.url}>
           {endpoint.url}
         </span>
+        {costCfg && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded border shrink-0"
+            style={{ color: costCfg.color, borderColor: costCfg.color }}
+          >
+            {costCfg.label}
+          </span>
+        )}
         <span className="text-[12px] text-white font-medium shrink-0">
-          {fmtRange(endpoint.monthlyCost.low, endpoint.monthlyCost.high)}/mo
+          {endpoint.costModel === 'free' ? (
+            <span style={{ color: '#4EAA57' }}>Free</span>
+          ) : (
+            fmtRange(endpoint.monthlyCost.low, endpoint.monthlyCost.high) + '/mo'
+          )}
         </span>
       </div>
       <div className="flex justify-between text-[11px] text-white/40">
         <span>{fmtNum(endpoint.scaledCallsPerDay)} calls/day</span>
-        <span>{fmtRange(endpoint.dailyCost.low, endpoint.dailyCost.high)}/day</span>
+        <span>{endpoint.costModel !== 'free' && fmtRange(endpoint.dailyCost.low, endpoint.dailyCost.high) + '/day'}</span>
       </div>
       <CostBar pct={endpoint.percentOfTotal} />
     </div>

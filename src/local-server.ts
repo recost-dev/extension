@@ -52,6 +52,8 @@ function buildGraph(endpoints: EndpointRecord[], clusterBy = "provider"): GraphD
     callsPerDay: ep.callsPerDay,
     status: ep.status,
     group: clusterBy === "file" ? (ep.files[0] ?? ep.provider) : ep.provider,
+    frequencyClass: ep.frequencyClass,
+    costModel: ep.costModel,
   }));
 
   const fileToEndpoints = new Map<string, string[]>();
@@ -73,6 +75,24 @@ function buildGraph(endpoints: EndpointRecord[], clusterBy = "provider"): GraphD
         if (!seen.has(key)) {
           seen.add(key);
           edges.push({ source: unique[i], target: unique[j], line: 0 });
+        }
+      }
+    }
+  }
+
+  // Cross-file edges: dashed edges from endpoints that propagated via cross-file resolution
+  for (const ep of endpoints) {
+    if (!ep.crossFileOrigins || ep.crossFileOrigins.length === 0) continue;
+    // Find other endpoints whose files include the cross-file origin file
+    for (const origin of ep.crossFileOrigins) {
+      const originFile = origin.file;
+      const originEpIds = fileToEndpoints.get(originFile) ?? [];
+      for (const originEpId of originEpIds) {
+        if (originEpId === ep.id) continue;
+        const key = `xf:${originEpId}>${ep.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          edges.push({ source: originEpId, target: ep.id, line: 0, crossFile: true });
         }
       }
     }

@@ -9,6 +9,7 @@ import { runCrossFileResolution, type PerFileResult } from "../ast/cross-file-re
 import { detectCacheWaste } from "../ast/waste/cache-detector";
 import { detectBatchWaste } from "../ast/waste/batch-detector";
 import { detectConcurrencyWaste } from "../ast/waste/concurrency-detector";
+import { lookupMethod } from "./fingerprints/registry";
 
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT =
@@ -155,7 +156,39 @@ function astMatchToApiCallInput(match: AstCallMatch, file: string): ApiCallInput
     match.frequency === "parallel" ||
     match.frequency === "bounded-loop";
   const frequency = isHighFreq ? "per-request" : "daily";
-  return { file, line: match.line, method, url, library, frequency };
+
+  // Look up costModel from fingerprint registry
+  let costModel: ApiCallInput["costModel"];
+  if (match.provider && match.methodChain) {
+    const fingerprint = lookupMethod(match.provider, match.methodChain);
+    if (fingerprint) {
+      costModel = fingerprint.costModel;
+    }
+  }
+
+  // Cross-file origin: use methodChain as functionName proxy
+  const crossFileOrigin =
+    match.crossFile && match.sourceFile
+      ? { file: match.sourceFile, functionName: match.methodChain }
+      : null;
+
+  return {
+    file,
+    line: match.line,
+    method,
+    url,
+    library,
+    frequency,
+    frequencyClass: match.frequency,
+    provider: match.provider,
+    methodSignature: match.methodChain,
+    costModel,
+    batchCapable: match.batchCapable,
+    cacheCapable: match.cacheCapable,
+    streaming: match.streaming,
+    isMiddleware: match.isMiddleware,
+    crossFileOrigin,
+  };
 }
 
 export async function scanWorkspace(
