@@ -18,8 +18,8 @@ export function Layout() {
     { icon: LayoutDashboard, path: base, label: 'Dashboard' },
     { icon: Radio, path: `${base}/endpoints`, label: 'Endpoints' },
     { icon: Lightbulb, path: `${base}/suggestions`, label: 'Suggestions' },
-    { icon: Share2, path: `${base}/graph`, label: 'Graph' },
     { icon: Calculator, path: `${base}/simulator`, label: 'Simulator' },
+    // { icon: Share2, path: `${base}/graph`, label: 'Graph' },
   ];
 
   const checkActive = (path: string) => {

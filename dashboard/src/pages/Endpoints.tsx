@@ -83,10 +83,10 @@ function EndpointCard({ ep }: { ep: EndpointRecord }) {
 
   return (
     <div className="bg-black/40 backdrop-blur-sm border border-white/[0.08] rounded-2xl hover:border-white/[0.15] transition-colors overflow-hidden">
-      <button className="w-full p-6 text-left" onClick={() => setExpanded((v) => !v)}>
-        <div className="flex items-start justify-between gap-4">
+      <button className="w-full px-6 py-5 text-left" onClick={() => setExpanded((v) => !v)}>
+        <div className="flex items-start justify-between gap-6">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2.5 mb-3 flex-wrap">
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
               <span className={`px-2.5 py-0.5 rounded text-[12px] tracking-wider ${mc}`}>
                 {ep.method.toUpperCase()}
               </span>
@@ -287,7 +287,7 @@ export default function Endpoints() {
       )}
 
       {!isLoading && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {filtered.map((ep) => <EndpointCard key={ep.id} ep={ep} />)}
         </div>
       )}

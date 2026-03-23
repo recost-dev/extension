@@ -423,7 +423,7 @@ export default function Simulator() {
                   Frequency overrides ({endpoints.length} endpoints)
                 </button>
                 {showOverrides && (
-                  <div className="mt-2 border border-white/[0.08] rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                  <div className="mt-2 border border-white/[0.08] rounded-lg overflow-hidden max-h-[576px] overflow-y-auto">
                     {endpoints.map((ep) => (
                       <div
                         key={ep.id}
