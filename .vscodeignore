@@ -1,6 +1,7 @@
 **/*
 !dist/**
 !dashboard-dist/**
+!assets/**
 !package.json
 !README.md
 !LICENSE
