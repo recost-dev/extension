@@ -32,9 +32,8 @@ const HARD_EXCLUDED_SEGMENTS = new Set([
 
 export interface ScanProgress {
   file: string;
-  index: number;
-  total: number;
-  endpointsSoFar: number;
+  fileIndex: number;
+  fileTotal: number;
 }
 
 function isGenericDynamicUrl(url: string): boolean {
@@ -285,9 +284,8 @@ export async function scanWorkspace(
 
     onProgress?.({
       file: relativePath,
-      index: i,
-      total: uris.length,
-      endpointsSoFar: uniqueEndpointKeys.size,
+      fileIndex: i + 1,
+      fileTotal: uris.length,
     });
   }
 

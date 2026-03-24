@@ -18,6 +18,7 @@ import type {
 } from "./types";
 
 type Screen = "landing" | "scanning" | "findings" | "chat" | "simulate" | "keys";
+type ScanStage = "scanning" | "analyzing" | "detecting" | "resolving";
 
 function toServiceId(providerId: string): KeyServiceId | null {
   if (providerId === "recost") return null;
@@ -63,10 +64,10 @@ function EmptyPanel({ title, body }: { title: string; body: string }) {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("landing");
-  const [scanFiles, setScanFiles] = useState<string[]>([]);
+  const [scanStage, setScanStage] = useState<ScanStage>("scanning");
+  const [scanFile, setScanFile] = useState("");
   const [scanIndex, setScanIndex] = useState(0);
   const [scanTotal, setScanTotal] = useState(0);
-  const [endpointCount, setEndpointCount] = useState(0);
   const [scanError, setScanError] = useState("");
   const [endpoints, setEndpoints] = useState<EndpointRecord[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -96,10 +97,10 @@ export default function App() {
   );
 
   const handleStartScan = useCallback(() => {
-    setScanFiles([]);
+    setScanStage("scanning");
+    setScanFile("");
     setScanIndex(0);
     setScanTotal(0);
-    setEndpointCount(0);
     setScanError("");
     setNotification(null);
     setAiReviewRunning(false);
@@ -134,10 +135,12 @@ export default function App() {
 
       switch (msg.type) {
         case "scanProgress":
-          setScanFiles((prev) => (prev.includes(msg.file) ? prev : [...prev, msg.file]));
-          setScanIndex(msg.index);
-          setScanTotal(msg.total);
-          setEndpointCount(msg.endpointsSoFar);
+          setScanStage(msg.stage);
+          if (msg.stage === "scanning") {
+            setScanFile(msg.file);
+            setScanIndex(msg.fileIndex);
+            setScanTotal(msg.fileTotal);
+          }
           break;
         case "triggerScan":
           handleStartScan();
@@ -272,10 +275,10 @@ export default function App() {
       {screen === "landing" && <LandingPage onStartScan={handleStartScan} />}
       {screen === "scanning" && (
         <ScanningPage
-          files={scanFiles}
-          currentIndex={scanIndex}
-          endpointCount={endpointCount}
-          total={scanTotal}
+          stage={scanStage}
+          file={scanFile}
+          fileIndex={scanIndex}
+          fileTotal={scanTotal}
           error={scanError}
           onDismissError={scanError ? () => { setScanError(""); setScreen(hasResults ? "findings" : "landing"); } : undefined}
         />

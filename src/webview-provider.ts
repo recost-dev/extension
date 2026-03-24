@@ -854,18 +854,20 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     try {
       this.chatHistory = [];
 
-      const [apiCalls, localWasteFindings] = await Promise.all([
-        scanWorkspace((progress) => {
-          this.postMessage({
-            type: "scanProgress",
-            file: progress.file,
-            index: progress.index,
-            total: progress.total,
-            endpointsSoFar: progress.endpointsSoFar,
-          });
-        }),
-        detectLocalWastePatterns(),
-      ]);
+      const apiCalls = await scanWorkspace((progress) => {
+        this.postMessage({
+          type: "scanProgress",
+          stage: "scanning",
+          file: progress.file,
+          fileIndex: progress.fileIndex,
+          fileTotal: progress.fileTotal,
+        });
+      });
+
+      this.postMessage({ type: "scanProgress", stage: "analyzing" });
+      this.postMessage({ type: "scanProgress", stage: "detecting" });
+      const localWasteFindings = await detectLocalWastePatterns();
+      this.postMessage({ type: "scanProgress", stage: "resolving" });
 
       this.postMessage({ type: "scanComplete" });
 
