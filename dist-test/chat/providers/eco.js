@@ -5,7 +5,7 @@ const errors_1 = require("../errors");
 exports.ecoAdapter = {
     id: "recost",
     displayName: "ReCost AI",
-    baseUrl: "https://api.ecoapi.dev",
+    baseUrl: "https://api.recost.dev",
     defaultChatEndpoint: "/chat",
     authHeaderFormat: "none",
     supportsStreaming: false,

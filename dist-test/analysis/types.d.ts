@@ -3,8 +3,20 @@ export interface ApiCallInput {
     line: number;
     method: string;
     url: string;
-    library: string;
+    library?: string;
     frequency?: string;
+    provider?: string;
+    methodSignature?: string;
+    costModel?: "per_token" | "per_transaction" | "per_request" | "free";
+    frequencyClass?: "single" | "bounded-loop" | "unbounded-loop" | "parallel" | "polling" | "conditional" | "cache-guarded";
+    batchCapable?: boolean;
+    cacheCapable?: boolean;
+    streaming?: boolean;
+    isMiddleware?: boolean;
+    crossFileOrigin?: {
+        file: string;
+        functionName: string;
+    } | null;
 }
 export interface ScanSummary {
     totalEndpoints: number;
@@ -26,12 +38,28 @@ export interface EndpointRecord {
     callsPerDay: number;
     monthlyCost: number;
     status: EndpointStatus;
+    methodSignature?: string;
+    costModel?: "per_token" | "per_transaction" | "per_request" | "free";
+    frequencyClass?: string;
+    batchCapable?: boolean;
+    cacheCapable?: boolean;
+    streaming?: boolean;
+    isMiddleware?: boolean;
+    crossFileOrigins?: {
+        file: string;
+        functionName: string;
+    }[];
 }
 export interface EndpointCallSite {
     file: string;
     line: number;
     library: string;
     frequency?: string;
+    frequencyClass?: string;
+    crossFileOrigin?: {
+        file: string;
+        functionName: string;
+    } | null;
 }
 export type SuggestionType = "cache" | "batch" | "redundancy" | "n_plus_one" | "rate_limit" | "concurrency_control";
 export type Severity = "high" | "medium" | "low";
@@ -60,11 +88,14 @@ export interface GraphNode {
     callsPerDay: number;
     status: EndpointStatus;
     group: string;
+    frequencyClass?: string;
+    costModel?: "per_token" | "per_transaction" | "per_request" | "free";
 }
 export interface GraphEdge {
     source: string;
     target: string;
     line: number;
+    crossFile?: boolean;
 }
 export interface GraphData {
     nodes: GraphNode[];

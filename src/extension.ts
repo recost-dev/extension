@@ -16,6 +16,7 @@ async function updateStatusBar(
   if (!key) {
     statusBar.text = "$(key) ReCost: Not Configured";
     statusBar.tooltip = "Click to manage your ReCost API keys";
+    statusBar.color = undefined;
     await vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
     return;
   }
@@ -28,6 +29,7 @@ async function updateStatusBar(
       statusBar.text = "$(check) ReCost: Connected";
       statusBar.tooltip = "ReCost API key configured";
     }
+    statusBar.color = new vscode.ThemeColor("testing.iconPassed");
     await vscode.commands.executeCommand("setContext", "recost.keyOnline", true);
   } catch (err: unknown) {
     const error = err as Error & { status?: number };
@@ -38,6 +40,7 @@ async function updateStatusBar(
       statusBar.text = "$(warning) ReCost: Unreachable";
       statusBar.tooltip = "Cannot reach ReCost. Check your connection.";
     }
+    statusBar.color = new vscode.ThemeColor("statusBarItem.warningForeground");
     await vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
   }
 }

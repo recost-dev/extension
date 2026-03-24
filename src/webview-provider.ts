@@ -373,7 +373,7 @@ function isHighConfidenceEndpointUrl(url: string): boolean {
 }
 
 function shouldSubmitRemote(call: ApiCallInput): boolean {
-  if (!OUTBOUND_LIBRARIES.has(call.library)) return false;
+  if (!call.library || !OUTBOUND_LIBRARIES.has(call.library)) return false;
   return isHighConfidenceEndpointUrl(call.url);
 }
 
@@ -923,7 +923,14 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         return;
       }
       // Submit scan and fetch results
-      const remoteApiCalls = apiCalls.filter(shouldSubmitRemote);
+      // Ensure every call has a provider — fall back to URL-based detection, then skip if still unknown.
+      const remoteApiCalls = apiCalls
+        .filter(shouldSubmitRemote)
+        .map((call) => ({
+          ...call,
+          provider: call.provider ?? detectEndpointProvider(canonicalizeEndpointUrl(call.url)) ?? "unknown",
+        }))
+        .filter((call) => call.provider !== "unknown");
       if (remoteApiCalls.length === 0) {
         publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
         return;

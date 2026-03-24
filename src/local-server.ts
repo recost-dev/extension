@@ -278,8 +278,8 @@ export class LocalServer {
         // normalize snake_case API sort keys to camelCase field names
         const key = sort === "monthly_cost" ? "monthlyCost" : sort === "calls_per_day" ? "callsPerDay" : sort;
         filtered.sort((a, b) => {
-          const va = (a as Record<string, unknown>)[key];
-          const vb = (b as Record<string, unknown>)[key];
+          const va = (a as unknown as Record<string, unknown>)[key];
+          const vb = (b as unknown as Record<string, unknown>)[key];
           if (typeof va === "number" && typeof vb === "number") {
             return order === "asc" ? va - vb : vb - va;
           }

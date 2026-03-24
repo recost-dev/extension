@@ -46,6 +46,7 @@ const cross_file_resolver_1 = require("../ast/cross-file-resolver");
 const cache_detector_1 = require("../ast/waste/cache-detector");
 const batch_detector_1 = require("../ast/waste/batch-detector");
 const concurrency_detector_1 = require("../ast/waste/concurrency-detector");
+const registry_1 = require("./fingerprints/registry");
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT = /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
 const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
@@ -168,7 +169,35 @@ function astMatchToApiCallInput(match, file) {
         match.frequency === "parallel" ||
         match.frequency === "bounded-loop";
     const frequency = isHighFreq ? "per-request" : "daily";
-    return { file, line: match.line, method, url, library, frequency };
+    // Look up costModel from fingerprint registry
+    let costModel;
+    if (match.provider && match.methodChain) {
+        const fingerprint = (0, registry_1.lookupMethod)(match.provider, match.methodChain);
+        if (fingerprint) {
+            costModel = fingerprint.costModel;
+        }
+    }
+    // Cross-file origin: use methodChain as functionName proxy
+    const crossFileOrigin = match.crossFile && match.sourceFile
+        ? { file: match.sourceFile, functionName: match.methodChain }
+        : null;
+    return {
+        file,
+        line: match.line,
+        method,
+        url,
+        library,
+        frequency,
+        frequencyClass: match.frequency,
+        provider: match.provider,
+        methodSignature: match.methodChain,
+        costModel,
+        batchCapable: match.batchCapable,
+        cacheCapable: match.cacheCapable,
+        streaming: match.streaming,
+        isMiddleware: match.isMiddleware,
+        crossFileOrigin,
+    };
 }
 async function scanWorkspace(onProgress) {
     const config = vscode.workspace.getConfiguration("recost");

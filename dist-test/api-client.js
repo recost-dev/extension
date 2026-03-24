@@ -1,15 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createProject = createProject;
-exports.validateEcoApiKey = validateEcoApiKey;
+exports.validateRcApiKey = validateRcApiKey;
 exports.submitScan = submitScan;
 exports.getAllEndpoints = getAllEndpoints;
 exports.getAllSuggestions = getAllSuggestions;
 exports.validateApiKey = validateApiKey;
-const BASE_URL = "https://api.ecoapi.dev";
-async function apiFetch(path, init, ecoApiKey) {
-    const authHeaders = ecoApiKey
-        ? { "Authorization": `Bearer ${ecoApiKey}` }
+const BASE_URL = "https://api.recost.dev";
+async function apiFetch(path, init, rcApiKey) {
+    const authHeaders = rcApiKey
+        ? { "Authorization": `Bearer ${rcApiKey}` }
         : {};
     const res = await fetch(`${BASE_URL}${path}`, {
         ...init,
@@ -24,18 +24,23 @@ async function apiFetch(path, init, ecoApiKey) {
     }
     return res.json();
 }
-async function createProject(name, ecoApiKey) {
+async function createProject(name, rcApiKey) {
     const { data } = await apiFetch("/projects", {
         method: "POST",
         body: JSON.stringify({ name }),
-    }, ecoApiKey);
+    }, rcApiKey);
     return data.id;
 }
-async function validateEcoApiKey(ecoApiKey) {
-    await apiFetch("/projects?limit=1", undefined, ecoApiKey);
+async function validateRcApiKey(rcApiKey) {
+    if (!rcApiKey.startsWith("rc-")) {
+        const err = new Error("Invalid ReCost API key — keys must start with rc-");
+        err.status = 401;
+        throw err;
+    }
+    await apiFetch("/projects?limit=1", undefined, rcApiKey);
 }
-async function submitScan(projectId, apiCalls, ecoApiKey) {
-    const { data } = await apiFetch(`/projects/${projectId}/scans`, { method: "POST", body: JSON.stringify({ apiCalls }) }, ecoApiKey);
+async function submitScan(projectId, apiCalls, rcApiKey) {
+    const { data } = await apiFetch(`/projects/${projectId}/scans`, { method: "POST", body: JSON.stringify({ apiCalls }) }, rcApiKey);
     return { scanId: data.id, summary: data.summary };
 }
 async function getAllEndpoints(projectId, scanId) {
@@ -63,22 +68,18 @@ async function getAllSuggestions(projectId, scanId) {
     return results;
 }
 /**
- * Validates an API key against GET /auth/me.
- * Returns AuthMeUser on success, null for 404 (dev mode — endpoint not yet deployed).
+ * Validates an API key by hitting a projects endpoint (which accepts rc- API keys via requireAuth).
+ * Returns null always — email is not available from API key auth.
  * Throws with err.status === 401 for invalid key.
  * Throws without .status for network errors.
  */
 async function validateApiKey(key) {
-    try {
-        const { data } = await apiFetch("/auth/me", undefined, key);
-        return data;
-    }
-    catch (err) {
-        const error = err;
-        if (error.status === 404) {
-            return null; // Dev mode: auth endpoint not deployed, treat key as valid
-        }
+    if (!key.startsWith("rc-")) {
+        const err = new Error("Invalid ReCost API key — keys must start with rc-");
+        err.status = 401;
         throw err;
     }
+    await apiFetch("/projects?limit=1", undefined, key);
+    return null;
 }
 //# sourceMappingURL=api-client.js.map

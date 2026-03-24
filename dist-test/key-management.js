@@ -88,7 +88,7 @@ async function validateServiceKey(service, apiKey) {
     const lastCheckedAt = new Date().toISOString();
     try {
         if (service.kind === "ecoapi") {
-            await (0, api_client_1.validateEcoApiKey)(apiKey);
+            await (0, api_client_1.validateRcApiKey)(apiKey);
             return { state: "valid", lastCheckedAt };
         }
         const adapter = (0, chat_1.getProviderAdapter)(service.providerId ?? "");
