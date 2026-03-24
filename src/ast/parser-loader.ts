@@ -21,8 +21,9 @@ try {
   const mod = require("web-tree-sitter") as typeof import("web-tree-sitter");
   _Parser = mod.Parser;
   _Language = mod.Language;
-} catch {
-  // web-tree-sitter not available; AST scanning will be skipped, regex takes over
+  console.log("[BUNDLE] web-tree-sitter loaded OK. Parser:", typeof _Parser, "Language:", typeof _Language);
+} catch (err) {
+  console.error("[BUNDLE] web-tree-sitter NOT available — AST scanning disabled:", err);
 }
 
 // ── WASM asset directory ──────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ try {
 // Compiled output lives in dist/extension.js — one level below the project root,
 // so '../assets/parsers' resolves correctly.
 let wasmDir = path.join(__dirname, "..", "assets", "parsers");
+console.log("[BUNDLE] wasmDir:", wasmDir, "| exists:", fs.existsSync(wasmDir));
 
 /** Override the directory containing the grammar WASM files.  Used in tests. */
 export function setWasmDir(dir: string): void {
@@ -52,6 +54,8 @@ async function ensureInitialized(): Promise<void> {
   if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
+    const runtimeWasm = path.join(wasmDir, "web-tree-sitter.wasm");
+    console.log("[BUNDLE] Parser.init() — runtime WASM:", runtimeWasm, "| exists:", fs.existsSync(runtimeWasm));
     await _Parser!.init({
       // web-tree-sitter 0.26.x uses 'web-tree-sitter.wasm' as the runtime.
       // Older builds emit 'tree-sitter.wasm', so we handle both names.
@@ -63,6 +67,7 @@ async function ensureInitialized(): Promise<void> {
       },
     });
     _initialized = true;
+    console.log("[BUNDLE] Parser.init() — success");
   })();
 
   return _initPromise;
@@ -94,6 +99,7 @@ async function loadGrammar(langName: string): Promise<import("web-tree-sitter").
   if (cached) return cached;
 
   const wasmPath = path.join(wasmDir, `tree-sitter-${langName}.wasm`);
+  console.log("[BUNDLE] loadGrammar:", langName, "—", wasmPath, "| exists:", fs.existsSync(wasmPath));
 
   if (!fs.existsSync(wasmPath)) {
     throw new Error(`Grammar file not found: ${wasmPath}`);

@@ -45,6 +45,20 @@ for (const fp of HOST_MAP_PROVIDERS) {
   }
 }
 
+// ── Startup diagnostic ────────────────────────────────────────────────────────
+
+{
+  let methodCount = 0;
+  for (const methods of methodIndex.values()) methodCount += methods.size;
+  console.log(
+    "[BUNDLE] Registry loaded:",
+    methodIndex.size, "providers,",
+    methodCount, "methods,",
+    exactHostIndex.size, "exact hosts,",
+    regexHostIndex.length, "regex hosts"
+  );
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
