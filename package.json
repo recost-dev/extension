@@ -157,6 +157,7 @@
   "scripts": {
     "build": "npm run build:dashboard && npm run build:webview && npm run build:ext",
     "build:ext": "node esbuild.mjs",
+    "scan:cli": "node dist/cli/scan.js",
     "build:webview": "cd webview && npm run build",
     "build:dashboard": "cd dashboard && npm run build && rm -rf ../dashboard-dist && cp -r dist ../dashboard-dist",
     "test": "npm run test:scanner",

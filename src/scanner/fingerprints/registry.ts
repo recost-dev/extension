@@ -1,6 +1,8 @@
 import type { CostModel, MethodFingerprint } from "./types";
 import { ALL_PROVIDERS, HOST_MAP_PROVIDERS } from "./index";
 
+const DEBUG_BUNDLE_LOGS = process.env.RECOST_DEBUG_SCAN === "1";
+
 // ── Index structures built once at module load ────────────────────────────────
 
 /** provider (lowercase) → pattern → MethodFingerprint */
@@ -50,13 +52,15 @@ for (const fp of HOST_MAP_PROVIDERS) {
 {
   let methodCount = 0;
   for (const methods of methodIndex.values()) methodCount += methods.size;
-  console.log(
-    "[BUNDLE] Registry loaded:",
-    methodIndex.size, "providers,",
-    methodCount, "methods,",
-    exactHostIndex.size, "exact hosts,",
-    regexHostIndex.length, "regex hosts"
-  );
+  if (DEBUG_BUNDLE_LOGS) {
+    console.log(
+      "[BUNDLE] Registry loaded:",
+      methodIndex.size, "providers,",
+      methodCount, "methods,",
+      exactHostIndex.size, "exact hosts,",
+      regexHostIndex.length, "regex hosts"
+    );
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

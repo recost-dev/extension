@@ -1,20 +1,14 @@
 import * as vscode from "vscode";
-import * as path from "path";
-import { ApiCallInput } from "../analysis/types";
-import { matchLine, matchRouteDefinitionLine, isInsideLoop } from "./patterns";
-import { detectLocalWasteFindingsInText, type LocalWasteFinding } from "./local-waste-detector";
-import { scanFileWithAst, type AstCallMatch } from "../ast/ast-scanner";
-import { getLanguageForExtension } from "../ast/parser-loader";
-import { runCrossFileResolution, type PerFileResult } from "../ast/cross-file-resolver";
-import { detectCacheWaste } from "../ast/waste/cache-detector";
-import { detectBatchWaste } from "../ast/waste/batch-detector";
-import { detectConcurrencyWaste } from "../ast/waste/concurrency-detector";
-import { lookupMethod } from "./fingerprints/registry";
+import type { ApiCallInput } from "../analysis/types";
+import type { LocalWasteFinding } from "./local-waste-detector";
+import {
+  scanFiles,
+  detectLocalWastePatternsInFiles,
+  type ScanFileAccess,
+  type ScanProgress,
+} from "./core-scanner";
 
 const MAX_FILES = 5000;
-const HTTP_CALL_HINT =
-  /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
-const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
 const HARD_EXCLUDED_SEGMENTS = new Set([
   "node_modules",
   "docs",
@@ -30,36 +24,6 @@ const HARD_EXCLUDED_SEGMENTS = new Set([
   "__pycache__",
 ]);
 
-export interface ScanProgress {
-  file: string;
-  fileIndex: number;
-  fileTotal: number;
-}
-
-function isGenericDynamicUrl(url: string): boolean {
-  const dynamic = url.match(/^<dynamic:([^>]+)>$/i);
-  if (dynamic) {
-    const token = dynamic[1].trim().toLowerCase();
-    return ["endpoint", "url", "path", "uri", "route"].includes(token);
-  }
-  return false;
-}
-
-function isHighConfidenceUrl(url: string): boolean {
-  if (!url) return false;
-  if (/^https?:\/\//i.test(url)) return true;
-  if (url.startsWith("/")) return true;
-  if (GENERIC_TEMPLATE_SEGMENT.test(url)) return false;
-  if (/^<dynamic:/i.test(url)) {
-    if (isGenericDynamicUrl(url)) return false;
-    const token = (url.match(/^<dynamic:([^>]+)>$/i)?.[1] ?? "").toLowerCase();
-    // A lone base URL variable is not an endpoint route.
-    if (/base[_-]?url/.test(token)) return false;
-    return true;
-  }
-  return false;
-}
-
 async function readUriText(uri: vscode.Uri): Promise<string> {
   const openDoc = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === uri.toString());
   if (openDoc) {
@@ -68,6 +32,18 @@ async function readUriText(uri: vscode.Uri): Promise<string> {
 
   const content = await vscode.workspace.fs.readFile(uri);
   return Buffer.from(content).toString("utf-8");
+}
+
+async function createWorkspaceScanAccess(): Promise<ScanFileAccess> {
+  const config = vscode.workspace.getConfiguration("recost");
+  const uris = await findScopedUris(config);
+  return {
+    files: uris.map((uri) => ({
+      absolutePath: uri.fsPath,
+      relativePath: vscode.workspace.asRelativePath(uri, false),
+    })),
+    readFile: async (absolutePath: string) => readUriText(vscode.Uri.file(absolutePath)),
+  };
 }
 
 function parseCsvGlobs(value: string | undefined): string[] {
@@ -107,7 +83,11 @@ async function findScopedUris(config: vscode.WorkspaceConfiguration): Promise<vs
     }
   }
 
-  return Array.from(uriByPath.values());
+  return Array.from(uriByPath.values()).sort((a, b) => {
+    const left = vscode.workspace.asRelativePath(a, false).replace(/\\/g, "/");
+    const right = vscode.workspace.asRelativePath(b, false).replace(/\\/g, "/");
+    return left.localeCompare(right);
+  });
 }
 
 export async function readWorkspaceFileExcerpt(
@@ -139,219 +119,14 @@ export async function readWorkspaceFileExcerpt(
   }
 }
 
-function astMatchToApiCallInput(match: AstCallMatch, file: string): ApiCallInput {
-  const method = match.method ?? "CALL";
-  const url =
-    match.endpoint ??
-    (match.provider
-      ? `sdk://${match.provider}/${match.methodChain}`
-      : `ast:${match.methodChain}`);
-  const library =
-    match.packageName ?? match.provider ?? match.methodChain.split(".")[0];
-  const isHighFreq =
-    match.isMiddleware ||
-    match.frequency === "unbounded-loop" ||
-    match.frequency === "polling" ||
-    match.frequency === "parallel" ||
-    match.frequency === "bounded-loop";
-  const frequency = isHighFreq ? "per-request" : "daily";
-
-  // Look up costModel from fingerprint registry
-  let costModel: ApiCallInput["costModel"];
-  if (match.provider && match.methodChain) {
-    const fingerprint = lookupMethod(match.provider, match.methodChain);
-    if (fingerprint) {
-      costModel = fingerprint.costModel;
-    }
-  }
-
-  // Cross-file origin: use methodChain as functionName proxy
-  const crossFileOrigin =
-    match.crossFile && match.sourceFile
-      ? { file: match.sourceFile, functionName: match.methodChain }
-      : null;
-
-  return {
-    file,
-    line: match.line,
-    method,
-    url,
-    library,
-    frequency,
-    frequencyClass: match.frequency,
-    provider: match.provider,
-    methodSignature: match.methodChain,
-    costModel,
-    batchCapable: match.batchCapable,
-    cacheCapable: match.cacheCapable,
-    streaming: match.streaming,
-    isMiddleware: match.isMiddleware,
-    crossFileOrigin,
-  };
-}
-
 export async function scanWorkspace(
   onProgress?: (progress: ScanProgress) => void
 ): Promise<ApiCallInput[]> {
-  const config = vscode.workspace.getConfiguration("recost");
-  const uris = await findScopedUris(config);
-  const allCalls: ApiCallInput[] = [];
-  const dedupe = new Set<string>();
-  const uniqueEndpointKeys = new Set<string>();
-
-  for (let i = 0; i < uris.length; i++) {
-    const uri = uris[i];
-    const relativePath = vscode.workspace.asRelativePath(uri, false);
-
-    try {
-      const text = await readUriText(uri);
-      const lines = text.split("\n");
-
-      // ── AST scan (JS/TS only) ──────────────────────────────────────────────
-      const astCoveredLines = new Set<number>();
-      const ext = path.extname(relativePath);
-      if (getLanguageForExtension(ext)) {
-        try {
-          const absPath = uri.fsPath;
-          const fileReader = async (fp: string): Promise<string | null> => {
-            if (fp === absPath) return text;
-            try { return await readUriText(vscode.Uri.file(fp)); } catch { return null; }
-          };
-          const astResult = await scanFileWithAst(absPath, fileReader);
-          for (const match of astResult.matches) {
-            const apiCall = astMatchToApiCallInput(match, relativePath);
-            const key = `${relativePath}:${match.line}:${apiCall.method}:${apiCall.url}`;
-            if (dedupe.has(key)) continue;
-            dedupe.add(key);
-            astCoveredLines.add(match.line);
-            uniqueEndpointKeys.add(`${apiCall.method} ${apiCall.url}`);
-            allCalls.push(apiCall);
-          }
-        } catch {
-          // AST failed — fall through to regex-only for this file
-        }
-      }
-
-      // ── Regex scan ────────────────────────────────────────────────────────
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-        const lineNum = lineIndex + 1;
-        if (astCoveredLines.has(lineNum)) continue;
-
-        const line = lines[lineIndex];
-        const routeMatches = matchRouteDefinitionLine(line);
-        for (const route of routeMatches) {
-          if (!isHighConfidenceUrl(route.url)) continue;
-          const key = `${relativePath}:${lineIndex + 1}:${route.method}:${route.url}:${route.library}`;
-          if (dedupe.has(key)) continue;
-          dedupe.add(key);
-          uniqueEndpointKeys.add(`${route.method} ${route.url}`);
-          allCalls.push({
-            file: relativePath,
-            line: lineIndex + 1,
-            method: route.method,
-            url: route.url,
-            library: route.library,
-            frequency: "daily",
-          });
-        }
-
-        let matches = matchLine(line);
-        if (matches.length === 0 && HTTP_CALL_HINT.test(line)) {
-          const multiLine = lines.slice(lineIndex, Math.min(lines.length, lineIndex + 6)).join("\n");
-          matches = matchLine(multiLine);
-        }
-
-        for (const match of matches) {
-          if (!isHighConfidenceUrl(match.url)) continue;
-          const key = `${relativePath}:${lineIndex + 1}:${match.method}:${match.url}:${match.library}`;
-          if (dedupe.has(key)) continue;
-          dedupe.add(key);
-          uniqueEndpointKeys.add(`${match.method} ${match.url}`);
-          const inLoop = isInsideLoop(lines, lineIndex);
-          allCalls.push({
-            file: relativePath,
-            line: lineIndex + 1,
-            method: match.method,
-            url: match.url,
-            library: match.library,
-            frequency: inLoop ? "per-request" : "daily",
-          });
-        }
-      }
-    } catch {
-      // Skip files that can't be read
-    }
-
-    onProgress?.({
-      file: relativePath,
-      fileIndex: i + 1,
-      fileTotal: uris.length,
-    });
-  }
-
-  return allCalls;
+  const access = await createWorkspaceScanAccess();
+  return scanFiles(access, onProgress);
 }
 
 export async function detectLocalWastePatterns(): Promise<LocalWasteFinding[]> {
-  const config = vscode.workspace.getConfiguration("recost");
-  const uris = await findScopedUris(config);
-
-  const perFileResults: PerFileResult[] = [];
-  const nonAstFindings: LocalWasteFinding[] = [];
-
-  // ── First pass: scan all files ───────────────────────────────────────────
-  for (const uri of uris) {
-    try {
-      const relativePath = vscode.workspace.asRelativePath(uri, false);
-      const absPath = uri.fsPath;
-      const text = await readUriText(uri);
-      const ext = path.extname(relativePath);
-
-      if (getLanguageForExtension(ext)) {
-        // AST-capable file — accumulate for cross-file resolution
-        try {
-          const fileReader = async (fp: string): Promise<string | null> => {
-            if (fp === absPath) return text;
-            try { return await readUriText(vscode.Uri.file(fp)); } catch { return null; }
-          };
-          const result = await scanFileWithAst(absPath, fileReader);
-          perFileResults.push({ filePath: absPath, relativePath, source: text, result });
-        } catch {
-          // AST failed — fall back to regex for this file
-          nonAstFindings.push(...detectLocalWasteFindingsInText(relativePath, text));
-        }
-      } else {
-        // Non-AST file (Python, Go, etc.) — use regex detector
-        nonAstFindings.push(...detectLocalWasteFindingsInText(relativePath, text));
-      }
-    } catch {
-      // Skip files that can't be read
-    }
-  }
-
-  // ── Second pass: cross-file resolution + AST waste detection ────────────
-  let augmented: Map<string, AstCallMatch[]>;
-  try {
-    augmented = runCrossFileResolution(perFileResults);
-  } catch {
-    // Cross-file resolution failed — fall back to per-file matches only
-    augmented = new Map(perFileResults.map((pf) => [pf.relativePath, pf.result.matches]));
-  }
-  const astFindings: LocalWasteFinding[] = [];
-
-  for (const pf of perFileResults) {
-    const matches = augmented.get(pf.relativePath) ?? pf.result.matches;
-    astFindings.push(...detectCacheWaste(matches, pf.source, pf.relativePath));
-    astFindings.push(...detectBatchWaste(matches, pf.source, pf.relativePath));
-    astFindings.push(...detectConcurrencyWaste(matches, pf.source, pf.relativePath));
-  }
-
-  // Deduplicate across all findings by (type, file, line)
-  const seen = new Map<string, LocalWasteFinding>();
-  for (const f of [...astFindings, ...nonAstFindings]) {
-    const key = `${f.type}:${f.affectedFile}:${f.line ?? 0}`;
-    const existing = seen.get(key);
-    if (!existing || f.confidence > existing.confidence) seen.set(key, f);
-  }
-  return [...seen.values()];
+  const access = await createWorkspaceScanAccess();
+  return detectLocalWastePatternsInFiles(access);
 }
