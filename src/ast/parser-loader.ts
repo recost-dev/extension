@@ -7,9 +7,23 @@
  */
 import * as path from "path";
 import * as fs from "fs";
-import { Parser, Language } from "web-tree-sitter";
 
 export type { Tree, Node as SyntaxNode } from "web-tree-sitter";
+
+// Loaded at module init so the module doesn't crash when web-tree-sitter isn't
+// installed (e.g. a VSIX with no node_modules). AST scanning degrades gracefully
+// to regex scanning when these are null.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+let _Parser: (typeof import("web-tree-sitter"))["Parser"] | null = null;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+let _Language: (typeof import("web-tree-sitter"))["Language"] | null = null;
+try {
+  const mod = require("web-tree-sitter") as typeof import("web-tree-sitter");
+  _Parser = mod.Parser;
+  _Language = mod.Language;
+} catch {
+  // web-tree-sitter not available; AST scanning will be skipped, regex takes over
+}
 
 // ── WASM asset directory ──────────────────────────────────────────────────────
 
@@ -30,14 +44,15 @@ export function setWasmDir(dir: string): void {
 
 let _initialized = false;
 let _initPromise: Promise<void> | null = null;
-const _languageCache = new Map<string, Language>();
+const _languageCache = new Map<string, import("web-tree-sitter").Language>();
 
 async function ensureInitialized(): Promise<void> {
+  if (!_Parser || !_Language) throw new Error("web-tree-sitter not available");
   if (_initialized) return;
   if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
-    await Parser.init({
+    await _Parser!.init({
       // web-tree-sitter 0.26.x uses 'web-tree-sitter.wasm' as the runtime.
       // Older builds emit 'tree-sitter.wasm', so we handle both names.
       locateFile: (name: string) => {
@@ -74,7 +89,7 @@ export function getLanguageForExtension(ext: string): string | null {
   return EXT_TO_GRAMMAR[ext.toLowerCase()] ?? null;
 }
 
-async function loadGrammar(langName: string): Promise<Language> {
+async function loadGrammar(langName: string): Promise<import("web-tree-sitter").Language> {
   const cached = _languageCache.get(langName);
   if (cached) return cached;
 
@@ -84,7 +99,7 @@ async function loadGrammar(langName: string): Promise<Language> {
     throw new Error(`Grammar file not found: ${wasmPath}`);
   }
 
-  const lang = await Language.load(wasmPath);
+  const lang = await _Language!.load(wasmPath);
   _languageCache.set(langName, lang);
   return lang;
 }
@@ -107,7 +122,7 @@ export async function parseFile(source: string, language: string): Promise<impor
   try {
     await ensureInitialized();
     const lang = await loadGrammar(language);
-    const parser = new Parser();
+    const parser = new _Parser!();
     parser.setLanguage(lang);
     const tree = parser.parse(source);
     return tree;
