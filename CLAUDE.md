@@ -49,6 +49,10 @@ src/
     engine.ts             # Pure runSimulation() — frequency-class multipliers, free endpoint zeroing, dynamic confidence
     static-source.ts      # StaticDataSource adapter (EndpointRecord[] → SimulatorDataSource, passes frequencyClass + costModel)
     index.ts              # Barrel re-export
+  intelligence/           # EcoAPI Intelligence Layer — graph model of a scanned repo
+    types.ts              # Shared interface contracts (FileNode, FunctionNode, ApiCallNode, FindingNode, ProviderNode, RepoIntelligenceSnapshot, scoring, clustering, compression, AiReviewPack). Do NOT change without team sync.
+    mocks/
+      mockSnapshot.ts     # Shared RepoIntelligenceSnapshot mock (5 files, 8 functions, 10 API calls, 6 findings, 3 providers) for tests and local dev
 webview/                  # React sidebar UI
   src/
     App.tsx               # 3 screens: landing → scanning → results

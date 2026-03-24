@@ -43,11 +43,11 @@ async function submitScan(projectId, apiCalls, rcApiKey) {
     const { data } = await apiFetch(`/projects/${projectId}/scans`, { method: "POST", body: JSON.stringify({ apiCalls }) }, rcApiKey);
     return { scanId: data.id, summary: data.summary };
 }
-async function getAllEndpoints(projectId, scanId) {
+async function getAllEndpoints(projectId, scanId, rcApiKey) {
     const results = [];
     let page = 1;
     while (true) {
-        const { data, pagination } = await apiFetch(`/projects/${projectId}/endpoints?scanId=${scanId}&limit=100&page=${page}`);
+        const { data, pagination } = await apiFetch(`/projects/${projectId}/endpoints?scanId=${scanId}&limit=100&page=${page}`, undefined, rcApiKey);
         results.push(...data);
         if (!pagination.hasNext)
             break;
@@ -55,11 +55,11 @@ async function getAllEndpoints(projectId, scanId) {
     }
     return results;
 }
-async function getAllSuggestions(projectId, scanId) {
+async function getAllSuggestions(projectId, scanId, rcApiKey) {
     const results = [];
     let page = 1;
     while (true) {
-        const { data, pagination } = await apiFetch(`/projects/${projectId}/suggestions?scanId=${scanId}&limit=100&page=${page}`);
+        const { data, pagination } = await apiFetch(`/projects/${projectId}/suggestions?scanId=${scanId}&limit=100&page=${page}`, undefined, rcApiKey);
         results.push(...data);
         if (!pagination.hasNext)
             break;
@@ -68,8 +68,8 @@ async function getAllSuggestions(projectId, scanId) {
     return results;
 }
 /**
- * Validates an API key by hitting a projects endpoint (which accepts rc- API keys via requireAuth).
- * Returns null always — email is not available from API key auth.
+ * Validates an API key against GET /auth/me.
+ * Returns AuthMeUser on success, null for 404 (dev mode — endpoint not yet deployed).
  * Throws with err.status === 401 for invalid key.
  * Throws without .status for network errors.
  */
@@ -79,7 +79,16 @@ async function validateApiKey(key) {
         err.status = 401;
         throw err;
     }
-    await apiFetch("/projects?limit=1", undefined, key);
-    return null;
+    try {
+        const { data } = await apiFetch("/auth/me", undefined, key);
+        return data;
+    }
+    catch (err) {
+        const error = err;
+        if (error.status === 404) {
+            return null; // Dev mode: auth endpoint not deployed, treat key as valid
+        }
+        throw err;
+    }
 }
 //# sourceMappingURL=api-client.js.map
