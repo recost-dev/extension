@@ -1105,13 +1105,17 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Remote analysis failed";
         const status = (err as { status?: number }).status;
-        if (status === 401 || status === 403) {
+        const authLikeFailure =
+          status === 401 ||
+          (status === 403 && /invalid|unauthori[sz]ed|forbidden|auth/i.test(message));
+
+        if (authLikeFailure) {
           const rcApiKey = await this.getRcApiKey();
           if (rcApiKey) {
             await this.setValidationState("ecoapi", {
-            state: "invalid",
-            message,
-            lastCheckedAt: new Date().toISOString(),
+              state: "invalid",
+              message,
+              lastCheckedAt: new Date().toISOString(),
               keyFingerprint: buildKeyFingerprint(rcApiKey),
             });
           } else {

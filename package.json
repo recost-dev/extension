@@ -76,22 +76,22 @@
         {
           "command": "recost.statusOnline",
           "when": "view == recost.sidebarView && recost.keyOnline",
-          "group": "navigation"
+          "group": "navigation@0"
         },
         {
           "command": "recost.statusLocal",
           "when": "view == recost.sidebarView && !recost.keyOnline",
-          "group": "navigation"
+          "group": "navigation@0"
         },
         {
           "command": "recost.openKeys",
           "when": "view == recost.sidebarView",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "recost.scanWorkspace",
           "when": "view == recost.sidebarView",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ]
     },
