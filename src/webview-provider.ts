@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as fs from "fs/promises";
+import * as os from "os";
 import * as path from "path";
 import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt } from "./scanner/workspace-scanner";
 import { createProject, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
@@ -609,6 +611,48 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   private readonly outputChannel: vscode.OutputChannel;
   private readonly keyValidationState = new Map<KeyServiceId, PersistedKeyValidationSnapshot>();
 
+  private getDebugScanExportPath(): string {
+    const workspaceName = this.getWorkspaceName().replace(/[^a-zA-Z0-9._-]/g, "_");
+    return path.join(os.tmpdir(), `recost-extension-scan-results-${workspaceName}.json`);
+  }
+
+  private async exportDebugScanResults(payload: {
+    mode: "local-only" | "remote-enriched";
+    local: {
+      apiCalls: ApiCallInput[];
+      localWasteFindings: Awaited<ReturnType<typeof detectLocalWastePatterns>>;
+      submittedRemoteApiCalls: ApiCallInput[];
+    };
+    remote: null | {
+      projectId: string;
+      scanId: string;
+      endpoints: EndpointRecord[];
+      suggestions: Suggestion[];
+      summary: ScanSummary;
+    };
+    final: {
+      projectId: string;
+      scanId: string;
+      endpoints: EndpointRecord[];
+      suggestions: Suggestion[];
+      summary: ScanSummary;
+    };
+  }): Promise<void> {
+    const exportPath = this.getDebugScanExportPath();
+    const body = {
+      exportedAt: new Date().toISOString(),
+      workspaceName: this.getWorkspaceName(),
+      exportPath,
+      ...payload,
+    };
+    try {
+      await fs.writeFile(exportPath, JSON.stringify(body, null, 2), "utf-8");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.outputChannel.appendLine(`[debug-export] Failed to write ${exportPath}: ${message}`);
+    }
+  }
+
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
     this.outputChannel = vscode.window.createOutputChannel("ReCost AI Review");
@@ -902,6 +946,22 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
           suggestions: mergedSuggestions,
           summary,
         });
+        void this.exportDebugScanResults({
+          mode: "local-only",
+          local: {
+            apiCalls,
+            localWasteFindings,
+            submittedRemoteApiCalls: [],
+          },
+          remote: null,
+          final: {
+            projectId: localProjectId,
+            scanId: localScanId,
+            endpoints,
+            suggestions: mergedSuggestions,
+            summary,
+          },
+        });
       };
 
       if (apiCalls.length === 0) {
@@ -918,6 +978,22 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
           endpoints: [],
           suggestions: [],
           summary: this.lastSummary,
+        });
+        void this.exportDebugScanResults({
+          mode: "local-only",
+          local: {
+            apiCalls,
+            localWasteFindings,
+            submittedRemoteApiCalls: [],
+          },
+          remote: null,
+          final: {
+            projectId: "local",
+            scanId: `local-${Date.now()}`,
+            endpoints: [],
+            suggestions: [],
+            summary: this.lastSummary,
+          },
         });
         return;
       }
@@ -994,6 +1070,31 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
           summary: {
             ...scanResult.summary,
             totalEndpoints: Math.max(scanResult.summary.totalEndpoints, endpoints.length),
+          },
+        });
+        void this.exportDebugScanResults({
+          mode: "remote-enriched",
+          local: {
+            apiCalls,
+            localWasteFindings,
+            submittedRemoteApiCalls: remoteApiCalls,
+          },
+          remote: {
+            projectId,
+            scanId: scanResult.scanId,
+            endpoints: remoteEndpoints,
+            suggestions,
+            summary: scanResult.summary,
+          },
+          final: {
+            projectId,
+            scanId: scanResult.scanId,
+            endpoints,
+            suggestions: mergedSuggestions,
+            summary: {
+              ...scanResult.summary,
+              totalEndpoints: Math.max(scanResult.summary.totalEndpoints, endpoints.length),
+            },
           },
         });
       } catch (err: unknown) {
