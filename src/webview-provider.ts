@@ -766,6 +766,9 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       const validation = await validateServiceKey(service, value);
       this.keyValidationState.set(serviceId, validation);
       await this.sendKeyStatusUpdate(serviceId, serviceId);
+      if (serviceId === "ecoapi") {
+        await vscode.commands.executeCommand("setContext", "recost.keyOnline", validation.state === "valid");
+      }
     } catch (error) {
       const previous = this.keyValidationState.get(serviceId);
       await this.sendKeyStatusUpdate(serviceId, serviceId);
@@ -958,8 +961,8 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         }
 
         const [remoteEndpoints, suggestions] = await Promise.all([
-          getAllEndpoints(projectId, scanResult.scanId),
-          getAllSuggestions(projectId, scanResult.scanId),
+          getAllEndpoints(projectId, scanResult.scanId, rcApiKey),
+          getAllSuggestions(projectId, scanResult.scanId, rcApiKey),
         ]);
         const taggedRemoteSuggestions = suggestions.map((s) => ({ ...s, source: s.source ?? "remote" }));
 

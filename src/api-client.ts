@@ -55,14 +55,14 @@ export async function submitScan(projectId: string, apiCalls: ApiCallInput[], rc
   return { scanId: data.id, summary: data.summary };
 }
 
-export async function getAllEndpoints(projectId: string, scanId: string): Promise<EndpointRecord[]> {
+export async function getAllEndpoints(projectId: string, scanId: string, rcApiKey?: string): Promise<EndpointRecord[]> {
   const results: EndpointRecord[] = [];
   let page = 1;
   while (true) {
     const { data, pagination } = await apiFetch<{
       data: EndpointRecord[];
       pagination: { hasNext: boolean };
-    }>(`/projects/${projectId}/endpoints?scanId=${scanId}&limit=100&page=${page}`);
+    }>(`/projects/${projectId}/endpoints?scanId=${scanId}&limit=100&page=${page}`, undefined, rcApiKey);
     results.push(...data);
     if (!pagination.hasNext) break;
     page++;
@@ -70,14 +70,14 @@ export async function getAllEndpoints(projectId: string, scanId: string): Promis
   return results;
 }
 
-export async function getAllSuggestions(projectId: string, scanId: string): Promise<Suggestion[]> {
+export async function getAllSuggestions(projectId: string, scanId: string, rcApiKey?: string): Promise<Suggestion[]> {
   const results: Suggestion[] = [];
   let page = 1;
   while (true) {
     const { data, pagination } = await apiFetch<{
       data: Suggestion[];
       pagination: { hasNext: boolean };
-    }>(`/projects/${projectId}/suggestions?scanId=${scanId}&limit=100&page=${page}`);
+    }>(`/projects/${projectId}/suggestions?scanId=${scanId}&limit=100&page=${page}`, undefined, rcApiKey);
     results.push(...data);
     if (!pagination.hasNext) break;
     page++;
