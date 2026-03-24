@@ -1,28 +1,15 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import type { ApiCallInput } from "../analysis/types";
 import type { LocalWasteFinding } from "./local-waste-detector";
 import {
   scanFiles,
   detectLocalWastePatternsInFiles,
   type ScanFileAccess,
+  type ScanInputFile,
   type ScanProgress,
 } from "./core-scanner";
-
-const MAX_FILES = 5000;
-const HARD_EXCLUDED_SEGMENTS = new Set([
-  "node_modules",
-  "docs",
-  "examples",
-  "dist",
-  "build",
-  "coverage",
-  ".git",
-  ".next",
-  "vendor",
-  "venv",
-  ".venv",
-  "__pycache__",
-]);
+import { discoverFilesInDirectory, parseCsvGlobs } from "./file-discovery";
 
 async function readUriText(uri: vscode.Uri): Promise<string> {
   const openDoc = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === uri.toString());
@@ -35,59 +22,47 @@ async function readUriText(uri: vscode.Uri): Promise<string> {
 }
 
 async function createWorkspaceScanAccess(): Promise<ScanFileAccess> {
-  const config = vscode.workspace.getConfiguration("recost");
-  const uris = await findScopedUris(config);
+  const files = await getWorkspaceScanFiles();
   return {
-    files: uris.map((uri) => ({
-      absolutePath: uri.fsPath,
-      relativePath: vscode.workspace.asRelativePath(uri, false),
-    })),
+    files,
     readFile: async (absolutePath: string) => readUriText(vscode.Uri.file(absolutePath)),
   };
 }
 
-function parseCsvGlobs(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
+export async function getWorkspaceScanFiles(): Promise<ScanInputFile[]> {
+  const config = vscode.workspace.getConfiguration("recost");
+  return findScopedFiles(config);
 }
 
-function isHardExcludedPath(relativePath: string): boolean {
-  const normalized = relativePath.replace(/\\/g, "/");
-  const segments = normalized.split("/");
-  return segments.some((segment) => HARD_EXCLUDED_SEGMENTS.has(segment));
-}
-
-async function findScopedUris(config: vscode.WorkspaceConfiguration): Promise<vscode.Uri[]> {
+async function findScopedFiles(config: vscode.WorkspaceConfiguration): Promise<ScanInputFile[]> {
   const includeGlob = config.get<string>("scanGlob", "**/*.{ts,tsx,js,jsx,py,go,java,rb}");
   const scopedInclude = parseCsvGlobs(config.get<string>("scanIncludeGlobs", ""));
   const configuredExclude = config.get<string>(
     "excludeGlob",
     "**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**"
   );
-  const hardExcludeGlob =
-    "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
-  const mergedExclude = configuredExclude ? `${configuredExclude},${hardExcludeGlob}` : hardExcludeGlob;
-
+  const hardExcludeGlob = "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
   const includePatterns = scopedInclude.length > 0 ? scopedInclude : [includeGlob];
-  const uriByPath = new Map<string, vscode.Uri>();
+  const excludePatterns = parseCsvGlobs(configuredExclude ? `${configuredExclude},${hardExcludeGlob}` : hardExcludeGlob);
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  const fileByPath = new Map<string, ScanInputFile>();
 
-  for (const pattern of includePatterns) {
-    const uris = await vscode.workspace.findFiles(pattern, mergedExclude, MAX_FILES);
-    for (const uri of uris) {
-      const relativePath = vscode.workspace.asRelativePath(uri, false);
-      if (isHardExcludedPath(relativePath)) continue;
-      uriByPath.set(uri.toString(), uri);
+  for (const folder of workspaceFolders) {
+    const discovered = await discoverFilesInDirectory(folder.uri.fsPath, {
+      includeGlobs: includePatterns,
+      excludeGlobs: excludePatterns,
+    });
+
+    for (const file of discovered) {
+      const relativeToWorkspace = path.posix.join(folder.name, file.relativePath);
+      fileByPath.set(file.absolutePath, {
+        absolutePath: file.absolutePath,
+        relativePath: workspaceFolders.length > 1 ? relativeToWorkspace : file.relativePath,
+      });
     }
   }
 
-  return Array.from(uriByPath.values()).sort((a, b) => {
-    const left = vscode.workspace.asRelativePath(a, false).replace(/\\/g, "/");
-    const right = vscode.workspace.asRelativePath(b, false).replace(/\\/g, "/");
-    return left.localeCompare(right);
-  });
+  return Array.from(fileByPath.values()).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 export async function readWorkspaceFileExcerpt(

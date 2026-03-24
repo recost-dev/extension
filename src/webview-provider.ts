@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt } from "./scanner/workspace-scanner";
+import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt, getWorkspaceScanFiles } from "./scanner/workspace-scanner";
 import { createProject, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
 import { buildSystemPrompt } from "./chat/prompts";
 import {
@@ -618,6 +618,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
   private async exportDebugScanResults(payload: {
     mode: "local-only" | "remote-enriched";
+    scannedFiles: string[];
     local: {
       apiCalls: ApiCallInput[];
       localWasteFindings: Awaited<ReturnType<typeof detectLocalWastePatterns>>;
@@ -902,6 +903,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   private async handleStartScan() {
     try {
       this.chatHistory = [];
+      const scannedFiles = (await getWorkspaceScanFiles()).map((file) => file.relativePath);
 
       const apiCalls = await scanWorkspace((progress) => {
         this.postMessage({
@@ -948,6 +950,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         });
         void this.exportDebugScanResults({
           mode: "local-only",
+          scannedFiles,
           local: {
             apiCalls,
             localWasteFindings,
@@ -981,6 +984,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         });
         void this.exportDebugScanResults({
           mode: "local-only",
+          scannedFiles,
           local: {
             apiCalls,
             localWasteFindings,
@@ -1074,6 +1078,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         });
         void this.exportDebugScanResults({
           mode: "remote-enriched",
+          scannedFiles,
           local: {
             apiCalls,
             localWasteFindings,
