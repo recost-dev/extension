@@ -3,7 +3,7 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt, getWorkspaceScanFiles } from "./scanner/workspace-scanner";
-import { createProject, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
+import { createProject, findProjectByName, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
 import { buildSystemPrompt } from "./chat/prompts";
 import {
   buildProviderOptions,
@@ -1586,7 +1586,10 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     if (this.projectId) {
       return this.projectId;
     }
-    const id = await createProject(this.getWorkspaceName(), rcApiKey);
+    // No local record — check if a project with this workspace name already exists
+    // (handles cloning the same repo on a new machine)
+    const existing = await findProjectByName(this.getWorkspaceName(), rcApiKey);
+    const id = existing ?? await createProject(this.getWorkspaceName(), rcApiKey);
     this.projectId = id;
     await this.context.globalState.update("recost.projectId", id);
     return id;
