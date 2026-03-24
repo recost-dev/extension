@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { ChatAdapterError } from "../chat/errors";
 import { executeChat, getProviderAdapter, listProviderAdapters, resolveProviderAuth } from "../chat";
-import { buildKeyStatusSummary, listKeyServices, maskKeyPreview } from "../key-management";
+import { buildKeyFingerprint, buildKeyStatusSummary, listKeyServices, maskKeyPreview, resolveCurrentKeyValue } from "../key-management";
 
 function test(name: string, fn: () => void | Promise<void>): void {
   Promise.resolve()
@@ -170,6 +170,25 @@ test("key status summary reports saved for stored secrets", async () => {
   assert.equal(summary.source, "secret");
   assert.equal(summary.state, "saved");
   assert.equal(summary.maskedPreview, "sk-tes••••••••••");
+});
+
+test("key status summary reports valid when matching validation snapshot is present", async () => {
+  const ecoapi = listKeyServices().find((service) => service.serviceId === "ecoapi");
+  assert.ok(ecoapi);
+  const key = "rc-test-secret";
+  const current = await resolveCurrentKeyValue(ecoapi, { get: async () => key });
+  assert.equal(current, key);
+  const summary = await buildKeyStatusSummary(
+    ecoapi,
+    { get: async () => key },
+    {
+      state: "valid",
+      lastCheckedAt: "2026-03-24T00:00:00.000Z",
+      keyFingerprint: buildKeyFingerprint(key),
+    }
+  );
+  assert.equal(summary.source, "secret");
+  assert.equal(summary.state, "valid");
 });
 
 test("maskKeyPreview returns stable preview", () => {
