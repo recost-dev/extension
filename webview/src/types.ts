@@ -95,7 +95,7 @@ export interface ChatProviderOption {
 }
 
 export type KeyServiceId =
-  | "ecoapi"
+  | "recost"
   | "openai"
   | "anthropic"
   | "gemini"
@@ -117,7 +117,7 @@ export type KeyStatusSource = "missing" | "secret" | "env";
 export interface KeyStatusSummary {
   serviceId: KeyServiceId;
   displayName: string;
-  kind: "ecoapi" | "provider";
+  kind: "recost" | "provider";
   providerId?: string;
   envKeyName?: string;
   source: KeyStatusSource;

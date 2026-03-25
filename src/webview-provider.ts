@@ -713,7 +713,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       const validation = await validateServiceKey(service, value);
       this.keyValidationState.set(serviceId, validation);
       await this.sendKeyStatusUpdate(serviceId, serviceId);
-      if (serviceId === "ecoapi") {
+      if (serviceId === "recost") {
         await vscode.commands.executeCommand("setContext", "recost.keyOnline", validation.state === "valid");
       }
     } catch (error) {
@@ -954,22 +954,32 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Remote analysis failed";
         const status = (err as { status?: number }).status;
-        if (status === 401 || status === 403) {
-          this.keyValidationState.set("ecoapi", {
-            state: "invalid",
-            message,
-            lastCheckedAt: new Date().toISOString(),
-          });
-          await this.sendKeyStatusUpdate("ecoapi", "ecoapi");
-          this.openKeys("ecoapi");
+        const authLikeFailure =
+          status === 401 ||
+          (status === 403 && /invalid|unauthori[sz]ed|forbidden|auth/i.test(message));
+
+        if (authLikeFailure) {
+          const rcApiKey = await this.getRcApiKey();
+          if (rcApiKey) {
+            await this.setValidationState("recost", {
+              state: "invalid",
+              message,
+              lastCheckedAt: new Date().toISOString(),
+              keyFingerprint: buildKeyFingerprint(rcApiKey),
+            });
+          } else {
+            await this.clearValidationState("recost");
+          }
+          await this.sendKeyStatusUpdate("recost", "recost");
+          this.openKeys("recost");
         }
         publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
-        this.postMessage({
-          type: "scanNotification",
-          message: err instanceof Error && err.message === "fetch failed"
-            ? "Could not reach ReCost server. Showing local results."
-            : `Remote analysis unavailable: ${message}. Showing local results.`,
-        });
+        if (err instanceof Error && err.message === "fetch failed") {
+          this.postMessage({
+            type: "scanNotification",
+            message: "Could not reach ReCost server. Showing local results.",
+          });
+        }
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error during scan";
@@ -1430,7 +1440,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async getRcApiKey(): Promise<string | undefined> {
-    return readStoredSecret(getKeyService("ecoapi"), this.context.secrets);
+    return readStoredSecret(getKeyService("recost"), this.context.secrets);
   }
 
   private buildMessages(text: string, limitContext = false): NormalizedChatMessage[] {

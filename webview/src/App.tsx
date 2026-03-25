@@ -39,12 +39,12 @@ function getGlobalBanner(
   const selectedServiceId = toServiceId(selectedProvider);
   const findStatus = (serviceId: KeyServiceId) => statuses.find((entry) => entry.serviceId === serviceId);
   const selectedStatus = selectedServiceId ? findStatus(selectedServiceId) : undefined;
-  const ecoStatus = findStatus("ecoapi");
-  const otherInvalid = statuses.find((entry) => entry.serviceId !== "ecoapi" && entry.serviceId !== selectedServiceId && entry.state === "invalid");
+  const ecoStatus = findStatus("recost");
+  const otherInvalid = statuses.find((entry) => entry.serviceId !== "recost" && entry.serviceId !== selectedServiceId && entry.state === "invalid");
 
-  if (ecoStatus?.state === "invalid") return { serviceId: "ecoapi", text: "ReCost: Invalid key" };
+  if (ecoStatus?.state === "invalid") return { serviceId: "recost", text: "ReCost: Invalid key" };
   if (selectedStatus?.state === "invalid") return { serviceId: selectedStatus.serviceId, text: `${selectedStatus.displayName}: Invalid key` };
-  if (hasResults && ecoStatus?.state === "missing") return { serviceId: "ecoapi", text: "ReCost: Missing key" };
+  if (hasResults && ecoStatus?.state === "missing") return { serviceId: "recost", text: "ReCost: Missing key" };
   if (selectedStatus?.state === "missing") return { serviceId: selectedStatus.serviceId, text: `${selectedStatus.displayName}: Missing key` };
   if (otherInvalid) return { serviceId: otherInvalid.serviceId, text: `${otherInvalid.displayName}: Invalid key` };
   return null;

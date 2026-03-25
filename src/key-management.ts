@@ -12,7 +12,7 @@ export interface KeyValidationSnapshot {
 export interface KeyServiceDescriptor {
   serviceId: KeyServiceId;
   displayName: string;
-  kind: "ecoapi" | "provider";
+  kind: "recost" | "provider";
   providerId?: ChatProviderId;
   envKeyName?: string;
   secretStorageKey?: string;
@@ -20,9 +20,9 @@ export interface KeyServiceDescriptor {
 }
 
 const ECOAPI_SERVICE: KeyServiceDescriptor = {
-  serviceId: "ecoapi",
+  serviceId: "recost",
   displayName: "ReCost",
-  kind: "ecoapi",
+  kind: "recost",
   secretStorageKey: "recost.apiKey",
   supportsTest: true,
 };
@@ -106,7 +106,7 @@ export async function validateServiceKey(
 ): Promise<KeyValidationSnapshot> {
   const lastCheckedAt = new Date().toISOString();
   try {
-    if (service.kind === "ecoapi") {
+    if (service.kind === "recost") {
       await validateRcApiKey(apiKey);
       return { state: "valid", lastCheckedAt };
     }
@@ -139,7 +139,7 @@ export async function validateServiceKey(
     if (error instanceof ChatAdapterError && error.code === "bad_auth") {
       return { state: "invalid", message: error.message, lastCheckedAt };
     }
-    if (error instanceof Error && service.kind === "ecoapi" && /401|403|unauth|invalid/i.test(error.message)) {
+    if (error instanceof Error && service.kind === "recost" && /401|403|unauth|invalid/i.test(error.message)) {
       return { state: "invalid", message: error.message, lastCheckedAt };
     }
     throw error;
