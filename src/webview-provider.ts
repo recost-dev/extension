@@ -816,7 +816,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         keyFingerprint: buildKeyFingerprint(value),
       });
       await this.sendKeyStatusUpdate(serviceId, serviceId);
-      if (serviceId === "ecoapi") {
+      if (serviceId === "recost") {
         await vscode.commands.executeCommand("setContext", "recost.keyOnline", validation.state === "valid");
       }
     } catch (error) {
@@ -1112,25 +1112,25 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
         if (authLikeFailure) {
           const rcApiKey = await this.getRcApiKey();
           if (rcApiKey) {
-            await this.setValidationState("ecoapi", {
+            await this.setValidationState("recost", {
               state: "invalid",
               message,
               lastCheckedAt: new Date().toISOString(),
               keyFingerprint: buildKeyFingerprint(rcApiKey),
             });
           } else {
-            await this.clearValidationState("ecoapi");
+            await this.clearValidationState("recost");
           }
-          await this.sendKeyStatusUpdate("ecoapi", "ecoapi");
-          this.openKeys("ecoapi");
+          await this.sendKeyStatusUpdate("recost", "recost");
+          this.openKeys("recost");
         }
         publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
-        this.postMessage({
-          type: "scanNotification",
-          message: err instanceof Error && err.message === "fetch failed"
-            ? "Could not reach ReCost server. Showing local results."
-            : `Remote analysis unavailable: ${message}. Showing local results.`,
-        });
+        if (err instanceof Error && err.message === "fetch failed") {
+          this.postMessage({
+            type: "scanNotification",
+            message: "Could not reach ReCost server. Showing local results.",
+          });
+        }
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error during scan";
@@ -1600,7 +1600,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async getRcApiKey(): Promise<string | undefined> {
-    return readStoredSecret(getKeyService("ecoapi"), this.context.secrets);
+    return readStoredSecret(getKeyService("recost"), this.context.secrets);
   }
 
   private restoreKeyValidationState() {

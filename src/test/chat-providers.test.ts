@@ -143,7 +143,7 @@ test("recost adapter preserves current response shape", async () => {
 
 test("key services include ecoapi and supported providers", () => {
   const ids = listKeyServices().map((service) => service.serviceId);
-  assert.deepEqual(ids, ["ecoapi", "openai", "anthropic", "gemini", "xai", "cohere", "mistral", "perplexity"]);
+  assert.deepEqual(ids, ["recost", "openai", "anthropic", "gemini", "xai", "cohere", "mistral", "perplexity"]);
 });
 
 test("key status summary prefers environment over secret", async () => {
@@ -173,7 +173,7 @@ test("key status summary reports saved for stored secrets", async () => {
 });
 
 test("key status summary reports valid when matching validation snapshot is present", async () => {
-  const ecoapi = listKeyServices().find((service) => service.serviceId === "ecoapi");
+  const ecoapi = listKeyServices().find((service) => service.serviceId === "recost");
   assert.ok(ecoapi);
   const key = "rc-test-secret";
   const current = await resolveCurrentKeyValue(ecoapi, { get: async () => key });

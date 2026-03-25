@@ -21,7 +21,7 @@ async function updateStatusBar(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel
 ): Promise<boolean> {
-  const key = await readStoredSecret(getKeyService("ecoapi"), context.secrets);
+  const key = await readStoredSecret(getKeyService("recost"), context.secrets);
   if (!key) {
     logStatus(output, "updateStatusBar: no stored ReCost key; setting keyOnline=false");
     statusBar.text = "$(key) ReCost: Not Configured";
@@ -94,7 +94,7 @@ async function hasPersistedValidEcoKey(
     return false;
   }
 
-  const currentValue = await resolveCurrentKeyValue(getKeyService("ecoapi"), context.secrets);
+  const currentValue = await resolveCurrentKeyValue(getKeyService("recost"), context.secrets);
   if (!currentValue) {
     logStatus(output, "hasPersistedValidEcoKey: current ecoapi key missing");
     return false;
@@ -205,7 +205,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Async init: update status bar on startup + show first-run notification if no key
   (async () => {
     scheduleKeyIndicatorRefresh(statusBar, context, statusOutput, "activate");
-    const existingKey = await readStoredSecret(getKeyService("ecoapi"), context.secrets);
+    const existingKey = await readStoredSecret(getKeyService("recost"), context.secrets);
     if (!existingKey) {
       const choice = await vscode.window.showInformationMessage(
         "ReCost API key not configured. Open Keys to set up your API key.",

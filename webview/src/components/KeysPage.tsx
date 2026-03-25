@@ -53,8 +53,8 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
 
   const sortedStatuses = useMemo(() => {
     return statuses.slice().sort((a, b) => {
-      if (a.serviceId === "ecoapi") return -1;
-      if (b.serviceId === "ecoapi") return 1;
+      if (a.serviceId === "recost") return -1;
+      if (b.serviceId === "recost") return 1;
       return a.displayName.localeCompare(b.displayName);
     });
   }, [statuses]);
