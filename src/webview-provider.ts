@@ -901,6 +901,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async handleStartScan() {
+    await vscode.commands.executeCommand("setContext", "recost.scanning", true);
     try {
       this.chatHistory = [];
       const scannedFiles = (await getWorkspaceScanFiles()).map((file) => file.relativePath);
@@ -1135,6 +1136,8 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error during scan";
       this.postMessage({ type: "error", message });
+    } finally {
+      await vscode.commands.executeCommand("setContext", "recost.scanning", false);
     }
   }
 

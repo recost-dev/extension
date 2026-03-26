@@ -66,6 +66,11 @@
         "icon": "$(search)"
       },
       {
+        "command": "recost.scanningIndicator",
+        "title": "ReCost: Scanning...",
+        "icon": "$(loading~spin)"
+      },
+      {
         "command": "recost.openKeys",
         "title": "ReCost: Manage API Keys",
         "icon": "$(key)"
@@ -90,7 +95,12 @@
         },
         {
           "command": "recost.scanWorkspace",
-          "when": "view == recost.sidebarView",
+          "when": "view == recost.sidebarView && !recost.scanning",
+          "group": "navigation@2"
+        },
+        {
+          "command": "recost.scanningIndicator",
+          "when": "view == recost.sidebarView && recost.scanning",
           "group": "navigation@2"
         }
       ]

@@ -132,8 +132,9 @@ export function activate(context: vscode.ExtensionContext) {
   statusBar.show();
   context.subscriptions.push(statusBar);
 
-  // Initialize context variable immediately so view/title when clauses work on first render
+  // Initialize context variables immediately so view/title when/enablement clauses work on first render
   vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
+  vscode.commands.executeCommand("setContext", "recost.scanning", false);
 
   const provider = new EcoSidebarProvider(context);
 
@@ -149,6 +150,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   const scanCommand = vscode.commands.registerCommand("recost.scanWorkspace", () => {
+    vscode.commands.executeCommand("setContext", "recost.scanning", true);
     vscode.commands.executeCommand("recost.sidebarView.focus");
     scheduleKeyIndicatorRefresh(statusBar, context, statusOutput, "scanWorkspace");
     provider.startScan();
@@ -184,8 +186,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   const statusOnlineCommand = vscode.commands.registerCommand("recost.statusOnline", () => {});
   const statusLocalCommand = vscode.commands.registerCommand("recost.statusLocal", () => {});
+  const scanningIndicatorCommand = vscode.commands.registerCommand("recost.scanningIndicator", () => {});
 
-  context.subscriptions.push(openPanelCommand, scanCommand, openKeysCommand, statusOnlineCommand, statusLocalCommand);
+  context.subscriptions.push(openPanelCommand, scanCommand, openKeysCommand, statusOnlineCommand, statusLocalCommand, scanningIndicatorCommand);
 
   // Pricing sync: fire-and-forget on startup, then repeat on a configurable interval
   const syncPricing = () => {
