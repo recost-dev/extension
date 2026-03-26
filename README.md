@@ -23,7 +23,7 @@ ReCost turns parsed API call data into actionable diagnostics:
 - **TypeScript** — extension backend
 - **React 18** — sidebar webview UI
 - **Vite** + **esbuild** — bundlers
-- **web-tree-sitter** — WASM-based AST parsing (JS/TS/Python)
+- **web-tree-sitter** — WASM-based AST parsing (JS/TS/Python); bundled into `dist/node_modules/` at build time for reliable VSIX installs; degrades gracefully to regex scanning if unavailable
 - **TanStack Query v5**, **Tailwind CSS v4**, **Radix UI** — dashboard UI
 - **Multi-provider AI chat** — ReCost AI (free, default), OpenAI, Anthropic, Gemini, xAI, Cohere, Mistral, Perplexity
 
@@ -133,7 +133,7 @@ An API key (prefixed `rc-`) is required to sync scan results with the ReCost API
 2. Run: **EcoAPI: Change API Key**
 3. Paste your `rc-` key — it is validated before saving and stored in VS Code's encrypted secret storage
 
-You can also click the **ReCost status bar item** (bottom-right) to open the same prompt.
+You can also click the **ReCost status bar item** (bottom-right) to open the same prompt. The status bar item shows a color indicator: green when connected, warning-color when the API is unreachable, and no color when no key is configured.
 
 ### AI Chat Keys (optional)
 
