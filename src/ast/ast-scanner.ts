@@ -18,7 +18,7 @@ import * as path from "path";
 import { parseFile, getLanguageForExtension } from "./parser-loader";
 import { extractCalls } from "./call-visitor";
 import { resolveImports, CLASS_TO_PACKAGE } from "./import-resolver";
-import { lookupMethod, lookupHost } from "../scanner/fingerprints/registry";
+import { getAllProviders, lookupMethod, lookupHost } from "../scanner/fingerprints/registry";
 import { analyzeFrequency, frequencyToLoopContext } from "./frequency-analyzer";
 import type { SyntaxNode, Tree } from "./parser-loader";
 import type { FileReader } from "./import-resolver";
@@ -92,6 +92,9 @@ const PACKAGE_TO_PROVIDER: Record<string, string> = {
   cohere: "cohere",
   "@mistralai/mistralai": "mistral",
 };
+
+const KNOWN_PROVIDER_IDS = new Set(getAllProviders().map((provider) => provider.toLowerCase()));
+const KNOWN_PROVIDER_PACKAGES = new Set(Object.keys(PACKAGE_TO_PROVIDER));
 
 // ── Iteration method names (used in callback/queue detection) ─────────────────
 
@@ -380,6 +383,10 @@ function resolveProvider(
 
   if (!pkg) return null;
   const provider = PACKAGE_TO_PROVIDER[pkg] ?? pkg;
+  const normalizedProvider = provider.trim().toLowerCase();
+  if (!KNOWN_PROVIDER_PACKAGES.has(pkg) && !KNOWN_PROVIDER_IDS.has(normalizedProvider)) {
+    return null;
+  }
   return { provider, packageName: pkg, resolvedChain };
 }
 

@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.countScopedWorkspaceFiles = countScopedWorkspaceFiles;
 exports.readWorkspaceFileExcerpt = readWorkspaceFileExcerpt;
 exports.scanWorkspace = scanWorkspace;
 exports.detectLocalWastePatterns = detectLocalWastePatterns;
@@ -47,23 +48,10 @@ const cache_detector_1 = require("../ast/waste/cache-detector");
 const batch_detector_1 = require("../ast/waste/batch-detector");
 const concurrency_detector_1 = require("../ast/waste/concurrency-detector");
 const registry_1 = require("./fingerprints/registry");
+const path_excludes_1 = require("./path-excludes");
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT = /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
 const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
-const HARD_EXCLUDED_SEGMENTS = new Set([
-    "node_modules",
-    "docs",
-    "examples",
-    "dist",
-    "build",
-    "coverage",
-    ".git",
-    ".next",
-    "vendor",
-    "venv",
-    ".venv",
-    "__pycache__",
-]);
 function isGenericDynamicUrl(url) {
     const dynamic = url.match(/^<dynamic:([^>]+)>$/i);
     if (dynamic) {
@@ -108,16 +96,11 @@ function parseCsvGlobs(value) {
         .map((item) => item.trim())
         .filter((item) => item.length > 0);
 }
-function isHardExcludedPath(relativePath) {
-    const normalized = relativePath.replace(/\\/g, "/");
-    const segments = normalized.split("/");
-    return segments.some((segment) => HARD_EXCLUDED_SEGMENTS.has(segment));
-}
 async function findScopedUris(config) {
     const includeGlob = config.get("scanGlob", "**/*.{ts,tsx,js,jsx,py,go,java,rb}");
     const scopedInclude = parseCsvGlobs(config.get("scanIncludeGlobs", ""));
-    const configuredExclude = config.get("excludeGlob", "**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**");
-    const hardExcludeGlob = "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
+    const configuredExclude = config.get("excludeGlob", "**/node_modules/**,**/dist/**,**/dist-test/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**");
+    const hardExcludeGlob = "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/dist-test/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
     const mergedExclude = configuredExclude ? `${configuredExclude},${hardExcludeGlob}` : hardExcludeGlob;
     const includePatterns = scopedInclude.length > 0 ? scopedInclude : [includeGlob];
     const uriByPath = new Map();
@@ -125,12 +108,17 @@ async function findScopedUris(config) {
         const uris = await vscode.workspace.findFiles(pattern, mergedExclude, MAX_FILES);
         for (const uri of uris) {
             const relativePath = vscode.workspace.asRelativePath(uri, false);
-            if (isHardExcludedPath(relativePath))
+            if ((0, path_excludes_1.isHardExcludedPath)(relativePath))
                 continue;
             uriByPath.set(uri.toString(), uri);
         }
     }
     return Array.from(uriByPath.values());
+}
+async function countScopedWorkspaceFiles() {
+    const config = vscode.workspace.getConfiguration("recost");
+    const uris = await findScopedUris(config);
+    return uris.length;
 }
 async function readWorkspaceFileExcerpt(relativePath, options) {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -249,44 +237,54 @@ async function scanWorkspace(onProgress) {
                 if (astCoveredLines.has(lineNum))
                     continue;
                 const line = lines[lineIndex];
-                const routeMatches = (0, patterns_1.matchRouteDefinitionLine)(line);
+                const routeMatches = (0, patterns_1.matchNormalizedRouteDefinitionLine)(line);
                 for (const route of routeMatches) {
-                    if (!isHighConfidenceUrl(route.url))
+                    if (!route.method || !route.endpoint || !isHighConfidenceUrl(route.endpoint))
                         continue;
-                    const key = `${relativePath}:${lineIndex + 1}:${route.method}:${route.url}:${route.library}`;
+                    const library = route.provider ?? route.sdk ?? route.kind;
+                    const key = `${relativePath}:${lineIndex + 1}:${route.method}:${route.endpoint}:${library}`;
                     if (dedupe.has(key))
                         continue;
                     dedupe.add(key);
-                    uniqueEndpointKeys.add(`${route.method} ${route.url}`);
+                    uniqueEndpointKeys.add(`${route.method} ${route.endpoint}`);
                     allCalls.push({
                         file: relativePath,
                         line: lineIndex + 1,
                         method: route.method,
-                        url: route.url,
-                        library: route.library,
+                        url: route.endpoint,
+                        library,
+                        provider: route.provider,
+                        batchCapable: Boolean(route.batchCapable),
+                        cacheCapable: Boolean(route.cacheCapable),
+                        streaming: Boolean(route.streaming),
                         frequency: "daily",
                     });
                 }
-                let matches = (0, patterns_1.matchLine)(line);
+                let matches = (0, patterns_1.matchNormalizedLine)(line);
                 if (matches.length === 0 && HTTP_CALL_HINT.test(line)) {
                     const multiLine = lines.slice(lineIndex, Math.min(lines.length, lineIndex + 6)).join("\n");
-                    matches = (0, patterns_1.matchLine)(multiLine);
+                    matches = (0, patterns_1.matchNormalizedLine)(multiLine);
                 }
                 for (const match of matches) {
-                    if (!isHighConfidenceUrl(match.url))
+                    if (!match.method || !match.endpoint || !isHighConfidenceUrl(match.endpoint))
                         continue;
-                    const key = `${relativePath}:${lineIndex + 1}:${match.method}:${match.url}:${match.library}`;
+                    const library = match.provider ?? match.sdk ?? match.kind;
+                    const key = `${relativePath}:${lineIndex + 1}:${match.method}:${match.endpoint}:${library}`;
                     if (dedupe.has(key))
                         continue;
                     dedupe.add(key);
-                    uniqueEndpointKeys.add(`${match.method} ${match.url}`);
+                    uniqueEndpointKeys.add(`${match.method} ${match.endpoint}`);
                     const inLoop = (0, patterns_1.isInsideLoop)(lines, lineIndex);
                     allCalls.push({
                         file: relativePath,
                         line: lineIndex + 1,
                         method: match.method,
-                        url: match.url,
-                        library: match.library,
+                        url: match.endpoint,
+                        library,
+                        provider: match.provider,
+                        batchCapable: Boolean(match.batchCapable),
+                        cacheCapable: Boolean(match.cacheCapable),
+                        streaming: Boolean(match.streaming),
                         frequency: inLoop ? "per-request" : "daily",
                     });
                 }

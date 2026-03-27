@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { ApiCallInput } from "../analysis/types";
-import { matchLine, matchRouteDefinitionLine, isInsideLoop } from "./patterns";
+import { matchLine, matchNormalizedLine, matchNormalizedRouteDefinitionLine, matchRouteDefinitionLine, isInsideLoop } from "./patterns";
 import { detectLocalWasteFindingsInText, type LocalWasteFinding } from "./local-waste-detector";
 import { scanFileWithAst, type AstCallMatch } from "../ast/ast-scanner";
 import { getLanguageForExtension } from "../ast/parser-loader";
@@ -10,26 +10,12 @@ import { detectCacheWaste } from "../ast/waste/cache-detector";
 import { detectBatchWaste } from "../ast/waste/batch-detector";
 import { detectConcurrencyWaste } from "../ast/waste/concurrency-detector";
 import { lookupMethod } from "./fingerprints/registry";
+import { isHardExcludedPath } from "./path-excludes";
 
 const MAX_FILES = 5000;
 const HTTP_CALL_HINT =
   /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
 const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
-const HARD_EXCLUDED_SEGMENTS = new Set([
-  "node_modules",
-  "docs",
-  "examples",
-  "dist",
-  "build",
-  "coverage",
-  ".git",
-  ".next",
-  "vendor",
-  "venv",
-  ".venv",
-  "__pycache__",
-]);
-
 export interface ScanProgress {
   file: string;
   index: number;
@@ -79,21 +65,15 @@ function parseCsvGlobs(value: string | undefined): string[] {
     .filter((item) => item.length > 0);
 }
 
-function isHardExcludedPath(relativePath: string): boolean {
-  const normalized = relativePath.replace(/\\/g, "/");
-  const segments = normalized.split("/");
-  return segments.some((segment) => HARD_EXCLUDED_SEGMENTS.has(segment));
-}
-
 async function findScopedUris(config: vscode.WorkspaceConfiguration): Promise<vscode.Uri[]> {
   const includeGlob = config.get<string>("scanGlob", "**/*.{ts,tsx,js,jsx,py,go,java,rb}");
   const scopedInclude = parseCsvGlobs(config.get<string>("scanIncludeGlobs", ""));
   const configuredExclude = config.get<string>(
     "excludeGlob",
-    "**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**"
+    "**/node_modules/**,**/dist/**,**/dist-test/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**"
   );
   const hardExcludeGlob =
-    "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
+    "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/dist-test/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
   const mergedExclude = configuredExclude ? `${configuredExclude},${hardExcludeGlob}` : hardExcludeGlob;
 
   const includePatterns = scopedInclude.length > 0 ? scopedInclude : [includeGlob];
@@ -109,6 +89,12 @@ async function findScopedUris(config: vscode.WorkspaceConfiguration): Promise<vs
   }
 
   return Array.from(uriByPath.values());
+}
+
+export async function countScopedWorkspaceFiles(): Promise<number> {
+  const config = vscode.workspace.getConfiguration("recost");
+  const uris = await findScopedUris(config);
+  return uris.length;
 }
 
 export async function readWorkspaceFileExcerpt(
@@ -239,42 +225,52 @@ export async function scanWorkspace(
         if (astCoveredLines.has(lineNum)) continue;
 
         const line = lines[lineIndex];
-        const routeMatches = matchRouteDefinitionLine(line);
+        const routeMatches = matchNormalizedRouteDefinitionLine(line);
         for (const route of routeMatches) {
-          if (!isHighConfidenceUrl(route.url)) continue;
-          const key = `${relativePath}:${lineIndex + 1}:${route.method}:${route.url}:${route.library}`;
+          if (!route.method || !route.endpoint || !isHighConfidenceUrl(route.endpoint)) continue;
+          const library = route.provider ?? route.sdk ?? route.kind;
+          const key = `${relativePath}:${lineIndex + 1}:${route.method}:${route.endpoint}:${library}`;
           if (dedupe.has(key)) continue;
           dedupe.add(key);
-          uniqueEndpointKeys.add(`${route.method} ${route.url}`);
+          uniqueEndpointKeys.add(`${route.method} ${route.endpoint}`);
           allCalls.push({
             file: relativePath,
             line: lineIndex + 1,
             method: route.method,
-            url: route.url,
-            library: route.library,
+            url: route.endpoint,
+            library,
+            provider: route.provider,
+            batchCapable: Boolean(route.batchCapable),
+            cacheCapable: Boolean(route.cacheCapable),
+            streaming: Boolean(route.streaming),
             frequency: "daily",
           });
         }
 
-        let matches = matchLine(line);
+        let matches = matchNormalizedLine(line);
         if (matches.length === 0 && HTTP_CALL_HINT.test(line)) {
           const multiLine = lines.slice(lineIndex, Math.min(lines.length, lineIndex + 6)).join("\n");
-          matches = matchLine(multiLine);
+          matches = matchNormalizedLine(multiLine);
         }
 
         for (const match of matches) {
-          if (!isHighConfidenceUrl(match.url)) continue;
-          const key = `${relativePath}:${lineIndex + 1}:${match.method}:${match.url}:${match.library}`;
+          if (!match.method || !match.endpoint || !isHighConfidenceUrl(match.endpoint)) continue;
+          const library = match.provider ?? match.sdk ?? match.kind;
+          const key = `${relativePath}:${lineIndex + 1}:${match.method}:${match.endpoint}:${library}`;
           if (dedupe.has(key)) continue;
           dedupe.add(key);
-          uniqueEndpointKeys.add(`${match.method} ${match.url}`);
+          uniqueEndpointKeys.add(`${match.method} ${match.endpoint}`);
           const inLoop = isInsideLoop(lines, lineIndex);
           allCalls.push({
             file: relativePath,
             line: lineIndex + 1,
             method: match.method,
-            url: match.url,
-            library: match.library,
+            url: match.endpoint,
+            library,
+            provider: match.provider,
+            batchCapable: Boolean(match.batchCapable),
+            cacheCapable: Boolean(match.cacheCapable),
+            streaming: Boolean(match.streaming),
             frequency: inLoop ? "per-request" : "daily",
           });
         }
