@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt } from "./scanner/workspace-scanner";
+import {
+  scanWorkspace,
+  detectLocalWastePatterns,
+  readWorkspaceFileExcerpt,
+  countScopedWorkspaceFiles,
+} from "./scanner/workspace-scanner";
 import { createProject, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
 import { buildSystemPrompt } from "./chat/prompts";
 import {
@@ -20,7 +25,9 @@ import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./an
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
-import { lookupMethod } from "./scanner/fingerprints/registry";
+import { buildSnapshot } from "./intelligence/builder";
+import { estimateLocalMonthlyCost } from "./intelligence/cost-utils";
+import { scoreSnapshot } from "./intelligence/scorer";
 import {
   buildKeyStatusSummary,
   getKeyService,
@@ -72,6 +79,27 @@ interface AiReviewInput {
   }>;
 }
 
+export async function collectLocalScanData(
+  onProgress?: (progress: {
+    file: string;
+    index: number;
+    total: number;
+    endpointsSoFar: number;
+  }) => void
+): Promise<{
+  apiCalls: ApiCallInput[];
+  findings: Awaited<ReturnType<typeof detectLocalWastePatterns>>;
+  totalFilesScanned: number;
+}> {
+  const [apiCalls, findings, totalFilesScanned] = await Promise.all([
+    scanWorkspace(onProgress),
+    detectLocalWastePatterns(),
+    countScopedWorkspaceFiles(),
+  ]);
+
+  return { apiCalls, findings, totalFilesScanned };
+}
+
 function normalizeDescription(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -116,87 +144,6 @@ function mapStatusToSuggestionType(status: EndpointRecord["status"]): Suggestion
     default:
       return null;
   }
-}
-
-// Per-call cost estimates in USD. Sources: official pricing pages (2025).
-// Payment processors (Stripe, PayPal, etc.) are percentage-based — costs shown
-// assume a representative $10 avg transaction value.
-// Subscription-based providers (Slack, Discord, HubSpot, etc.) have no per-call
-// fee and are omitted; they fall through to DEFAULT_PER_CALL_COST.
-const LOCAL_PRICING: Record<string, number> = {
-  // AI / ML (~500–750 input tokens per call)
-  openai: 0.00015,       // gpt-4o-mini: $0.15/M input tokens
-  anthropic: 0.00025,    // claude-haiku-4-5: $1.00/M input tokens (~250 tokens)
-  // Payments (per transaction, ~$10 avg; 2.9%+$0.30 style fees)
-  stripe: 0.59,
-  paypal: 0.84,
-  braintree: 0.75,
-  square: 0.59,
-  // Messaging / SMS
-  twilio: 0.0079,        // $0.0079/US SMS segment
-  sendgrid: 0.0009,      // $0.90/1K emails (Essentials)
-  mailgun: 0.0018,       // $2.00/1K emails (Flex)
-  postmark: 0.0015,      // $1.50/1K emails
-  // AWS
-  "aws-s3": 0.0000004,        // $0.0004/1K GET requests
-  "aws-api-gateway": 0.0000035, // $3.50/1M REST API calls
-  "aws-lambda": 0.0000002,     // $0.20/1M invocations
-  // Google Cloud
-  "google-maps": 0.005,        // $5.00/1K geocoding requests
-  "google-translate": 0.010,   // $20/1M chars; ~500 chars/call
-  "google-vision": 0.0015,     // $1.50/1K image annotations
-  "google-speech": 0.006,      // $0.006/15-sec audio chunk
-  firestore: 0.0000003,        // $0.03/100K document reads
-  // Auth / identity (MAU-based; estimated ~300–1000 API calls per active user/month)
-  auth0: 0.00023,
-  okta: 0.00020,
-  // CRM / support
-  salesforce: 0.0025,    // $25/10K API calls (add-on block pricing)
-  // Analytics / monitoring
-  mixpanel: 0.00028,     // $0.28/1K events (Growth plan)
-  segment: 0.00007,      // MTU-based estimate
-  amplitude: 0.00049,    // ~$49/mo per 100K events (Plus plan)
-  datadog: 0.0000017,    // $1.70/1M indexed spans
-  sentry: 0.000363,      // Team PAYG: ~$0.36/1K error events
-  // Search
-  algolia: 0.0005,       // $0.50/1K queries (Grow plan overage)
-  // Media
-  cloudinary: 0.000089,  // ~$0.089/credit; 1 credit = 1K transformations
-  mux: 0.032,            // $0.032/min of live video encoded
-  // Shipping
-  shipengine: 0.020,     // $0.02/label or rate request (Advanced overage)
-  easypost: 0.020,       // $0.02/Rating API call (overage)
-  // Infra (extremely cheap per-request)
-  cloudflare: 0.0000003, // $0.30/1M Workers requests
-  vercel: 0.0000006,     // $0.60/1M function invocations (Pro)
-};
-const DEFAULT_PER_CALL_COST = 0.0001;
-
-function estimateLocalMonthlyCost(provider: string, callsPerDay: number, methodSignature?: string): number {
-  if (methodSignature) {
-    const fingerprint = lookupMethod(provider, methodSignature);
-    if (fingerprint) {
-      if (fingerprint.costModel === "free") return 0;
-      if (fingerprint.costModel === "per_token") {
-        const inputTokens = 500;
-        const outputTokens = 200;
-        const inputCost = (inputTokens / 1_000_000) * (fingerprint.inputPricePer1M ?? 0);
-        const outputCost = (outputTokens / 1_000_000) * (fingerprint.outputPricePer1M ?? 0);
-        return Math.round((inputCost + outputCost) * callsPerDay * 30 * 100) / 100;
-      }
-      if (fingerprint.costModel === "per_transaction") {
-        const txValue = 50;
-        const fee = (fingerprint.fixedFee ?? 0) + txValue * (fingerprint.percentageFee ?? 0);
-        return Math.round(fee * callsPerDay * 30 * 100) / 100;
-      }
-      if (fingerprint.costModel === "per_request") {
-        return Math.round((fingerprint.fixedFee ?? fingerprint.perRequestCostUsd ?? 0.0001) * callsPerDay * 30 * 100) / 100;
-      }
-    }
-  }
-  // Fallback to flat-rate table
-  const perCall = LOCAL_PRICING[provider] ?? DEFAULT_PER_CALL_COST;
-  return Math.round(callsPerDay * perCall * 30 * 100) / 100;
 }
 
 function chooseSeverity(status: EndpointRecord["status"], monthlyCost: number): Suggestion["severity"] {
@@ -373,7 +320,7 @@ function isHighConfidenceEndpointUrl(url: string): boolean {
 }
 
 function shouldSubmitRemote(call: ApiCallInput): boolean {
-  if (!call.library || !OUTBOUND_LIBRARIES.has(call.library)) return false;
+  if (!OUTBOUND_LIBRARIES.has(call.library)) return false;
   return isHighConfidenceEndpointUrl(call.url);
 }
 
@@ -524,7 +471,7 @@ function mergeRemoteAndLocalEndpoints(
           crossFileOrigin: call.crossFileOrigin ?? null,
         }],
         callsPerDay,
-        monthlyCost: estimateLocalMonthlyCost(provider, callsPerDay, call.methodSignature),
+        monthlyCost: estimateLocalMonthlyCost(provider, callsPerDay, call.methodSignature) ?? 0,
         status:
           call.frequency === "per-request"
             ? "n_plus_one_risk"
@@ -854,18 +801,33 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     try {
       this.chatHistory = [];
 
-      const [apiCalls, localWasteFindings] = await Promise.all([
-        scanWorkspace((progress) => {
-          this.postMessage({
-            type: "scanProgress",
-            file: progress.file,
-            index: progress.index,
-            total: progress.total,
-            endpointsSoFar: progress.endpointsSoFar,
-          });
-        }),
-        detectLocalWastePatterns(),
-      ]);
+      const { apiCalls, findings: localWasteFindings, totalFilesScanned } = await collectLocalScanData((progress) => {
+        this.postMessage({
+          type: "scanProgress",
+          file: progress.file,
+          index: progress.index,
+          total: progress.total,
+          endpointsSoFar: progress.endpointsSoFar,
+        });
+      });
+
+      if (process.env.RECOST_INTELLIGENCE_DEBUG === "1") {
+        const snapshot = buildSnapshot({
+          apiCalls,
+          findings: localWasteFindings,
+          totalFilesScanned,
+        });
+        const scored = scoreSnapshot(snapshot);
+        for (const file of scored.scoredFiles.slice(0, 5)) {
+          console.log(
+            `[intelligence] ${file.filePath} | priority=${file.scores.aiReviewPriority.toFixed(2)} | ` +
+              `importance=${file.scores.importance.toFixed(2)} | ` +
+              `costLeak=${file.scores.costLeak.toFixed(2)} | ` +
+              `reliabilityRisk=${file.scores.reliabilityRisk.toFixed(2)} | ` +
+              `reasons=${file.reasons.join("; ")}`
+          );
+        }
+      }
 
       this.postMessage({ type: "scanComplete" });
 

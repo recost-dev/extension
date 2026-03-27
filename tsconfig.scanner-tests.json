@@ -4,6 +4,6 @@
     "rootDir": "src",
     "outDir": "dist-test"
   },
-  "include": ["src/scanner/**/*", "src/ast/**/*", "src/test/**/*"],
+  "include": ["src/scanner/**/*", "src/ast/**/*", "src/intelligence/**/*", "src/test/**/*"],
   "exclude": ["node_modules", "dist", "webview", "dashboard", "dashboard-dist"]
 }

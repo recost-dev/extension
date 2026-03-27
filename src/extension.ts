@@ -1,7 +1,12 @@
 import * as vscode from "vscode";
-import { EcoSidebarProvider } from "./webview-provider";
+import { EcoSidebarProvider, collectLocalScanData } from "./webview-provider";
 import { validateApiKey } from "./api-client";
 import { syncPricingFromBackend } from "./scanner/fingerprints/registry";
+import { buildSnapshot } from "./intelligence/builder";
+import { scoreSnapshot } from "./intelligence/scorer";
+import { buildReviewClusters } from "./intelligence/clusters";
+import { compressClusters } from "./intelligence/compression";
+import { buildExportContext, formatAsMarkdown } from "./intelligence/export";
 
 const ECO_API_KEY = "recost.apiKey";
 const GET_KEY_URL = "https://recost.dev/dashboard/account";
@@ -78,6 +83,49 @@ export function activate(context: vscode.ExtensionContext) {
     provider.openKeys();
   });
 
+  const generateContextCommand = vscode.commands.registerCommand("recost.generateContext", async () => {
+    try {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      const { apiCalls, findings, totalFilesScanned } = await collectLocalScanData();
+      console.info(
+        `ReCost context scan collected ${apiCalls.length} apiCalls, ${findings.length} findings, and scanned ${totalFilesScanned} files`
+      );
+      const snapshot = buildSnapshot({
+        apiCalls,
+        findings,
+        repoRoot: workspaceFolder?.uri.fsPath,
+        totalFilesScanned,
+      });
+      const scored = scoreSnapshot(snapshot);
+      const reviewClusters = buildReviewClusters(scored);
+      const compressedClusters = compressClusters(reviewClusters, snapshot);
+      const generatorVersion = String(context.extension.packageJSON.version ?? "");
+      const exportContext = buildExportContext(compressedClusters, snapshot, scored, {
+        generatorVersion: generatorVersion || undefined,
+      });
+      const markdown = formatAsMarkdown(exportContext);
+
+      await vscode.env.clipboard.writeText(markdown);
+
+      if (!workspaceFolder) {
+        vscode.window.showInformationMessage("ReCost context generated: copied to clipboard");
+        return;
+      }
+
+      const outputUri = vscode.Uri.joinPath(workspaceFolder.uri, ".recost-context.md");
+      const bytes = new TextEncoder().encode(markdown);
+      await vscode.workspace.fs.writeFile(outputUri, bytes);
+      vscode.window.showInformationMessage(
+        "ReCost context generated: copied to clipboard and saved to .recost-context.md"
+      );
+
+      // TODO: Add a parallel JSON export command if/when we expose formatAsJSON.
+    } catch (err: unknown) {
+      console.error("ReCost failed to generate context", err);
+      vscode.window.showErrorMessage("ReCost failed to generate context");
+    }
+  });
+
   // Re-validate status bar whenever the ReCost API key changes in SecretStorage
   context.subscriptions.push(
     context.secrets.onDidChange(async (event) => {
@@ -90,7 +138,14 @@ export function activate(context: vscode.ExtensionContext) {
   const statusOnlineCommand = vscode.commands.registerCommand("recost.statusOnline", () => {});
   const statusLocalCommand = vscode.commands.registerCommand("recost.statusLocal", () => {});
 
-  context.subscriptions.push(openPanelCommand, scanCommand, openKeysCommand, statusOnlineCommand, statusLocalCommand);
+  context.subscriptions.push(
+    openPanelCommand,
+    scanCommand,
+    openKeysCommand,
+    generateContextCommand,
+    statusOnlineCommand,
+    statusLocalCommand
+  );
 
   // Pricing sync: fire-and-forget on startup, then repeat on a configurable interval
   const syncPricing = () => {

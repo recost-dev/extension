@@ -6,6 +6,7 @@ export interface ScanProgress {
     total: number;
     endpointsSoFar: number;
 }
+export declare function countScopedWorkspaceFiles(): Promise<number>;
 export declare function readWorkspaceFileExcerpt(relativePath: string, options?: {
     centerLine?: number;
     contextLines?: number;
