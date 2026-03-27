@@ -11,6 +11,8 @@ import {
 } from "./core-scanner";
 import { discoverFilesInDirectory, parseCsvGlobs } from "./file-discovery";
 
+export type { ScanProgress };
+
 async function readUriText(uri: vscode.Uri): Promise<string> {
   const openDoc = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === uri.toString());
   if (openDoc) {
@@ -39,9 +41,10 @@ async function findScopedFiles(config: vscode.WorkspaceConfiguration): Promise<S
   const scopedInclude = parseCsvGlobs(config.get<string>("scanIncludeGlobs", ""));
   const configuredExclude = config.get<string>(
     "excludeGlob",
-    "**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**"
+    "**/node_modules/**,**/dist/**,**/dist-test/**,**/build/**,**/.git/**,**/.next/**,**/vendor/**"
   );
-  const hardExcludeGlob = "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
+  const hardExcludeGlob =
+    "**/node_modules/**,**/docs/**,**/examples/**,**/dist/**,**/dist-test/**,**/build/**,**/coverage/**,**/.git/**,**/.next/**,**/vendor/**,**/venv/**,**/.venv/**,**/__pycache__/**";
   const includePatterns = scopedInclude.length > 0 ? scopedInclude : [includeGlob];
   const excludePatterns = parseCsvGlobs(configuredExclude ? `${configuredExclude},${hardExcludeGlob}` : hardExcludeGlob);
   const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
@@ -63,6 +66,10 @@ async function findScopedFiles(config: vscode.WorkspaceConfiguration): Promise<S
   }
 
   return Array.from(fileByPath.values()).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+export async function countScopedWorkspaceFiles(): Promise<number> {
+  return (await getWorkspaceScanFiles()).length;
 }
 
 export async function readWorkspaceFileExcerpt(

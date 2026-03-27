@@ -389,6 +389,26 @@ async function run(name: string, fn: () => Promise<void>): Promise<void> {
       "must detect stripe call"
     );
   });
+
+  await run("ignores local imports and node builtins that only look provider-like", async () => {
+    const src = `
+      import fs from 'node:fs';
+      import path from 'node:path';
+      import { strict as assert } from 'node:assert';
+      import { findProvider } from './providers';
+
+      export function load(id: string) {
+        assert.ok(id);
+        path.join('a', 'b');
+        fs.readFileSync('x');
+        return findProvider(id)?.provider;
+      }
+    `;
+    const { matches } = await scan(src, "typescript", "/project/src/index.ts", {
+      "/project/src/providers.ts": "export function findProvider(id: string) { return id; }",
+    });
+    assert.equal(matches.length, 0, "local imports and node builtins must not surface as SDK providers");
+  });
 })().catch((err: unknown) => {
   console.error(err);
   process.exit(1);

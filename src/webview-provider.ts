@@ -2,7 +2,13 @@ import * as vscode from "vscode";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt, getWorkspaceScanFiles } from "./scanner/workspace-scanner";
+import {
+  scanWorkspace,
+  detectLocalWastePatterns,
+  readWorkspaceFileExcerpt,
+  countScopedWorkspaceFiles,
+  getWorkspaceScanFiles,
+} from "./scanner/workspace-scanner";
 import { createProject, findProjectByName, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
 import { buildSystemPrompt } from "./chat/prompts";
 import {
@@ -22,6 +28,8 @@ import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./an
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
+import { buildSnapshot } from "./intelligence/builder";
+import { scoreSnapshot } from "./intelligence/scorer";
 import { lookupMethod } from "./scanner/fingerprints/registry";
 import {
   buildKeyFingerprint,
@@ -76,50 +84,24 @@ interface AiReviewInput {
   }>;
 }
 
-function normalizeDescription(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-}
+export async function collectLocalScanData(
+  onProgress?: (progress: {
+    file: string;
+    fileIndex: number;
+    fileTotal: number;
+  }) => void
+): Promise<{
+  apiCalls: ApiCallInput[];
+  findings: Awaited<ReturnType<typeof detectLocalWastePatterns>>;
+  totalFilesScanned: number;
+}> {
+  const [apiCalls, findings, totalFilesScanned] = await Promise.all([
+    scanWorkspace(onProgress),
+    detectLocalWastePatterns(),
+    countScopedWorkspaceFiles(),
+  ]);
 
-function trimText(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max)}...`;
-}
-
-function clampConfidence(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
-
-function estimateAiSavings(type: Suggestion["type"], severity: Suggestion["severity"], baseline: number): number {
-  const baseMultiplier =
-    type === "redundancy" ? 0.35 :
-    type === "n_plus_one" ? 0.3 :
-    type === "cache" ? 0.2 :
-    type === "batch" ? 0.18 :
-    0.12;
-  const severityMultiplier =
-    severity === "high" ? 1 :
-    severity === "medium" ? 0.75 :
-    0.5;
-  return Number((baseline * baseMultiplier * severityMultiplier).toFixed(2));
-}
-
-function mapStatusToSuggestionType(status: EndpointRecord["status"]): Suggestion["type"] | null {
-  switch (status) {
-    case "cacheable":
-      return "cache";
-    case "batchable":
-      return "batch";
-    case "redundant":
-      return "redundancy";
-    case "n_plus_one_risk":
-      return "n_plus_one";
-    case "rate_limit_risk":
-      return "rate_limit";
-    default:
-      return null;
-  }
+  return { apiCalls, findings, totalFilesScanned };
 }
 
 // Per-call cost estimates in USD. Sources: official pricing pages (2025).
@@ -198,9 +180,54 @@ function estimateLocalMonthlyCost(provider: string, callsPerDay: number, methodS
       }
     }
   }
-  // Fallback to flat-rate table
   const perCall = LOCAL_PRICING[provider] ?? DEFAULT_PER_CALL_COST;
   return Math.round(callsPerDay * perCall * 30 * 100) / 100;
+}
+
+function normalizeDescription(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function trimText(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max)}...`;
+}
+
+function clampConfidence(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function estimateAiSavings(type: Suggestion["type"], severity: Suggestion["severity"], baseline: number): number {
+  const baseMultiplier =
+    type === "redundancy" ? 0.35 :
+    type === "n_plus_one" ? 0.3 :
+    type === "cache" ? 0.2 :
+    type === "batch" ? 0.18 :
+    0.12;
+  const severityMultiplier =
+    severity === "high" ? 1 :
+    severity === "medium" ? 0.75 :
+    0.5;
+  return Number((baseline * baseMultiplier * severityMultiplier).toFixed(2));
+}
+
+function mapStatusToSuggestionType(status: EndpointRecord["status"]): Suggestion["type"] | null {
+  switch (status) {
+    case "cacheable":
+      return "cache";
+    case "batchable":
+      return "batch";
+    case "redundant":
+      return "redundancy";
+    case "n_plus_one_risk":
+      return "n_plus_one";
+    case "rate_limit_risk":
+      return "rate_limit";
+    default:
+      return null;
+  }
 }
 
 function chooseSeverity(status: EndpointRecord["status"], monthlyCost: number): Suggestion["severity"] {
@@ -377,7 +404,7 @@ function isHighConfidenceEndpointUrl(url: string): boolean {
 }
 
 function shouldSubmitRemote(call: ApiCallInput): boolean {
-  if (!call.library || !OUTBOUND_LIBRARIES.has(call.library)) return false;
+  if (!OUTBOUND_LIBRARIES.has(call.library)) return false;
   return isHighConfidenceEndpointUrl(call.url);
 }
 
@@ -906,7 +933,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       this.chatHistory = [];
       const scannedFiles = (await getWorkspaceScanFiles()).map((file) => file.relativePath);
 
-      const apiCalls = await scanWorkspace((progress) => {
+      const { apiCalls, findings: localWasteFindings, totalFilesScanned } = await collectLocalScanData((progress) => {
         this.postMessage({
           type: "scanProgress",
           stage: "scanning",
@@ -918,8 +945,25 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
       this.postMessage({ type: "scanProgress", stage: "analyzing" });
       this.postMessage({ type: "scanProgress", stage: "detecting" });
-      const localWasteFindings = await detectLocalWastePatterns();
       this.postMessage({ type: "scanProgress", stage: "resolving" });
+
+      if (process.env.RECOST_INTELLIGENCE_DEBUG === "1") {
+        const snapshot = buildSnapshot({
+          apiCalls,
+          findings: localWasteFindings,
+          totalFilesScanned,
+        });
+        const scored = scoreSnapshot(snapshot);
+        for (const file of scored.scoredFiles.slice(0, 5)) {
+          console.log(
+            `[intelligence] ${file.filePath} | priority=${file.scores.aiReviewPriority.toFixed(2)} | ` +
+              `importance=${file.scores.importance.toFixed(2)} | ` +
+              `costLeak=${file.scores.costLeak.toFixed(2)} | ` +
+              `reliabilityRisk=${file.scores.reliabilityRisk.toFixed(2)} | ` +
+              `reasons=${file.reasons.join("; ")}`
+          );
+        }
+      }
 
       this.postMessage({ type: "scanComplete" });
 
