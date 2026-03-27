@@ -95,7 +95,7 @@ dashboard-dist/           # Built dashboard (output of npm run build:dashboard)
 scripts/
   build-vsix.sh           # Build & package as .vsix (run in bash)
   start-extension.sh      # Full dev setup (install + build + open VSCode)
-esbuild.mjs               # esbuild config for extension + webview
+esbuild.mjs               # esbuild config for extension + webview; also copies web-tree-sitter into dist/node_modules/ at build time
 package.json
 tsconfig.json
 ```
@@ -159,7 +159,7 @@ Then press **F5** in VSCode to launch the Extension Development Host.
 
 The AST layer (`src/ast/`) uses web-tree-sitter (WASM) to parse JS/TS/Python source files:
 
-- **`parser-loader.ts`**: Loads WASM grammars from `assets/parsers/` relative to `dist/` (esbuild output). Path is `path.join(__dirname, "..", "assets", "parsers")`.
+- **`parser-loader.ts`**: Loads WASM grammars from `assets/parsers/` relative to `dist/` (esbuild output). Path is `path.join(__dirname, "..", "assets", "parsers")`. Uses a lazy `require()` in a try/catch at module init — if `web-tree-sitter` is not resolvable the module does not crash; `_Parser`/`_Language` are null and `ensureInitialized()` throws, causing the scanner to fall back to regex patterns.
 - **`scanner.ts`**: Walks the AST to find API call sites, emitting `EndpointRecord` with enriched fields
 - **`frequency-analyzer.ts`**: Classifies each call site by surrounding AST context — loop types, timers, conditionals, cache guards
 - **`cross-file-resolver.ts`**: Follows import chains to resolve helper function calls back to their original HTTP call site
@@ -182,8 +182,9 @@ Two separate key systems coexist:
 - Stored in `context.secrets` under `"eco.ecoApiKey"`
 - Must begin with `rc-` prefix — validated before storing
 - `validateRcApiKey()` in `api-client.ts` calls `GET /auth/me` with `Authorization: Bearer <key>`; returns `null` on 404 (dev mode), throws on 401 (invalid) or network error
-- Status bar item reflects auth state; clicking it runs `eco.changeApiKey`
+- Status bar item reflects auth state with color: green (`testing.iconPassed`) when connected, `statusBarItem.warningForeground` when unreachable, no color when unconfigured; clicking it runs `eco.changeApiKey`
 - `context.secrets.onDidChange` listener keeps status bar live without reload
+- After key validation in the webview (`serviceId === "ecoapi"`), `recost.keyOnline` context is also updated so the status bar stays in sync
 
 **Chat provider keys** (OpenAI, Anthropic, etc.) — managed in `webview-provider.ts` + `chat/provider-registry.ts`:
 - Stored per-provider in `context.secrets` under provider-specific keys (e.g., `eco.providerApiKey.openai`)
@@ -196,6 +197,8 @@ Two separate key systems coexist:
 - `webview-provider.ts` contains a hard-coded per-call cost table for 40+ providers (OpenAI, Anthropic, Stripe, AWS, Google, Twilio, SendGrid, etc.)
 - Suggestion savings are estimated using base multipliers by type (redundancy 0.35, n_plus_one 0.3, cache 0.2, batch 0.18, default 0.12) × severity multiplier (high 1.0, medium 0.75, low 0.5)
 - Suggestions can have `source: "local-rule"` (from local waste detection) or `source: "remote"` (from API)
+- `getAllEndpoints()` and `getAllSuggestions()` in `api-client.ts` accept an explicit `rcApiKey` parameter that is passed through to `apiFetch()` — the key is no longer implicitly read from a module-level variable at call time
+- Before submitting to the remote API, `webview-provider.ts` guards null/undefined `library` in `shouldSubmitRemote()`, fills missing `provider` via URL-based detection (`detectEndpointProvider`), and drops calls where provider is still `"unknown"`
 
 ### Cost Simulator
 

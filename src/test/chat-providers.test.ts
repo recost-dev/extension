@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { ChatAdapterError } from "../chat/errors";
 import { executeChat, getProviderAdapter, listProviderAdapters, resolveProviderAuth } from "../chat";
-import { buildKeyStatusSummary, listKeyServices, maskKeyPreview } from "../key-management";
+import { buildKeyFingerprint, buildKeyStatusSummary, listKeyServices, maskKeyPreview, resolveCurrentKeyValue } from "../key-management";
 
 function test(name: string, fn: () => void | Promise<void>): void {
   Promise.resolve()
@@ -190,7 +190,6 @@ test("key status summary reports valid when matching validation snapshot is pres
   assert.equal(summary.source, "secret");
   assert.equal(summary.state, "valid");
 });
-
 
 test("maskKeyPreview returns stable preview", () => {
   assert.equal(maskKeyPreview("abc12345"), "abc123••••••••••");

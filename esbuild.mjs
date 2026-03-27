@@ -5,9 +5,12 @@ import * as path from "path";
 const watch = process.argv.includes("--watch");
 
 const buildOptions = {
-  entryPoints: ["src/extension.ts"],
+  entryPoints: {
+    extension: "src/extension.ts",
+    "cli/scan": "src/cli/scan.ts",
+  },
   bundle: true,
-  outfile: "dist/extension.js",
+  outdir: "dist",
   external: ["vscode", "web-tree-sitter"],
   format: "cjs",
   platform: "node",
@@ -26,13 +29,23 @@ function copyWebTreeSitter() {
   fs.cpSync(src, dst, { recursive: true });
 }
 
+function copyParserAssets() {
+  const src = path.resolve("assets/parsers");
+  const dst = path.resolve("dist/assets/parsers");
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dst, { recursive: true });
+  fs.cpSync(src, dst, { recursive: true });
+}
+
 if (watch) {
   const ctx = await esbuild.context(buildOptions);
   await ctx.watch();
   copyWebTreeSitter();
+  copyParserAssets();
   console.log("Watching for changes...");
 } else {
   await esbuild.build(buildOptions);
   copyWebTreeSitter();
+  copyParserAssets();
   console.log("Extension built successfully.");
 }

@@ -66,6 +66,11 @@
         "icon": "$(search)"
       },
       {
+        "command": "recost.scanningIndicator",
+        "title": "ReCost: Scanning...",
+        "icon": "$(loading~spin)"
+      },
+      {
         "command": "recost.openKeys",
         "title": "ReCost: Manage API Keys",
         "icon": "$(key)"
@@ -80,22 +85,27 @@
         {
           "command": "recost.statusOnline",
           "when": "view == recost.sidebarView && recost.keyOnline",
-          "group": "navigation"
+          "group": "navigation@0"
         },
         {
           "command": "recost.statusLocal",
           "when": "view == recost.sidebarView && !recost.keyOnline",
-          "group": "navigation"
+          "group": "navigation@0"
         },
         {
           "command": "recost.openKeys",
           "when": "view == recost.sidebarView",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "recost.scanWorkspace",
-          "when": "view == recost.sidebarView",
-          "group": "navigation"
+          "when": "view == recost.sidebarView && !recost.scanning",
+          "group": "navigation@2"
+        },
+        {
+          "command": "recost.scanningIndicator",
+          "when": "view == recost.sidebarView && recost.scanning",
+          "group": "navigation@2"
         }
       ]
     },
@@ -161,6 +171,7 @@
   "scripts": {
     "build": "npm run build:dashboard && npm run build:webview && npm run build:ext",
     "build:ext": "node esbuild.mjs",
+    "scan:cli": "node dist/cli/scan.js",
     "build:webview": "cd webview && npm run build",
     "build:dashboard": "cd dashboard && npm run build && rm -rf ../dashboard-dist && cp -r dist ../dashboard-dist",
     "test": "npm run test:scanner",
