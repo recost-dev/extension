@@ -95,11 +95,12 @@ export async function collectLocalScanData(
   findings: Awaited<ReturnType<typeof detectLocalWastePatterns>>;
   totalFilesScanned: number;
 }> {
-  const [apiCalls, findings, totalFilesScanned] = await Promise.all([
-    scanWorkspace(onProgress),
-    detectLocalWastePatterns(),
-    countScopedWorkspaceFiles(),
-  ]);
+  // Run sequentially: scanWorkspace initializes the AST parser (web-tree-sitter WASM)
+  // first, so detectLocalWastePatterns can reuse the already-initialized parser
+  // without racing on grammar loading — critical for VSIX where node_modules is absent.
+  const apiCalls = await scanWorkspace(onProgress);
+  const findings = await detectLocalWastePatterns();
+  const totalFilesScanned = await countScopedWorkspaceFiles();
 
   return { apiCalls, findings, totalFilesScanned };
 }
@@ -404,7 +405,7 @@ function isHighConfidenceEndpointUrl(url: string): boolean {
 }
 
 function shouldSubmitRemote(call: ApiCallInput): boolean {
-  if (!OUTBOUND_LIBRARIES.has(call.library)) return false;
+  if (!call.library || !OUTBOUND_LIBRARIES.has(call.library)) return false;
   return isHighConfidenceEndpointUrl(call.url);
 }
 
@@ -933,7 +934,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       this.chatHistory = [];
       const scannedFiles = (await getWorkspaceScanFiles()).map((file) => file.relativePath);
 
-      const { apiCalls, findings: localWasteFindings, totalFilesScanned } = await collectLocalScanData((progress) => {
+      const apiCalls = await scanWorkspace((progress) => {
         this.postMessage({
           type: "scanProgress",
           stage: "scanning",
@@ -945,9 +946,11 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
       this.postMessage({ type: "scanProgress", stage: "analyzing" });
       this.postMessage({ type: "scanProgress", stage: "detecting" });
+      const localWasteFindings = await detectLocalWastePatterns();
       this.postMessage({ type: "scanProgress", stage: "resolving" });
 
       if (process.env.RECOST_INTELLIGENCE_DEBUG === "1") {
+        const totalFilesScanned = await countScopedWorkspaceFiles();
         const snapshot = buildSnapshot({
           apiCalls,
           findings: localWasteFindings,
