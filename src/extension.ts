@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { EcoSidebarProvider, collectLocalScanData } from "./webview-provider";
+import { ReCostSidebarProvider, collectLocalScanData } from "./webview-provider";
 import { validateApiKey } from "./api-client";
 import { syncPricingFromBackend } from "./scanner/fingerprints/registry";
 import { buildSnapshot } from "./intelligence/builder";
@@ -141,10 +141,10 @@ export function activate(context: vscode.ExtensionContext) {
   vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
   vscode.commands.executeCommand("setContext", "recost.scanning", false);
 
-  const provider = new EcoSidebarProvider(context);
+  const provider = new ReCostSidebarProvider(context);
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(EcoSidebarProvider.viewType, provider, {
+    vscode.window.registerWebviewViewProvider(ReCostSidebarProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     })
   );

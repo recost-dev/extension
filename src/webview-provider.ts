@@ -615,7 +615,7 @@ function mergeRemoteAndLocalEndpoints(
   return [...merged, ...syntheticByMethodUrl.values()];
 }
 
-export class EcoSidebarProvider implements vscode.WebviewViewProvider {
+export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "recost.sidebarView";
   private static readonly KEY_VALIDATION_STATE_STORAGE_KEY = "recost.keyValidationState";
 
@@ -1656,7 +1656,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   private restoreKeyValidationState() {
     const stored =
       this.context.globalState.get<Partial<Record<KeyServiceId, PersistedKeyValidationSnapshot>>>(
-        EcoSidebarProvider.KEY_VALIDATION_STATE_STORAGE_KEY
+        ReCostSidebarProvider.KEY_VALIDATION_STATE_STORAGE_KEY
       ) ?? {};
     for (const [serviceId, snapshot] of Object.entries(stored) as [KeyServiceId, PersistedKeyValidationSnapshot | undefined][]) {
       if (snapshot) {
@@ -1667,7 +1667,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
   private async persistKeyValidationState() {
     await this.context.globalState.update(
-      EcoSidebarProvider.KEY_VALIDATION_STATE_STORAGE_KEY,
+      ReCostSidebarProvider.KEY_VALIDATION_STATE_STORAGE_KEY,
       Object.fromEntries(this.keyValidationState.entries())
     );
   }
