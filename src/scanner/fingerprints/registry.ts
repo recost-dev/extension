@@ -1,6 +1,8 @@
 import type { CostModel, MethodFingerprint } from "./types";
 import { ALL_PROVIDERS, HOST_MAP_PROVIDERS } from "./index";
 
+const DEBUG_BUNDLE_LOGS = process.env.RECOST_DEBUG_SCAN === "1";
+
 // ── Index structures built once at module load ────────────────────────────────
 
 /** provider (lowercase) → pattern → MethodFingerprint */
@@ -42,6 +44,22 @@ for (const fp of HOST_MAP_PROVIDERS) {
     } else {
       exactHostIndex.set(h.pattern.toLowerCase(), resolvedProvider);
     }
+  }
+}
+
+// ── Startup diagnostic ────────────────────────────────────────────────────────
+
+{
+  let methodCount = 0;
+  for (const methods of methodIndex.values()) methodCount += methods.size;
+  if (DEBUG_BUNDLE_LOGS) {
+    console.log(
+      "[BUNDLE] Registry loaded:",
+      methodIndex.size, "providers,",
+      methodCount, "methods,",
+      exactHostIndex.size, "exact hosts,",
+      regexHostIndex.length, "regex hosts"
+    );
   }
 }
 

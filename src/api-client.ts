@@ -32,6 +32,16 @@ export async function createProject(name: string, rcApiKey?: string): Promise<st
   return data.id;
 }
 
+export async function findProjectByName(name: string, rcApiKey?: string): Promise<string | null> {
+  const encoded = encodeURIComponent(name);
+  const { data } = await apiFetch<{ data: { id: string; name: string }[] }>(
+    `/projects?name=${encoded}&limit=1`,
+    undefined,
+    rcApiKey
+  );
+  return data[0]?.id ?? null;
+}
+
 export async function validateRcApiKey(rcApiKey: string): Promise<void> {
   if (!rcApiKey.startsWith("rc-")) {
     const err = new Error("Invalid ReCost API key — keys must start with rc-") as Error & { status: number };

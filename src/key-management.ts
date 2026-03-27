@@ -2,6 +2,7 @@ import { executeChat, getProviderAdapter, listProviderAdapters, type ChatProvide
 import { ChatAdapterError } from "./chat/errors";
 import type { KeyServiceId, KeyStatusSource, KeyStatusState, KeyStatusSummary } from "./messages";
 import { validateRcApiKey } from "./api-client";
+import { createHash } from "crypto";
 
 export interface KeyValidationSnapshot {
   state: Extract<KeyStatusState, "valid" | "invalid">;
@@ -9,10 +10,14 @@ export interface KeyValidationSnapshot {
   lastCheckedAt: string;
 }
 
+export interface PersistedKeyValidationSnapshot extends KeyValidationSnapshot {
+  keyFingerprint: string;
+}
+
 export interface KeyServiceDescriptor {
   serviceId: KeyServiceId;
   displayName: string;
-  kind: "ecoapi" | "provider";
+  kind: "recost" | "provider";
   providerId?: ChatProviderId;
   envKeyName?: string;
   secretStorageKey?: string;
@@ -20,9 +25,9 @@ export interface KeyServiceDescriptor {
 }
 
 const ECOAPI_SERVICE: KeyServiceDescriptor = {
-  serviceId: "ecoapi",
+  serviceId: "recost",
   displayName: "ReCost",
-  kind: "ecoapi",
+  kind: "recost",
   secretStorageKey: "recost.apiKey",
   supportsTest: true,
 };
@@ -77,10 +82,23 @@ export async function readStoredSecret(
   return undefined;
 }
 
+export async function resolveCurrentKeyValue(
+  service: KeyServiceDescriptor,
+  secrets: { get(key: string): Thenable<string | undefined> | Promise<string | undefined> }
+): Promise<string | undefined> {
+  const envValue = service.envKeyName ? process.env[service.envKeyName]?.trim() : undefined;
+  if (envValue) return envValue;
+  return readStoredSecret(service, secrets);
+}
+
+export function buildKeyFingerprint(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 export async function buildKeyStatusSummary(
   service: KeyServiceDescriptor,
   secrets: { get(key: string): Thenable<string | undefined> | Promise<string | undefined> },
-  validationState?: KeyValidationSnapshot
+  validationState?: KeyValidationSnapshot | PersistedKeyValidationSnapshot
 ): Promise<KeyStatusSummary> {
   const envValue = service.envKeyName ? process.env[service.envKeyName]?.trim() : undefined;
   const storedValue = await readStoredSecret(service, secrets);
@@ -106,7 +124,7 @@ export async function validateServiceKey(
 ): Promise<KeyValidationSnapshot> {
   const lastCheckedAt = new Date().toISOString();
   try {
-    if (service.kind === "ecoapi") {
+    if (service.kind === "recost") {
       await validateRcApiKey(apiKey);
       return { state: "valid", lastCheckedAt };
     }
@@ -139,7 +157,7 @@ export async function validateServiceKey(
     if (error instanceof ChatAdapterError && error.code === "bad_auth") {
       return { state: "invalid", message: error.message, lastCheckedAt };
     }
-    if (error instanceof Error && service.kind === "ecoapi" && /401|403|unauth|invalid/i.test(error.message)) {
+    if (error instanceof Error && service.kind === "recost" && /401|403|unauth|invalid/i.test(error.message)) {
       return { state: "invalid", message: error.message, lastCheckedAt };
     }
     throw error;

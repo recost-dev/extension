@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
+import * as fs from "fs/promises";
+import * as os from "os";
 import * as path from "path";
-import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt } from "./scanner/workspace-scanner";
-import { createProject, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
+import { scanWorkspace, detectLocalWastePatterns, readWorkspaceFileExcerpt, getWorkspaceScanFiles } from "./scanner/workspace-scanner";
+import { createProject, findProjectByName, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
 import { buildSystemPrompt } from "./chat/prompts";
 import {
   buildProviderOptions,
@@ -22,13 +24,15 @@ import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
 import { lookupMethod } from "./scanner/fingerprints/registry";
 import {
+  buildKeyFingerprint,
   buildKeyStatusSummary,
   getKeyService,
   listKeyServices,
   maskKeyPreview,
   readStoredSecret,
+  resolveCurrentKeyValue,
   validateServiceKey,
-  type KeyValidationSnapshot,
+  type PersistedKeyValidationSnapshot,
 } from "./key-management";
 
 interface ChatMessage {
@@ -585,6 +589,7 @@ function mergeRemoteAndLocalEndpoints(
 
 export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "recost.sidebarView";
+  private static readonly KEY_VALIDATION_STATE_STORAGE_KEY = "recost.keyValidationState";
 
   private _view?: vscode.WebviewView;
   private readonly context: vscode.ExtensionContext;
@@ -604,13 +609,57 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   // Chat state
   private chatHistory: ChatMessage[] = [];
   private readonly outputChannel: vscode.OutputChannel;
-  private readonly keyValidationState = new Map<KeyServiceId, KeyValidationSnapshot>();
+  private readonly keyValidationState = new Map<KeyServiceId, PersistedKeyValidationSnapshot>();
+
+  private getDebugScanExportPath(): string {
+    const workspaceName = this.getWorkspaceName().replace(/[^a-zA-Z0-9._-]/g, "_");
+    return path.join(os.tmpdir(), `recost-extension-scan-results-${workspaceName}.json`);
+  }
+
+  private async exportDebugScanResults(payload: {
+    mode: "local-only" | "remote-enriched";
+    scannedFiles: string[];
+    local: {
+      apiCalls: ApiCallInput[];
+      localWasteFindings: Awaited<ReturnType<typeof detectLocalWastePatterns>>;
+      submittedRemoteApiCalls: ApiCallInput[];
+    };
+    remote: null | {
+      projectId: string;
+      scanId: string;
+      endpoints: EndpointRecord[];
+      suggestions: Suggestion[];
+      summary: ScanSummary;
+    };
+    final: {
+      projectId: string;
+      scanId: string;
+      endpoints: EndpointRecord[];
+      suggestions: Suggestion[];
+      summary: ScanSummary;
+    };
+  }): Promise<void> {
+    const exportPath = this.getDebugScanExportPath();
+    const body = {
+      exportedAt: new Date().toISOString(),
+      workspaceName: this.getWorkspaceName(),
+      exportPath,
+      ...payload,
+    };
+    try {
+      await fs.writeFile(exportPath, JSON.stringify(body, null, 2), "utf-8");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.outputChannel.appendLine(`[debug-export] Failed to write ${exportPath}: ${message}`);
+    }
+  }
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
     this.outputChannel = vscode.window.createOutputChannel("ReCost AI Review");
     this.context.subscriptions.push(this.outputChannel);
     this.savedScenarios = (this.context.globalState.get<import("./simulator/types").SavedScenario[]>("recost.simulatorScenarios")) ?? [];
+    this.restoreKeyValidationState();
   }
 
   resolveWebviewView(
@@ -692,7 +741,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     const services = listKeyServices();
     return Promise.all(
       services.map((service) =>
-        buildKeyStatusSummary(service, this.context.secrets, this.keyValidationState.get(service.serviceId))
+        this.buildKeyStatus(service)
       )
     );
   }
@@ -703,7 +752,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
 
   private async sendKeyStatusUpdate(serviceId: KeyServiceId, focusServiceId?: KeyServiceId) {
     const service = getKeyService(serviceId);
-    const status = await buildKeyStatusSummary(service, this.context.secrets, this.keyValidationState.get(serviceId));
+    const status = await this.buildKeyStatus(service);
     this.postMessage({ type: "keyStatusUpdated", status, focusServiceId });
   }
 
@@ -715,7 +764,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     if (serviceId === "openai") {
       await this.context.secrets.delete("recost.openaiApiKey");
     }
-    this.keyValidationState.delete(serviceId);
+    await this.clearValidationState(serviceId);
     await this.sendKeyStatusUpdate(serviceId);
   }
 
@@ -738,14 +787,14 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     if (serviceId === "openai") {
       await this.context.secrets.store("recost.openaiApiKey", trimmed);
     }
-    this.keyValidationState.delete(serviceId);
+    await this.clearValidationState(serviceId);
     await this.sendKeyStatusUpdate(serviceId);
     await this.testServiceKey(serviceId);
   }
 
   private async testServiceKey(serviceId: KeyServiceId) {
     const service = getKeyService(serviceId);
-    const current = await buildKeyStatusSummary(service, this.context.secrets, this.keyValidationState.get(serviceId));
+    const current = await this.buildKeyStatus(service);
     if (current.source === "missing") {
       this.postMessage({ type: "keyActionError", serviceId, message: `${service.displayName} key is missing.` });
       return;
@@ -756,17 +805,18 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       focusServiceId: serviceId,
     });
     try {
-      const envValue = service.envKeyName ? process.env[service.envKeyName]?.trim() : undefined;
-      const storedValue = await readStoredSecret(service, this.context.secrets);
-      const value = envValue ?? storedValue;
+      const value = await resolveCurrentKeyValue(service, this.context.secrets);
       if (!value) {
         this.postMessage({ type: "keyActionError", serviceId, message: `${service.displayName} key is missing.` });
         return;
       }
       const validation = await validateServiceKey(service, value);
-      this.keyValidationState.set(serviceId, validation);
+      await this.setValidationState(serviceId, {
+        ...validation,
+        keyFingerprint: buildKeyFingerprint(value),
+      });
       await this.sendKeyStatusUpdate(serviceId, serviceId);
-      if (serviceId === "ecoapi") {
+      if (serviceId === "recost") {
         await vscode.commands.executeCommand("setContext", "recost.keyOnline", validation.state === "valid");
       }
     } catch (error) {
@@ -851,21 +901,25 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async handleStartScan() {
+    await vscode.commands.executeCommand("setContext", "recost.scanning", true);
     try {
       this.chatHistory = [];
+      const scannedFiles = (await getWorkspaceScanFiles()).map((file) => file.relativePath);
 
-      const [apiCalls, localWasteFindings] = await Promise.all([
-        scanWorkspace((progress) => {
-          this.postMessage({
-            type: "scanProgress",
-            file: progress.file,
-            index: progress.index,
-            total: progress.total,
-            endpointsSoFar: progress.endpointsSoFar,
-          });
-        }),
-        detectLocalWastePatterns(),
-      ]);
+      const apiCalls = await scanWorkspace((progress) => {
+        this.postMessage({
+          type: "scanProgress",
+          stage: "scanning",
+          file: progress.file,
+          fileIndex: progress.fileIndex,
+          fileTotal: progress.fileTotal,
+        });
+      });
+
+      this.postMessage({ type: "scanProgress", stage: "analyzing" });
+      this.postMessage({ type: "scanProgress", stage: "detecting" });
+      const localWasteFindings = await detectLocalWastePatterns();
+      this.postMessage({ type: "scanProgress", stage: "resolving" });
 
       this.postMessage({ type: "scanComplete" });
 
@@ -895,6 +949,23 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
           suggestions: mergedSuggestions,
           summary,
         });
+        void this.exportDebugScanResults({
+          mode: "local-only",
+          scannedFiles,
+          local: {
+            apiCalls,
+            localWasteFindings,
+            submittedRemoteApiCalls: [],
+          },
+          remote: null,
+          final: {
+            projectId: localProjectId,
+            scanId: localScanId,
+            endpoints,
+            suggestions: mergedSuggestions,
+            summary,
+          },
+        });
       };
 
       if (apiCalls.length === 0) {
@@ -911,6 +982,23 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
           endpoints: [],
           suggestions: [],
           summary: this.lastSummary,
+        });
+        void this.exportDebugScanResults({
+          mode: "local-only",
+          scannedFiles,
+          local: {
+            apiCalls,
+            localWasteFindings,
+            submittedRemoteApiCalls: [],
+          },
+          remote: null,
+          final: {
+            projectId: "local",
+            scanId: `local-${Date.now()}`,
+            endpoints: [],
+            suggestions: [],
+            summary: this.lastSummary,
+          },
         });
         return;
       }
@@ -989,29 +1077,67 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
             totalEndpoints: Math.max(scanResult.summary.totalEndpoints, endpoints.length),
           },
         });
+        void this.exportDebugScanResults({
+          mode: "remote-enriched",
+          scannedFiles,
+          local: {
+            apiCalls,
+            localWasteFindings,
+            submittedRemoteApiCalls: remoteApiCalls,
+          },
+          remote: {
+            projectId,
+            scanId: scanResult.scanId,
+            endpoints: remoteEndpoints,
+            suggestions,
+            summary: scanResult.summary,
+          },
+          final: {
+            projectId,
+            scanId: scanResult.scanId,
+            endpoints,
+            suggestions: mergedSuggestions,
+            summary: {
+              ...scanResult.summary,
+              totalEndpoints: Math.max(scanResult.summary.totalEndpoints, endpoints.length),
+            },
+          },
+        });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Remote analysis failed";
         const status = (err as { status?: number }).status;
-        if (status === 401 || status === 403) {
-          this.keyValidationState.set("ecoapi", {
-            state: "invalid",
-            message,
-            lastCheckedAt: new Date().toISOString(),
-          });
-          await this.sendKeyStatusUpdate("ecoapi", "ecoapi");
-          this.openKeys("ecoapi");
+        const authLikeFailure =
+          status === 401 ||
+          (status === 403 && /invalid|unauthori[sz]ed|forbidden|auth/i.test(message));
+
+        if (authLikeFailure) {
+          const rcApiKey = await this.getRcApiKey();
+          if (rcApiKey) {
+            await this.setValidationState("recost", {
+              state: "invalid",
+              message,
+              lastCheckedAt: new Date().toISOString(),
+              keyFingerprint: buildKeyFingerprint(rcApiKey),
+            });
+          } else {
+            await this.clearValidationState("recost");
+          }
+          await this.sendKeyStatusUpdate("recost", "recost");
+          this.openKeys("recost");
         }
         publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
-        this.postMessage({
-          type: "scanNotification",
-          message: err instanceof Error && err.message === "fetch failed"
-            ? "Could not reach ReCost server. Showing local results."
-            : `Remote analysis unavailable: ${message}. Showing local results.`,
-        });
+        if (err instanceof Error && err.message === "fetch failed") {
+          this.postMessage({
+            type: "scanNotification",
+            message: "Could not reach ReCost server. Showing local results.",
+          });
+        }
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error during scan";
       this.postMessage({ type: "error", message });
+    } finally {
+      await vscode.commands.executeCommand("setContext", "recost.scanning", false);
     }
   }
 
@@ -1427,11 +1553,17 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       const serviceId = this.getKeyServiceIdForProvider(providerId);
       if (chatError?.code === "bad_auth") {
         if (serviceId) {
-          this.keyValidationState.set(serviceId, {
+          const apiKey = await this.getStoredProviderApiKey(providerId);
+          if (apiKey) {
+            await this.setValidationState(serviceId, {
             state: "invalid",
             message: chatError.message,
             lastCheckedAt: new Date().toISOString(),
-          });
+              keyFingerprint: buildKeyFingerprint(apiKey),
+            });
+          } else {
+            await this.clearValidationState(serviceId);
+          }
           await this.sendKeyStatusUpdate(serviceId, serviceId);
         }
         this.openKeys(serviceId);
@@ -1440,7 +1572,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       }
       if (chatError?.code === "missing_api_key") {
         if (serviceId) {
-          this.keyValidationState.delete(serviceId);
+          await this.clearValidationState(serviceId);
           await this.sendKeyStatusUpdate(serviceId, serviceId);
         }
         this.openKeys(serviceId);
@@ -1457,7 +1589,10 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
     if (this.projectId) {
       return this.projectId;
     }
-    const id = await createProject(this.getWorkspaceName(), rcApiKey);
+    // No local record — check if a project with this workspace name already exists
+    // (handles cloning the same repo on a new machine)
+    const existing = await findProjectByName(this.getWorkspaceName(), rcApiKey);
+    const id = existing ?? await createProject(this.getWorkspaceName(), rcApiKey);
     this.projectId = id;
     await this.context.globalState.update("recost.projectId", id);
     return id;
@@ -1468,7 +1603,56 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async getRcApiKey(): Promise<string | undefined> {
-    return readStoredSecret(getKeyService("ecoapi"), this.context.secrets);
+    return readStoredSecret(getKeyService("recost"), this.context.secrets);
+  }
+
+  private restoreKeyValidationState() {
+    const stored =
+      this.context.globalState.get<Partial<Record<KeyServiceId, PersistedKeyValidationSnapshot>>>(
+        EcoSidebarProvider.KEY_VALIDATION_STATE_STORAGE_KEY
+      ) ?? {};
+    for (const [serviceId, snapshot] of Object.entries(stored) as [KeyServiceId, PersistedKeyValidationSnapshot | undefined][]) {
+      if (snapshot) {
+        this.keyValidationState.set(serviceId, snapshot);
+      }
+    }
+  }
+
+  private async persistKeyValidationState() {
+    await this.context.globalState.update(
+      EcoSidebarProvider.KEY_VALIDATION_STATE_STORAGE_KEY,
+      Object.fromEntries(this.keyValidationState.entries())
+    );
+  }
+
+  private async clearValidationState(serviceId: KeyServiceId) {
+    this.keyValidationState.delete(serviceId);
+    await this.persistKeyValidationState();
+  }
+
+  private async setValidationState(serviceId: KeyServiceId, snapshot: PersistedKeyValidationSnapshot) {
+    this.keyValidationState.set(serviceId, snapshot);
+    await this.persistKeyValidationState();
+  }
+
+  private async getValidationSnapshot(serviceId: KeyServiceId): Promise<PersistedKeyValidationSnapshot | undefined> {
+    const snapshot = this.keyValidationState.get(serviceId);
+    if (!snapshot) return undefined;
+    const service = getKeyService(serviceId);
+    const currentValue = await resolveCurrentKeyValue(service, this.context.secrets);
+    if (!currentValue || snapshot.keyFingerprint !== buildKeyFingerprint(currentValue)) {
+      await this.clearValidationState(serviceId);
+      return undefined;
+    }
+    return snapshot;
+  }
+
+  private async buildKeyStatus(service: ReturnType<typeof getKeyService>): Promise<KeyStatusSummary> {
+    return buildKeyStatusSummary(
+      service,
+      this.context.secrets,
+      await this.getValidationSnapshot(service.serviceId)
+    );
   }
 
   private buildMessages(text: string, limitContext = false): NormalizedChatMessage[] {
@@ -1535,11 +1719,17 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       const serviceId = this.getKeyServiceIdForProvider(providerId);
       if (chatError?.code === "bad_auth") {
         if (serviceId) {
-          this.keyValidationState.set(serviceId, {
+          const apiKey = await this.getStoredProviderApiKey(providerId);
+          if (apiKey) {
+            await this.setValidationState(serviceId, {
             state: "invalid",
             message: chatError.message,
             lastCheckedAt: new Date().toISOString(),
-          });
+              keyFingerprint: buildKeyFingerprint(apiKey),
+            });
+          } else {
+            await this.clearValidationState(serviceId);
+          }
           await this.sendKeyStatusUpdate(serviceId, serviceId);
         }
         this.openKeys(serviceId);
@@ -1548,7 +1738,7 @@ export class EcoSidebarProvider implements vscode.WebviewViewProvider {
       }
       if (chatError?.code === "missing_api_key") {
         if (serviceId) {
-          this.keyValidationState.delete(serviceId);
+          await this.clearValidationState(serviceId);
           await this.sendKeyStatusUpdate(serviceId, serviceId);
         }
         this.openKeys(serviceId);

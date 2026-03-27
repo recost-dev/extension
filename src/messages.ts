@@ -3,7 +3,7 @@ import type { ChatProviderOption } from "./chat";
 import type { SimulatorInput, SimulatorResult } from "./simulator/types";
 
 export type KeyServiceId =
-  | "ecoapi"
+  | "recost"
   | "openai"
   | "anthropic"
   | "gemini"
@@ -25,7 +25,7 @@ export type KeyStatusSource = "missing" | "secret" | "env";
 export interface KeyStatusSummary {
   serviceId: KeyServiceId;
   displayName: string;
-  kind: "ecoapi" | "provider";
+  kind: "recost" | "provider";
   providerId?: string;
   envKeyName?: string;
   source: KeyStatusSource;
@@ -64,7 +64,8 @@ export interface SuggestionContext {
 
 export type HostMessage =
   | { type: "triggerScan" }
-  | { type: "scanProgress"; file: string; index: number; total: number; endpointsSoFar: number }
+  | { type: "scanProgress"; stage: "scanning"; file: string; fileIndex: number; fileTotal: number }
+  | { type: "scanProgress"; stage: "analyzing" | "detecting" | "resolving" }
   | { type: "scanComplete" }
   | { type: "scanResults"; endpoints: EndpointRecord[]; suggestions: Suggestion[]; summary: ScanSummary }
   | { type: "aiReviewProgress"; stage: string; current?: number; total?: number }

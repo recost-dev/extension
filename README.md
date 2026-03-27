@@ -69,6 +69,7 @@ dashboard/                  # Full React dashboard (built into dashboard-dist/)
 dashboard-dist/             # Built dashboard (generated — do not edit)
 scripts/
   build-vsix.sh             # Build & package as .vsix (run in bash)
+  run-scan.sh               # Run the local scanner CLI on a file or directory
   start-extension.sh        # Full dev setup (F5 workflow)
 ```
 
@@ -105,6 +106,37 @@ If deps are already installed, rebuild and repackage with:
 cd extension
 npm run build && npm run package
 ```
+
+## Scanner CLI
+
+You can run the local scanner from the terminal against either a single file or a whole directory.
+
+Build the CLI bundle first:
+
+```bash
+npm run build:ext
+```
+
+Run it directly with npm:
+
+```bash
+npm run scan:cli -- src --format summary
+npm run scan:cli -- src/scanner/workspace-scanner.ts --format summary
+npm run scan:cli -- src --format json
+```
+
+Or use the helper wrapper:
+
+```bash
+bash scripts/run-scan.sh src summary
+bash scripts/run-scan.sh src/scanner/workspace-scanner.ts summary
+bash scripts/run-scan.sh src json
+```
+
+Notes:
+- `summary` prints a readable terminal report.
+- `json` prints structured output you can redirect or pipe elsewhere.
+- The CLI currently reports local scan results only, not the remote-enriched sidebar results.
 
 ## VSCode Settings
 
