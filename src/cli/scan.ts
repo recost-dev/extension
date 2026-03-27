@@ -3,10 +3,15 @@ import { createFilesystemScanAccess } from "./filesystem-adapter";
 import { detectLocalWastePatternsInFiles, scanFiles } from "../scanner/core-scanner";
 import { createProject, getAllEndpoints, getAllSuggestions, submitScan } from "../api-client";
 import { buildLocalScanResults, buildRemoteScanResults, shouldSubmitRemote, type FinalScanResults } from "../scan-results";
+import { buildSnapshot } from "../intelligence/builder";
+import { scoreSnapshot } from "../intelligence/scorer";
+import { buildReviewClusters } from "../intelligence/clusters";
+import { compressClusters } from "../intelligence/compression";
+import { buildExportContext, formatAsMarkdown } from "../intelligence/export";
 
 interface CliOptions {
   target: string;
-  format: "json" | "summary";
+  format: "json" | "summary" | "context";
 }
 
 interface CliResult {
@@ -40,11 +45,17 @@ interface CliResult {
 function printHelp(): void {
   process.stdout.write(
     [
-      "Usage: node dist/cli/scan.js <file-or-directory> [--format json|summary]",
+      "Usage: node dist/cli/scan.js <file-or-directory> [--format json|summary|context]",
+      "",
+      "Formats:",
+      "  json     Full scan results as JSON (default)",
+      "  summary  Human-readable summary of endpoints and issues",
+      "  context  Intelligence context for coding agents (markdown)",
       "",
       "Examples:",
       "  node dist/cli/scan.js src",
-      "  node dist/cli/scan.js src/scanner/workspace-scanner.ts --format summary",
+      "  node dist/cli/scan.js src --format summary",
+      "  node dist/cli/scan.js . --format context",
       "",
     ].join("\n")
   );
@@ -61,7 +72,7 @@ function parseArgs(argv: string[]): CliOptions | null {
     if (arg === "--help" || arg === "-h") return null;
     if (arg === "--format") {
       const value = args.shift();
-      if (value === "json" || value === "summary") {
+      if (value === "json" || value === "summary" || value === "context") {
         format = value;
         continue;
       }
@@ -112,6 +123,25 @@ function resolveRcApiKey(): string | undefined {
   return process.env.RECOST_API_KEY?.trim() || process.env.RC_API_KEY?.trim();
 }
 
+async function runContextFormat(options: CliOptions, access: Awaited<ReturnType<typeof createFilesystemScanAccess>>): Promise<void> {
+  const apiCalls = await scanFiles(access, (progress) => {
+    process.stderr.write(`Scanning ${progress.file} (${progress.fileIndex}/${progress.fileTotal})\n`);
+  });
+  const findings = await detectLocalWastePatternsInFiles(access);
+
+  process.stderr.write(`Building intelligence context (${apiCalls.length} API calls, ${findings.length} findings)...\n`);
+
+  const repoRoot = path.resolve(options.target);
+  const snapshot = buildSnapshot({ apiCalls, findings, repoRoot, totalFilesScanned: access.files.length });
+  const scored = scoreSnapshot(snapshot);
+  const clusters = buildReviewClusters(scored);
+  const compressed = compressClusters(clusters, snapshot);
+  const exportContext = buildExportContext(compressed, snapshot, scored);
+  const markdown = formatAsMarkdown(exportContext);
+
+  process.stdout.write(markdown);
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   if (!options) {
@@ -121,6 +151,12 @@ async function main(): Promise<void> {
   }
 
   const access = await createFilesystemScanAccess(options.target);
+
+  if (options.format === "context") {
+    await runContextFormat(options, access);
+    return;
+  }
+
   const apiCalls = await scanFiles(access, (progress) => {
     process.stderr.write(`Scanning ${progress.file} (${progress.fileIndex}/${progress.fileTotal})\n`);
   });
