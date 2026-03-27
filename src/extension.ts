@@ -93,7 +93,7 @@ async function hasPersistedValidEcoKey(
 ): Promise<boolean> {
   const stored =
     context.globalState.get<Partial<Record<string, PersistedKeyValidationSnapshot>>>(KEY_VALIDATION_STATE_STORAGE_KEY) ?? {};
-  const snapshot = stored.ecoapi;
+  const snapshot = stored.recost;
   if (!snapshot || snapshot.state !== "valid") {
     logStatus(output, "hasPersistedValidEcoKey: no persisted valid ecoapi snapshot");
     return false;
