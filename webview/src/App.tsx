@@ -243,6 +243,15 @@ export default function App() {
           </button>
           <button
             className="eco-btn-icon"
+            onClick={() => postMessage({ type: "copyAiContext" })}
+            disabled={!hasResults}
+            title="Copy AI context to clipboard"
+            style={{ marginLeft: "8px", padding: "0 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "3px", opacity: !hasResults ? 0.6 : 1 }}
+          >
+            Copy Context
+          </button>
+          <button
+            className="eco-btn-icon"
             onClick={() => postMessage({ type: "openDashboard" })}
             title="Open Dashboard"
             style={{ marginLeft: "auto", padding: "0 12px 0 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "3px" }}

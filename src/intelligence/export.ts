@@ -264,6 +264,28 @@ export function buildExportContext(
   })();
   const contextProviders = collectRenderedContextProviders(topFiles, clusters);
 
+  const costLeaks = scored.scoredFiles
+    .filter((f) => f.scores.costLeak > 3)
+    .sort((a, b) => b.scores.costLeak - a.scores.costLeak)
+    .slice(0, 5)
+    .map((f) => ({ filePath: f.filePath, costLeakScore: f.scores.costLeak, reasons: f.reasons }));
+
+  const providerSummary = Object.values(snapshot.providers)
+    .map((p) => {
+      const clusterCost = clusters
+        .filter((c) => c.providers.includes(p.name))
+        .map((c) => c.estimatedMonthlyCost)
+        .filter((v): v is number => v !== null);
+      return {
+        provider: p.name,
+        fileCount: p.fileIds.length,
+        callCount: p.apiCallIds.length,
+        findingCount: p.findingIds.length,
+        estimatedMonthlyCost: clusterCost.length > 0 ? clusterCost.reduce((a, b) => a + b, 0) : null,
+      };
+    })
+    .sort((a, b) => b.callCount - a.callCount);
+
   return {
     meta: {
       projectName: getProjectName(snapshot),
@@ -277,7 +299,9 @@ export function buildExportContext(
     summary: {
       topFiles,
       keyRisks: aggregateKeyRisks(clusters),
+      costLeaks,
     },
+    providerSummary,
     clusters,
   };
 }
@@ -311,6 +335,15 @@ export function formatAsMarkdown(context: ExportedContext): string {
     }
   }
   lines.push("");
+  if (context.summary.costLeaks.length > 0) {
+    lines.push("## Cost Leak Suspects");
+    lines.push("| File | Score | Reasons |");
+    lines.push("|---|---|---|");
+    for (const leak of context.summary.costLeaks) {
+      lines.push(`| ${leak.filePath} | ${leak.costLeakScore.toFixed(1)} | ${leak.reasons.join(", ")} |`);
+    }
+    lines.push("");
+  }
   lines.push("## Top Files");
   if (context.summary.topFiles.length === 0) {
     lines.push("- None");
@@ -381,6 +414,17 @@ export function formatAsMarkdown(context: ExportedContext): string {
       }
     }
   });
+
+  if (context.providerSummary.length > 0) {
+    lines.push("");
+    lines.push("## Provider Summary");
+    lines.push("| Provider | Files | Calls | Findings | Est. Monthly Cost |");
+    lines.push("|---|---|---|---|---|");
+    for (const p of context.providerSummary) {
+      const cost = p.estimatedMonthlyCost !== null ? `$${p.estimatedMonthlyCost.toFixed(2)}` : "—";
+      lines.push(`| ${formatProvider(p.provider)} | ${p.fileCount} | ${p.callCount} | ${p.findingCount} | ${cost} |`);
+    }
+  }
 
   return lines.join("\n");
 }

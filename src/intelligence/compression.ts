@@ -12,10 +12,12 @@ import type {
   RepoIntelligenceSnapshot,
   ReviewCluster,
 } from "./types";
+import { estimateLocalMonthlyCost } from "./cost-utils";
 import { dedupeFindings, makeFindingContextDedupeKey } from "./finding-dedupe";
 import { isTestLikeFilePath } from "./file-signals";
 import { filterRealProviders, normalizeProviderId } from "./provider-normalization";
 
+const MAX_EXPORT_TOKENS = 4000;
 const SNIPPET_RADIUS = 3;
 const SNIPPET_MERGE_GAP = 2;
 const MAX_FINDINGS = 5;
@@ -333,14 +335,39 @@ function getWhyItMatters(context: FileContext): string {
     : "This file contains an API path in the current cluster, but the evidence here is still limited.";
 }
 
+const FREQUENCY_MULTIPLIER: Record<string, number> = {
+  "unbounded-loop": 10,
+  polling: 8,
+  parallel: 3,
+  "bounded-loop": 3,
+  conditional: 0.5,
+  "cache-guarded": 0.1,
+  single: 1,
+};
+
+function estimateCallsPerDay(calls: ApiCallNode[]): number {
+  return calls.reduce((sum, call) => {
+    const mult = (call.frequencyClass ? FREQUENCY_MULTIPLIER[call.frequencyClass] : null) ?? 1;
+    return sum + 100 * mult;
+  }, 0);
+}
+
+function sumCosts(summaries: Array<{ estimatedMonthlyCost: number | null }>): number | null {
+  const values = summaries.map((s) => s.estimatedMonthlyCost).filter((v): v is number => v !== null);
+  return values.length > 0 ? values.reduce((a, b) => a + b, 0) : null;
+}
+
 function buildFileSummary(filePath: string, snapshot: RepoIntelligenceSnapshot): FileSummary {
   const context = buildFileContext(snapshot, filePath);
+  const provider = context.providers[0] ?? null;
+  const callsPerDay = estimateCallsPerDay(context.apiCalls);
+  const methodSig = context.apiCalls[0]?.method ?? undefined;
   return {
     filePath,
     description: ensureMaxSentences(getDescription(context), 2),
     providers: context.providers,
     topRisks: getTopRisks(context),
-    estimatedMonthlyCost: null,
+    estimatedMonthlyCost: provider ? (estimateLocalMonthlyCost(provider, callsPerDay, methodSig) ?? null) : null,
     whyItMatters: ensureMaxSentences(getWhyItMatters(context), 1),
   };
 }
@@ -547,18 +574,49 @@ function extractSnippets(cluster: ReviewCluster, snapshot: RepoIntelligenceSnaps
   return snippets;
 }
 
+function estimateTokens(clusters: CompressedCluster[]): number {
+  return Math.ceil(JSON.stringify(clusters).length / 4);
+}
+
+function trimToTokenBudget(clusters: CompressedCluster[]): CompressedCluster[] {
+  if (estimateTokens(clusters) <= MAX_EXPORT_TOKENS) return clusters;
+
+  // Pass 1: reduce snippets 5 → 3
+  let trimmed = clusters.map((c) => ({ ...c, snippets: c.snippets.slice(0, 3) }));
+  if (estimateTokens(trimmed) <= MAX_EXPORT_TOKENS) return trimmed;
+
+  // Pass 2: reduce snippets 3 → 1
+  trimmed = trimmed.map((c) => ({ ...c, snippets: c.snippets.slice(0, 1) }));
+  if (estimateTokens(trimmed) <= MAX_EXPORT_TOKENS) return trimmed;
+
+  // Pass 3: reduce findings 6 → 3
+  trimmed = trimmed.map((c) => ({ ...c, findings: c.findings.slice(0, 3) }));
+  if (estimateTokens(trimmed) <= MAX_EXPORT_TOKENS) return trimmed;
+
+  // Pass 4: drop lowest-priority clusters (keep min 2)
+  while (trimmed.length > 2 && estimateTokens(trimmed) > MAX_EXPORT_TOKENS) {
+    trimmed = trimmed.slice(0, -1);
+  }
+  return trimmed;
+}
+
 export function compressClusters(
   clusters: ReviewCluster[],
   snapshot: RepoIntelligenceSnapshot
 ): CompressedCluster[] {
-  return clusters.map((cluster) => ({
-    id: cluster.id,
-    primarySummary: buildFileSummary(cluster.primaryFile.filePath, snapshot),
-    relatedSummaries: cluster.relatedFiles.map((relatedFile) => buildFileSummary(relatedFile.filePath, snapshot)),
-    findings: compressFindings(cluster.topFindings, snapshot),
-    snippets: extractSnippets(cluster, snapshot),
-    providers: filterRealProviders(cluster.providers),
-    estimatedMonthlyCost: null,
-    reviewQuestion: cluster.reviewQuestion,
-  }));
+  const result = clusters.map((cluster) => {
+    const primarySummary = buildFileSummary(cluster.primaryFile.filePath, snapshot);
+    const relatedSummaries = cluster.relatedFiles.map((relatedFile) => buildFileSummary(relatedFile.filePath, snapshot));
+    return {
+      id: cluster.id,
+      primarySummary,
+      relatedSummaries,
+      findings: compressFindings(cluster.topFindings, snapshot),
+      snippets: extractSnippets(cluster, snapshot),
+      providers: filterRealProviders(cluster.providers),
+      estimatedMonthlyCost: sumCosts([primarySummary, ...relatedSummaries]),
+      reviewQuestion: cluster.reviewQuestion,
+    };
+  });
+  return trimToTokenBudget(result);
 }

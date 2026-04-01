@@ -49,7 +49,8 @@ export type WebviewMessage =
   | { type: "setKey"; serviceId: KeyServiceId; value: string }
   | { type: "clearKey"; serviceId: KeyServiceId }
   | { type: "testKey"; serviceId: KeyServiceId }
-  | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId };
+  | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
+  | { type: "copyAiContext" };
 
 export interface SuggestionContext {
   type: string;
