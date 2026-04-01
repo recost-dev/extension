@@ -78,3 +78,24 @@ export const HOST_MAP_PROVIDERS: ProviderFingerprint[] = [
   shipping,
   openaiCompatibleProviders,
 ] as ProviderFingerprint[];
+
+/** Package names that should never be treated as external API providers. */
+export const STDLIB_DENYLIST = new Set([
+  // Node stdlib
+  "path", "fs", "fs/promises", "os", "http", "https", "assert", "assert/strict",
+  "node:path", "node:fs", "node:os", "node:assert", "node:http",
+  // Test frameworks
+  "vitest", "jest", "mocha", "chai",
+  // UI/frontend frameworks
+  "react", "react-dom", "vue", "svelte",
+  // Backend frameworks
+  "hono", "express", "fastify", "koa",
+  // VS Code
+  "vscode",
+  // Build tools
+  "vite", "esbuild", "rollup",
+  // Visualization
+  "d3",
+  // Sanitization/markdown
+  "dompurify", "marked",
+]);

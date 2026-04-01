@@ -8,7 +8,8 @@ import { runCrossFileResolution, type PerFileResult } from "../ast/cross-file-re
 import { detectCacheWaste } from "../ast/waste/cache-detector";
 import { detectBatchWaste } from "../ast/waste/batch-detector";
 import { detectConcurrencyWaste } from "../ast/waste/concurrency-detector";
-import { lookupMethod } from "./fingerprints/registry";
+import { lookupMethod, isRegisteredProvider } from "./fingerprints/registry";
+import { STDLIB_DENYLIST } from "./fingerprints/index";
 
 const HTTP_CALL_HINT =
   /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
@@ -129,6 +130,18 @@ export async function scanFiles(
             }
           });
           for (const match of astResult.matches) {
+            // Phase 1: skip stdlib, framework, and build-tool imports
+            if (match.packageName && STDLIB_DENYLIST.has(match.packageName)) continue;
+
+            // Phase 2: require a registry match — drop silently if nothing is registered
+            const fp = (match.provider && match.methodChain)
+              ? lookupMethod(match.provider, match.methodChain)
+              : null;
+            const knownSdkProvider = match.provider ? isRegisteredProvider(match.provider) : false;
+            // http-kind: match.provider is set iff lookupHost() already resolved the host in ast-scanner
+            const knownHttpHost = match.kind === "http" && !!match.provider;
+            if (!fp && !knownSdkProvider && !knownHttpHost) continue;
+
             const apiCall = astMatchToApiCallInput(match, entry.relativePath);
             const key = `${entry.relativePath}:${match.line}:${apiCall.method}:${apiCall.url}`;
             if (dedupe.has(key)) continue;
