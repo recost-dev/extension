@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import * as path from "path";
 import { createFilesystemScanAccess } from "./filesystem-adapter";
 import { detectLocalWastePatternsInFiles, scanFiles } from "../scanner/core-scanner";
@@ -7,7 +8,7 @@ import { buildSnapshot } from "../intelligence/builder";
 import { scoreSnapshot } from "../intelligence/scorer";
 import { buildReviewClusters } from "../intelligence/clusters";
 import { compressClusters } from "../intelligence/compression";
-import { buildExportContext, formatAsMarkdown } from "../intelligence/export";
+import { buildExportContext, formatAsJSON, formatAsMarkdown } from "../intelligence/export";
 
 interface CliOptions {
   target: string;
@@ -42,20 +43,36 @@ interface CliResult {
   summary: FinalScanResults["summary"];
 }
 
+function getFlag(args: string[], flag: string): string | null {
+  const index = args.indexOf(flag);
+  if (index === -1) return null;
+  return args[index + 1] ?? null;
+}
+
 function printHelp(): void {
   process.stdout.write(
     [
       "Usage: node dist/cli/scan.js <file-or-directory> [--format json|summary|context]",
+      "       node dist/cli/scan.js pack <directory> [--format markdown|json] [--output <file>] [--append-claude-md]",
       "",
       "Formats:",
       "  json     Full scan results as JSON (default)",
       "  summary  Human-readable summary of endpoints and issues",
       "  context  Intelligence context for coding agents (markdown)",
       "",
+      "Pack subcommand:",
+      "  Runs the full intelligence pipeline and outputs a review pack.",
+      "  --format markdown|json   Output format (default: markdown)",
+      "  --output <file>          Write output to file instead of stdout",
+      "  --append-claude-md       Append output block to CLAUDE.md in the target directory",
+      "",
       "Examples:",
       "  node dist/cli/scan.js src",
       "  node dist/cli/scan.js src --format summary",
       "  node dist/cli/scan.js . --format context",
+      "  node dist/cli/scan.js pack src",
+      "  node dist/cli/scan.js pack . --format json --output recost.json",
+      "  node dist/cli/scan.js pack . --append-claude-md",
       "",
     ].join("\n")
   );
@@ -142,8 +159,54 @@ async function runContextFormat(options: CliOptions, access: Awaited<ReturnType<
   process.stdout.write(markdown);
 }
 
+async function runPackCommand(
+  dir: string,
+  format: "markdown" | "json",
+  outputPath: string | null,
+  appendClaudeMd: boolean,
+  access: Awaited<ReturnType<typeof createFilesystemScanAccess>>
+): Promise<void> {
+  const apiCalls = await scanFiles(access, (progress) => {
+    process.stderr.write(`Scanning ${progress.file} (${progress.fileIndex}/${progress.fileTotal})\n`);
+  });
+  const findings = await detectLocalWastePatternsInFiles(access);
+
+  process.stderr.write(`Building intelligence context (${apiCalls.length} API calls, ${findings.length} findings)...\n`);
+
+  const snapshot = buildSnapshot({ apiCalls, findings, repoRoot: dir, totalFilesScanned: access.files.length });
+  const scored = scoreSnapshot(snapshot);
+  const clusters = buildReviewClusters(scored);
+  const compressed = compressClusters(clusters, snapshot);
+  const context = buildExportContext(compressed, snapshot, scored);
+
+  const content = format === "json" ? formatAsJSON(context) : formatAsMarkdown(context);
+
+  if (outputPath) {
+    fs.writeFileSync(path.resolve(dir, outputPath), content, "utf8");
+  } else if (appendClaudeMd) {
+    const claudeMdPath = path.resolve(dir, "CLAUDE.md");
+    const block = `\n\n## ReCost Analysis\n\n${content}\n\n<!-- End ReCost Analysis -->`;
+    fs.appendFileSync(claudeMdPath, block, "utf8");
+  } else {
+    process.stdout.write(content + "\n");
+  }
+}
+
 async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+
+  if (argv[0] === "pack") {
+    const packArgs = argv.slice(1);
+    const packFormat = (getFlag(packArgs, "--format") ?? "markdown") as "markdown" | "json";
+    const outputPath = getFlag(packArgs, "--output");
+    const appendClaudeMd = packArgs.includes("--append-claude-md");
+    const dir = packArgs.find((a) => !a.startsWith("--") && a !== packFormat && a !== outputPath) ?? ".";
+    const access = await createFilesystemScanAccess(dir);
+    await runPackCommand(path.resolve(dir), packFormat, outputPath, appendClaudeMd, access);
+    return;
+  }
+
+  const options = parseArgs(argv);
   if (!options) {
     printHelp();
     process.exitCode = 1;

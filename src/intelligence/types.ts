@@ -142,6 +142,18 @@ export interface ExportedContext {
       whyItMatters: string;
     }>;
     keyRisks: string[];
+    costLeaks: Array<{
+      filePath: string;
+      costLeakScore: number;
+      reasons: string[];
+    }>;
   };
+  providerSummary: Array<{
+    provider: string;
+    fileCount: number;
+    callCount: number;
+    findingCount: number;
+    estimatedMonthlyCost: number | null;
+  }>;
   clusters: CompressedCluster[];
 }

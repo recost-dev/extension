@@ -121,10 +121,10 @@ Confirmed compatible with **macOS**, **Windows** (Git Bash / WSL), and **Linux**
 
 ```bash
 bash scripts/build-vsix.sh
-# → outputs eco-api-analyzer-*.vsix in extension/
+# → outputs recost-api-analyzer-*.vsix in extension/
 
 # Install
-code --install-extension eco-api-analyzer-*.vsix
+code --install-extension recost-api-analyzer-*.vsix
 # or: Ctrl+Shift+P → "Extensions: Install from VSIX..."
 ```
 
@@ -179,12 +179,12 @@ The embedded server (`local-server.ts`) exposes:
 Two separate key systems coexist:
 
 **ReCost API key** (for scanning/remote API) — managed entirely in `extension.ts`:
-- Stored in `context.secrets` under `"eco.ecoApiKey"`
+- Stored in `context.secrets` under `"recost.apiKey"`
 - Must begin with `rc-` prefix — validated before storing
 - `validateRcApiKey()` in `api-client.ts` calls `GET /auth/me` with `Authorization: Bearer <key>`; returns `null` on 404 (dev mode), throws on 401 (invalid) or network error
-- Status bar item reflects auth state with color: green (`testing.iconPassed`) when connected, `statusBarItem.warningForeground` when unreachable, no color when unconfigured; clicking it runs `eco.changeApiKey`
+- Status bar item reflects auth state with color: green (`testing.iconPassed`) when connected, `statusBarItem.warningForeground` when unreachable, no color when unconfigured; clicking it runs `recost.openKeys`
 - `context.secrets.onDidChange` listener keeps status bar live without reload
-- After key validation in the webview (`serviceId === "ecoapi"`), `recost.keyOnline` context is also updated so the status bar stays in sync
+- After key validation in the webview (`serviceId === "recost"`), `recost.keyOnline` context is also updated so the status bar stays in sync
 
 **Chat provider keys** (OpenAI, Anthropic, etc.) — managed in `webview-provider.ts` + `chat/provider-registry.ts`:
 - Stored per-provider in `context.secrets` under provider-specific keys (e.g., `eco.providerApiKey.openai`)

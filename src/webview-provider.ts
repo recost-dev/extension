@@ -30,6 +30,9 @@ import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
 import { buildSnapshot } from "./intelligence/builder";
 import { scoreSnapshot } from "./intelligence/scorer";
+import { buildReviewClusters } from "./intelligence/clusters";
+import { compressClusters } from "./intelligence/compression";
+import { buildExportContext, formatAsMarkdown } from "./intelligence/export";
 import { lookupMethod } from "./scanner/fingerprints/registry";
 import {
   buildKeyFingerprint,
@@ -627,6 +630,8 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   private lastSuggestions: Suggestion[] = [];
   private lastSummary: ScanSummary | null = null;
   private projectId: string | null = null;
+  private lastApiCalls: ApiCallInput[] = [];
+  private lastFindings: Awaited<ReturnType<typeof detectLocalWastePatterns>> = [];
 
   // Simulator state (persisted across sessions)
   private savedScenarios: import("./simulator/types").SavedScenario[] = [];
@@ -910,6 +915,39 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           this.openKeys(message.focusServiceId);
         }
         break;
+      case "copyAiContext":
+        await this.handleCopyAiContext();
+        break;
+    }
+  }
+
+  private async handleCopyAiContext(): Promise<void> {
+    if (this.lastApiCalls.length === 0 && this.lastFindings.length === 0) {
+      vscode.window.showWarningMessage("Run a scan first before copying AI context.");
+      return;
+    }
+    try {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      const totalFilesScanned = await countScopedWorkspaceFiles();
+      const snapshot = buildSnapshot({
+        apiCalls: this.lastApiCalls,
+        findings: this.lastFindings,
+        repoRoot: workspaceFolder?.uri.fsPath,
+        totalFilesScanned,
+      });
+      const scored = scoreSnapshot(snapshot);
+      const clusters = buildReviewClusters(scored);
+      const compressed = compressClusters(clusters, snapshot);
+      const generatorVersion = String(this.context.extension.packageJSON.version ?? "");
+      const exportContext = buildExportContext(compressed, snapshot, scored, {
+        generatorVersion: generatorVersion || undefined,
+      });
+      const markdown = formatAsMarkdown(exportContext);
+      await vscode.env.clipboard.writeText(markdown);
+      vscode.window.showInformationMessage("AI context copied to clipboard.");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to generate AI context";
+      vscode.window.showErrorMessage(`ReCost: ${message}`);
     }
   }
 
@@ -947,6 +985,8 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       this.postMessage({ type: "scanProgress", stage: "analyzing" });
       this.postMessage({ type: "scanProgress", stage: "detecting" });
       const localWasteFindings = await detectLocalWastePatterns();
+      this.lastApiCalls = apiCalls;
+      this.lastFindings = localWasteFindings;
       this.postMessage({ type: "scanProgress", stage: "resolving" });
 
       if (process.env.RECOST_INTELLIGENCE_DEBUG === "1") {
