@@ -255,7 +255,16 @@ export async function detectLocalWastePatternsInFiles(access: ScanFileAccess): P
 
   const astFindings: LocalWasteFinding[] = [];
   for (const pf of perFileResults) {
-    const matches = augmented.get(pf.relativePath) ?? pf.result.matches;
+    const rawMatches = augmented.get(pf.relativePath) ?? pf.result.matches;
+
+    // Phase 1 gate only: remove stdlib, framework, and build-tool calls.
+    // Phase 2 (registry match) is intentionally NOT applied here — the waste
+    // detectors do code pattern analysis and do not require a known provider match.
+    const matches = rawMatches.filter((match) => {
+      if (match.packageName && STDLIB_DENYLIST.has(match.packageName)) return false;
+      return true;
+    });
+
     astFindings.push(...detectCacheWaste(matches, pf.source, pf.relativePath));
     astFindings.push(...detectBatchWaste(matches, pf.source, pf.relativePath));
     astFindings.push(...detectConcurrencyWaste(matches, pf.source, pf.relativePath));
