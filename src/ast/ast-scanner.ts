@@ -345,6 +345,14 @@ function walkNode(root: SyntaxNode, fn: (node: SyntaxNode) => void): void {
 
 // ── Provider resolution ───────────────────────────────────────────────────────
 
+function isInternalImport(importPath: string): boolean {
+  return (
+    importPath.startsWith("./") ||
+    importPath.startsWith("../") ||
+    importPath.startsWith("@/")
+  );
+}
+
 function resolveProvider(
   rootIdentifier: string,
   methodChain: string,
@@ -380,6 +388,7 @@ function resolveProvider(
   }
 
   if (!pkg) return null;
+  if (isInternalImport(pkg)) return null;
   const provider = PACKAGE_TO_PROVIDER[pkg] ?? pkg;
   return { provider, packageName: pkg, resolvedChain };
 }

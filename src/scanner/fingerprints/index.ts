@@ -98,4 +98,16 @@ export const STDLIB_DENYLIST = new Set([
   "d3",
   // Sanitization/markdown
   "dompurify", "marked",
+  // Internal path aliases — secondary safety net (primary filter is isInternalImport in ast-scanner.ts)
+  "@/src/lib/api-client",
+  "@/app/lib/api-client",
+  "./parser-loader",
+  "./types",
+  "./analysis/types",
+  "../scanner/local-waste-detector",
+  "../scanner/fingerprints/index",
+  "../scanner/fingerprints/types",
+  "../ast/ast-scanner",
+  "../types",
+  "./index",
 ]);
