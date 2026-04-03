@@ -10,6 +10,7 @@ import {
   type ScanProgress,
 } from "./core-scanner";
 import { discoverFilesInDirectory, parseCsvGlobs } from "./file-discovery";
+import { getOutputChannel } from "../output";
 
 export type { ScanProgress };
 
@@ -33,10 +34,16 @@ async function createWorkspaceScanAccess(): Promise<ScanFileAccess> {
 
 export async function getWorkspaceScanFiles(): Promise<ScanInputFile[]> {
   const config = vscode.workspace.getConfiguration("recost");
-  return findScopedFiles(config);
+  const { files, excludedCount } = await findScopedFiles(config);
+  if (excludedCount > 0) {
+    getOutputChannel().appendLine(`Files excluded by .recostignore: ${excludedCount}`);
+  }
+  return files;
 }
 
-async function findScopedFiles(config: vscode.WorkspaceConfiguration): Promise<ScanInputFile[]> {
+async function findScopedFiles(
+  config: vscode.WorkspaceConfiguration
+): Promise<{ files: ScanInputFile[]; excludedCount: number }> {
   const includeGlob = config.get<string>("scanGlob", "**/*.{ts,tsx,js,jsx,py,go,java,rb}");
   const scopedInclude = parseCsvGlobs(config.get<string>("scanIncludeGlobs", ""));
   const configuredExclude = config.get<string>(
@@ -49,12 +56,14 @@ async function findScopedFiles(config: vscode.WorkspaceConfiguration): Promise<S
   const excludePatterns = parseCsvGlobs(configuredExclude ? `${configuredExclude},${hardExcludeGlob}` : hardExcludeGlob);
   const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
   const fileByPath = new Map<string, ScanInputFile>();
+  let totalExcluded = 0;
 
   for (const folder of workspaceFolders) {
-    const discovered = await discoverFilesInDirectory(folder.uri.fsPath, {
+    const { files: discovered, excludedCount } = await discoverFilesInDirectory(folder.uri.fsPath, {
       includeGlobs: includePatterns,
       excludeGlobs: excludePatterns,
     });
+    totalExcluded += excludedCount;
 
     for (const file of discovered) {
       const relativeToWorkspace = path.posix.join(folder.name, file.relativePath);
@@ -65,7 +74,10 @@ async function findScopedFiles(config: vscode.WorkspaceConfiguration): Promise<S
     }
   }
 
-  return Array.from(fileByPath.values()).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return {
+    files: Array.from(fileByPath.values()).sort((a, b) => a.relativePath.localeCompare(b.relativePath)),
+    excludedCount: totalExcluded,
+  };
 }
 
 export async function countScopedWorkspaceFiles(): Promise<number> {

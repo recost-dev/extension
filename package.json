@@ -78,6 +78,11 @@
       {
         "command": "recost.generateContext",
         "title": "ReCost: Generate Context for Coding Agent"
+      },
+      {
+        "command": "recost.editIgnoreRules",
+        "title": "ReCost: Edit Ignore Rules",
+        "icon": "$(filter)"
       }
     ],
     "menus": {
@@ -106,6 +111,11 @@
           "command": "recost.scanningIndicator",
           "when": "view == recost.sidebarView && recost.scanning",
           "group": "navigation@2"
+        },
+        {
+          "command": "recost.editIgnoreRules",
+          "when": "view == recost.sidebarView",
+          "group": "navigation@3"
         }
       ]
     },

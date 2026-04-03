@@ -199,11 +199,14 @@ function mergeLocalWasteFindings(
   const existingByDescAndFile = new Set(baseSuggestions.map((s) => `${s.description}::${s.affectedFiles[0] ?? ""}`));
   const locals: Suggestion[] = [];
   for (const finding of localFindings) {
+    const fileEndpoints = endpoints.filter((ep) => ep.files.includes(finding.affectedFile));
+    console.log('[recost] fileEndpoints for', finding.affectedFile,
+      fileEndpoints.map(ep => ({ scope: ep.scope, provider: ep.provider, costModel: ep.costModel }))
+    );
     if (finding.confidence < 0.5) continue;
     const key = `${finding.description}::${finding.affectedFile}`;
     if (existingByDescAndFile.has(key)) continue;
     existingByDescAndFile.add(key);
-    const fileEndpoints = endpoints.filter((ep) => ep.files.includes(finding.affectedFile));
     const fileMonthlyCost = fileEndpoints.reduce((sum, ep) => sum + ep.monthlyCost, 0);
     const baselineCost = fileMonthlyCost > 0 ? fileMonthlyCost : totalMonthlyCost;
     const multiplier =
