@@ -45,6 +45,7 @@ import {
   validateServiceKey,
   type PersistedKeyValidationSnapshot,
 } from "./key-management";
+import { resolveWorkspaceFilePathSafely } from "./workspace-file-access";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -85,6 +86,14 @@ interface AiReviewInput {
     description: string;
     affectedFiles: string[];
   }>;
+}
+
+async function resolveWorkspaceFileSafely(
+  workspaceFolder: vscode.WorkspaceFolder,
+  file: string
+): Promise<vscode.Uri | null> {
+  const resolvedPath = await resolveWorkspaceFilePathSafely(workspaceFolder.uri.fsPath, file);
+  return resolvedPath ? vscode.Uri.file(resolvedPath) : null;
 }
 
 export async function collectLocalScanData(
@@ -1864,7 +1873,11 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       if (!workspaceFolder) return;
 
-      const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, file);
+      const fileUri = await resolveWorkspaceFileSafely(workspaceFolder, file);
+      if (!fileUri) {
+        vscode.window.showErrorMessage("ECO: Invalid target path.");
+        return;
+      }
       const doc = await vscode.workspace.openTextDocument(fileUri);
       const editor = await vscode.window.showTextDocument(doc);
       const boundedLine = Math.min(
@@ -1995,7 +2008,8 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       if (!workspaceFolder) return;
 
-      const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, file);
+      const fileUri = await resolveWorkspaceFileSafely(workspaceFolder, file);
+      if (!fileUri) return;
       const doc = await vscode.workspace.openTextDocument(fileUri);
       const selection = line
         ? new vscode.Range(line - 1, 0, line - 1, 0)
