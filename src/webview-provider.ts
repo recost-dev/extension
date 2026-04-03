@@ -326,6 +326,14 @@ function buildAggressiveSuggestions(
     const dedupeKey = `${endpoint.id}:${type}`;
     if (existing.has(dedupeKey)) continue;
 
+    // Skip internal routes and free-tier provider methods — these have no cost impact.
+    // costModel: undefined is intentionally allowed through.
+    if (
+      endpoint.scope === "internal" ||
+      endpoint.provider === "internal" ||
+      endpoint.costModel === "free"
+    ) continue;
+
     // If the waste detector already covers this type for any of this endpoint's files,
     // suppress the aggressive suggestion — the waste detector finding has richer evidence.
     const suppressedByWaste = endpoint.files.some((f) =>
@@ -374,6 +382,13 @@ function mergeLocalWasteFindings(
     existingByDescAndFile.add(key);
 
     const fileEndpoints = endpoints.filter((ep) => ep.files.includes(finding.affectedFile));
+    // Only generate findings for files that have at least one paid external endpoint.
+    // costModel: undefined is intentionally allowed through — unknown = possibly paid.
+    // Only confirmed-internal and confirmed-free are dropped.
+    const hasPaidExternal = fileEndpoints.some(
+      (ep) => ep.scope !== "internal" && ep.provider !== "internal" && ep.costModel !== "free"
+    );
+    if (!hasPaidExternal) continue;
     const fileMonthlyCost = fileEndpoints.reduce((sum, ep) => sum + ep.monthlyCost, 0);
     const baselineCost = fileMonthlyCost > 0 ? fileMonthlyCost : totalMonthlyCost;
     const multiplier =
