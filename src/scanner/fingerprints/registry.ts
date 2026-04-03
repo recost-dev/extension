@@ -141,6 +141,15 @@ export function getProviderMethods(provider: string): MethodFingerprint[] {
   return methods ? Array.from(methods.values()) : [];
 }
 
+/**
+ * Returns true if the given provider id is registered in the bundled method index
+ * (i.e., it is one of the ALL_PROVIDERS entries). Case-insensitive.
+ */
+export function isRegisteredProvider(provider: string): boolean {
+  if (!provider) return false;
+  return methodIndex.has(provider.toLowerCase());
+}
+
 // ── Pricing sync ──────────────────────────────────────────────────────────────
 
 /** Pricing fields that may be overwritten from the backend. Detection fields are never touched. */

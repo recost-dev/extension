@@ -35,6 +35,7 @@ export interface AstCallMatch {
   packageName?: string;
   /** Full dot-separated call chain (may include root var), e.g. "client.chat.completions.create" */
   methodChain: string;
+  confidence: number; // 0.0 to 1.0 — how likely this is a real external API call
   /** HTTP verb from registry, e.g. "POST" */
   method?: string;
   /** Endpoint URL from registry */
@@ -344,6 +345,14 @@ function walkNode(root: SyntaxNode, fn: (node: SyntaxNode) => void): void {
 
 // ── Provider resolution ───────────────────────────────────────────────────────
 
+function isInternalImport(importPath: string): boolean {
+  return (
+    importPath.startsWith("./") ||
+    importPath.startsWith("../") ||
+    importPath.startsWith("@/")
+  );
+}
+
 function resolveProvider(
   rootIdentifier: string,
   methodChain: string,
@@ -379,6 +388,7 @@ function resolveProvider(
   }
 
   if (!pkg) return null;
+  if (isInternalImport(pkg)) return null;
   const provider = PACKAGE_TO_PROVIDER[pkg] ?? pkg;
   return { provider, packageName: pkg, resolvedChain };
 }
@@ -467,10 +477,11 @@ export async function scanSourceWithAst(
         const fp = lookupMethod(provider, resolvedChain);
 
         methodMatches.push(fp
-          ? { kind: "sdk", provider, packageName, methodChain, method: fp.httpMethod,
+          ? { kind: "sdk", provider, packageName, methodChain, confidence: 1.0, method: fp.httpMethod,
               endpoint: fp.endpoint, line, column, frequency, loopContext: inLoop,
               streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable }
-          : { kind: "sdk", provider, packageName, methodChain, line, column, frequency, loopContext: inLoop }
+          : { kind: "sdk", provider, packageName, methodChain, confidence: provider ? 0.7 : 0.1,
+              line, column, frequency, loopContext: inLoop }
         );
       }
       if (methodMatches.length > 0) classInfo.methods.set(methodName, methodMatches);
@@ -550,6 +561,7 @@ export async function scanSourceWithAst(
             matches.push({
               kind: "http",
               provider: provider ?? undefined,
+              confidence: provider ? 0.4 : 0.1,
               methodChain,
               method: httpMethod,
               endpoint: url,
@@ -602,12 +614,12 @@ export async function scanSourceWithAst(
 
     if (fp) {
       matches.push({
-        kind: "sdk", provider, packageName, methodChain, method: fp.httpMethod,
+        kind: "sdk", provider, packageName, methodChain, confidence: 1.0, method: fp.httpMethod,
         endpoint: fp.endpoint, line, column, frequency, loopContext: inLoop,
         streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable,
       });
     } else {
-      matches.push({ kind: "sdk", provider, packageName, methodChain, line, column, frequency, loopContext: inLoop });
+      matches.push({ kind: "sdk", provider, packageName, methodChain, confidence: provider ? 0.7 : 0.1, line, column, frequency, loopContext: inLoop });
     }
   }
 
@@ -625,10 +637,11 @@ export async function scanSourceWithAst(
       const { provider, packageName, resolvedChain } = resolved;
       const fp = lookupMethod(provider, resolvedChain);
       fnMatches.push(fp
-        ? { kind: "sdk", provider, packageName, methodChain, method: fp.httpMethod,
+        ? { kind: "sdk", provider, packageName, methodChain, confidence: 1.0, method: fp.httpMethod,
             endpoint: fp.endpoint, line, column, frequency: "single", loopContext: false,
             streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable }
-        : { kind: "sdk", provider, packageName, methodChain, line, column, frequency: "single", loopContext: false }
+        : { kind: "sdk", provider, packageName, methodChain, confidence: provider ? 0.7 : 0.1,
+            line, column, frequency: "single", loopContext: false }
       );
     }
     if (fnMatches.length > 0) fnApiCalls.set(fnName2, fnMatches);
