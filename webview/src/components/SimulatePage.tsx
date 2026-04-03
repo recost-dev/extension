@@ -393,7 +393,7 @@ export function SimulatePage({ endpoints }: SimulatePageProps) {
         overflow: "hidden",
       }}
     >
-      <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
+      <div className="eco-scroll-invisible" style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
 
         {/* Mode toggle */}
         <div style={{ display: "flex", gap: "4px", marginBottom: "10px" }}>
@@ -505,6 +505,7 @@ export function SimulatePage({ endpoints }: SimulatePageProps) {
 
           {showOverrides && (
             <div
+              className="eco-scroll-invisible"
               style={{
                 marginTop: "6px",
                 border: "1px solid var(--vscode-panel-border)",

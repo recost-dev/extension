@@ -52,11 +52,7 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
   }, [focusServiceId]);
 
   const sortedStatuses = useMemo(() => {
-    return statuses.slice().sort((a, b) => {
-      if (a.serviceId === "recost") return -1;
-      if (b.serviceId === "recost") return 1;
-      return a.displayName.localeCompare(b.displayName);
-    });
+    return statuses.filter((status) => status.serviceId === "recost");
   }, [statuses]);
 
   const saveAndCollapse = (serviceId: KeyServiceId) => {
@@ -75,7 +71,7 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
         <div>
           <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "4px" }}>Keys</div>
           <p style={{ margin: 0, color: "var(--vscode-descriptionForeground)", fontSize: "12px", lineHeight: 1.5 }}>
-            Manage ReCost and model provider credentials in one place. Keys are saved when you collapse the row.
+            Manage your ReCost API key here. Keys are saved when you collapse the row.
           </p>
         </div>
 

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { LandingPage } from "./components/LandingPage";
 import { ScanningPage } from "./components/ScanningPage";
 import { ResultsPage } from "./components/ResultsPage";
-import { ChatPage } from "./components/ChatPage";
 import { SimulatePage } from "./components/SimulatePage";
 import { KeysPage } from "./components/KeysPage";
 import { postMessage } from "./vscode";
@@ -11,45 +10,12 @@ import type {
   ScanSummary,
   EndpointRecord,
   HostMessage,
-  ChatProviderOption,
-  SuggestionContext,
   KeyStatusSummary,
   KeyServiceId,
 } from "./types";
 
-type Screen = "landing" | "scanning" | "findings" | "chat" | "simulate" | "keys";
+type Screen = "landing" | "scanning" | "findings" | "simulate" | "keys";
 type ScanStage = "scanning" | "analyzing" | "detecting" | "resolving";
-
-function toServiceId(providerId: string): KeyServiceId | null {
-  if (providerId === "recost") return null;
-  return providerId as KeyServiceId;
-}
-
-function canUseChatProvider(statuses: KeyStatusSummary[], providerId: string): boolean {
-  if (providerId === "recost") return true;
-  const serviceId = toServiceId(providerId);
-  const match = serviceId ? statuses.find((entry) => entry.serviceId === serviceId) : undefined;
-  return Boolean(match && ["saved", "valid", "from_environment"].includes(match.state));
-}
-
-function getGlobalBanner(
-  statuses: KeyStatusSummary[],
-  selectedProvider: string,
-  hasResults: boolean
-): { serviceId: KeyServiceId; text: string } | null {
-  const selectedServiceId = toServiceId(selectedProvider);
-  const findStatus = (serviceId: KeyServiceId) => statuses.find((entry) => entry.serviceId === serviceId);
-  const selectedStatus = selectedServiceId ? findStatus(selectedServiceId) : undefined;
-  const ecoStatus = findStatus("recost");
-  const otherInvalid = statuses.find((entry) => entry.serviceId !== "recost" && entry.serviceId !== selectedServiceId && entry.state === "invalid");
-
-  if (ecoStatus?.state === "invalid") return { serviceId: "recost", text: "ReCost: Invalid key" };
-  if (selectedStatus?.state === "invalid") return { serviceId: selectedStatus.serviceId, text: `${selectedStatus.displayName}: Invalid key` };
-  if (hasResults && ecoStatus?.state === "missing") return { serviceId: "recost", text: "ReCost: Missing key" };
-  if (selectedStatus?.state === "missing") return { serviceId: selectedStatus.serviceId, text: `${selectedStatus.displayName}: Missing key` };
-  if (otherInvalid) return { serviceId: otherInvalid.serviceId, text: `${otherInvalid.displayName}: Invalid key` };
-  return null;
-}
 
 function EmptyPanel({ title, body }: { title: string; body: string }) {
   return (
@@ -77,24 +43,11 @@ export default function App() {
     totalMonthlyCost: 0,
     highRiskCount: 0,
   });
-  const [aiReviewRunning, setAiReviewRunning] = useState(false);
-  const [aiReviewStage, setAiReviewStage] = useState("");
-  const [aiReviewError, setAiReviewError] = useState("");
-  const [aiReviewStats, setAiReviewStats] = useState<{ added: number; filtered: number } | null>(null);
-  const [configuredAiReviewModel, setConfiguredAiReviewModel] = useState("current chat model");
-  const [providers, setProviders] = useState<ChatProviderOption[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState("recost");
-  const [selectedModel, setSelectedModel] = useState("recost-ai");
   const [keyStatuses, setKeyStatuses] = useState<KeyStatusSummary[]>([]);
   const [focusServiceId, setFocusServiceId] = useState<KeyServiceId | null>(null);
-  const [chatContext, setChatContext] = useState<SuggestionContext | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
   const hasResults = endpoints.length > 0 || suggestions.length > 0 || summary.totalEndpoints > 0;
-  const banner = useMemo(
-    () => getGlobalBanner(keyStatuses, selectedProvider, hasResults),
-    [keyStatuses, selectedProvider, hasResults]
-  );
 
   const handleStartScan = useCallback(() => {
     setScanStage("scanning");
@@ -103,26 +56,8 @@ export default function App() {
     setScanTotal(0);
     setScanError("");
     setNotification(null);
-    setAiReviewRunning(false);
-    setAiReviewStage("");
-    setAiReviewError("");
-    setAiReviewStats(null);
     setScreen("scanning");
     postMessage({ type: "startScan" });
-  }, []);
-
-  const handleRunAiReview = useCallback(() => {
-    setAiReviewRunning(true);
-    setAiReviewStage("Starting AI review...");
-    setAiReviewError("");
-    setAiReviewStats(null);
-    postMessage({ type: "runAiReview" });
-  }, []);
-
-  const handleManageKeys = useCallback((serviceId?: KeyServiceId | null) => {
-    setScreen("keys");
-    setFocusServiceId(serviceId ?? null);
-    postMessage({ type: "navigate", screen: "keys", focusServiceId: serviceId ?? undefined });
   }, []);
 
   useEffect(() => {
@@ -152,30 +87,6 @@ export default function App() {
           setScanError("");
           setScreen("findings");
           break;
-        case "aiReviewProgress":
-          setAiReviewRunning(true);
-          setAiReviewStage(msg.stage);
-          break;
-        case "aiReviewComplete":
-          setAiReviewRunning(false);
-          setAiReviewStage("");
-          setAiReviewStats({ added: msg.added, filtered: msg.filtered });
-          break;
-        case "aiReviewError":
-          setAiReviewRunning(false);
-          setAiReviewStage("");
-          setAiReviewError(msg.message);
-          break;
-        case "chatConfig": {
-          setProviders(msg.providers);
-          setSelectedProvider(msg.selectedProvider);
-          setSelectedModel(msg.selectedModel);
-          const provider = msg.providers.find((entry) => entry.id === msg.selectedProvider);
-          const model = provider?.models.find((entry) => entry.id === msg.selectedModel);
-          const label = [provider?.displayName, model?.displayName].filter(Boolean).join(" · ");
-          setConfiguredAiReviewModel(label || msg.selectedModel);
-          break;
-        }
         case "allKeyStatuses":
           setKeyStatuses(msg.statuses);
           setFocusServiceId(msg.focusServiceId ?? null);
@@ -196,7 +107,7 @@ export default function App() {
           );
           break;
         case "navigate":
-          setScreen(msg.screen);
+          setScreen(msg.screen === "chat" ? "findings" : msg.screen);
           setFocusServiceId(msg.focusServiceId ?? null);
           break;
         case "scanNotification":
@@ -205,8 +116,6 @@ export default function App() {
         case "error":
           if (screen === "scanning") {
             setScanError(msg.message);
-          } else {
-            setAiReviewError(msg.message);
           }
           break;
       }
@@ -216,9 +125,6 @@ export default function App() {
     return () => window.removeEventListener("message", handler);
   }, [handleStartScan, screen]);
 
-  const selectedProviderStatus = keyStatuses.find((entry) => entry.serviceId === toServiceId(selectedProvider));
-  const chatUsable = canUseChatProvider(keyStatuses, selectedProvider);
-
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {screen !== "scanning" && (
@@ -226,20 +132,8 @@ export default function App() {
           <button className={`eco-tab${screen === "findings" ? " active" : ""}`} disabled={!hasResults && screen !== "keys"} onClick={() => setScreen(hasResults ? "findings" : "landing")}>
             Findings
           </button>
-          <button className={`eco-tab${screen === "chat" ? " active" : ""}`} disabled={!hasResults && screen !== "keys"} onClick={() => setScreen(hasResults ? "chat" : "landing")}>
-            Chat
-          </button>
           <button className={`eco-tab${screen === "simulate" ? " active" : ""}`} disabled={!hasResults && screen !== "keys"} onClick={() => setScreen(hasResults ? "simulate" : "landing")}>
             Simulate
-          </button>
-          <button
-            className="eco-btn-icon"
-            onClick={handleRunAiReview}
-            disabled={!hasResults || aiReviewRunning}
-            title={`Run AI Review with ${configuredAiReviewModel}`}
-            style={{ marginLeft: "8px", padding: "0 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "3px", opacity: !hasResults || aiReviewRunning ? 0.6 : 1 }}
-          >
-            {aiReviewRunning ? "Reviewing..." : "Run AI Review"}
           </button>
           <button
             className="eco-btn-icon"
@@ -298,32 +192,9 @@ export default function App() {
             endpoints={endpoints}
             suggestions={suggestions}
             summary={summary}
-            aiReviewRunning={aiReviewRunning}
-            aiReviewStage={aiReviewStage}
-            aiReviewError={aiReviewError}
-            aiReviewStats={aiReviewStats}
-            onAskAI={(context) => {
-              setChatContext(context);
-              setScreen("chat");
-            }}
           />
         ) : (
           <EmptyPanel title="Run a scan first" body="Findings appear here after a workspace scan." />
-        )
-      )}
-      {screen === "chat" && (
-        hasResults ? (
-          <ChatPage
-            context={chatContext}
-            summary={summary}
-            endpointCount={endpoints.length}
-            keyStatuses={keyStatuses}
-            currentProviderStatus={selectedProviderStatus}
-            chatUsable={chatUsable}
-            onManageKeys={() => handleManageKeys(toServiceId(selectedProvider))}
-          />
-        ) : (
-          <EmptyPanel title="Run a scan first" body="Chat becomes available after the extension has scan context to work from." />
         )
       )}
       {screen === "simulate" && (
