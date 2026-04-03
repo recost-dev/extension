@@ -286,12 +286,27 @@ function buildAggressiveDescription(endpoint: EndpointRecord, type: Suggestion["
   }
 }
 
-function buildAggressiveSuggestions(endpoints: EndpointRecord[], suggestions: Suggestion[]): Suggestion[] {
+function buildAggressiveSuggestions(
+  endpoints: EndpointRecord[],
+  suggestions: Suggestion[],
+  localFindings: Awaited<ReturnType<typeof detectLocalWastePatterns>>
+): Suggestion[] {
   const existing = new Set<string>();
   for (const suggestion of suggestions) {
     for (const endpointId of suggestion.affectedEndpoints) {
       existing.add(`${endpointId}:${suggestion.type}`);
     }
+  }
+
+  function normalizePath(p: string): string {
+    return p.replace(/\\/g, "/").replace(/^\.\//, "");
+  }
+
+  // Build a set of (type, file) pairs already covered by the waste detector.
+  // Aggressive suggestions for these will be suppressed so the richer finding wins.
+  const coveredByWaste = new Set<string>();
+  for (const finding of localFindings) {
+    coveredByWaste.add(`${finding.type}:${normalizePath(finding.affectedFile)}`);
   }
 
   const extras: Suggestion[] = [];
@@ -301,6 +316,13 @@ function buildAggressiveSuggestions(endpoints: EndpointRecord[], suggestions: Su
 
     const dedupeKey = `${endpoint.id}:${type}`;
     if (existing.has(dedupeKey)) continue;
+
+    // If the waste detector already covers this type for any of this endpoint's files,
+    // suppress the aggressive suggestion — the waste detector finding has richer evidence.
+    const suppressedByWaste = endpoint.files.some((f) =>
+      coveredByWaste.has(`${type}:${normalizePath(f)}`)
+    );
+    if (suppressedByWaste) continue;
 
     extras.push({
       id: `local-${endpoint.id}-${type}`,
@@ -1143,7 +1165,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
         const endpoints = mergeRemoteAndLocalEndpoints(remoteEndpoints, apiCalls, projectId, scanResult.scanId);
         this.lastEndpoints = endpoints;
-        const aggressiveSuggestions = buildAggressiveSuggestions(endpoints, taggedRemoteSuggestions);
+        const aggressiveSuggestions = buildAggressiveSuggestions(endpoints, taggedRemoteSuggestions, localWasteFindings);
         const mergedSuggestions = mergeLocalWasteFindings(
           aggressiveSuggestions,
           localWasteFindings,
