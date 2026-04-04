@@ -316,7 +316,15 @@ function isAtRisk(ep: EndpointRecord): boolean {
   return RISK_STATUSES.has(ep.status) || Boolean(ep.frequencyClass && RISK_FREQUENCIES.has(ep.frequencyClass));
 }
 
-const METHOD_ORDER = ["POST", "GET", "PUT", "PATCH", "DELETE"];
+type EndpointBucket = "paid" | "non-paid" | "unknown";
+
+function getEndpointBucket(endpoint: EndpointRecord): EndpointBucket {
+  if (endpoint.costModel === "free") return "non-paid";
+  if (endpoint.costModel === "per_token" || endpoint.costModel === "per_transaction" || endpoint.costModel === "per_request") {
+    return "paid";
+  }
+  return "unknown";
+}
 
 function atRiskTooltip(ep: EndpointRecord): string {
   const reasons: string[] = [];
@@ -383,63 +391,34 @@ function ProviderGroup({ provider, eps, pColor }: { provider: string; eps: Endpo
   );
 }
 
-function MethodGroup({ method, providerMap, pColor }: { method: string; providerMap: Map<string, EndpointRecord[]>; pColor: (p: string) => string }) {
-  const [open, setOpen] = useState(true);
-  const sortedProviders = [...providerMap.keys()].sort((a, b) => a.localeCompare(b));
-  const total = [...providerMap.values()].reduce((s, v) => s + v.length, 0);
-  return (
-    <div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        style={{
-          display: "flex", alignItems: "center", gap: "6px",
-          width: "100%", padding: "6px 12px",
-          background: "var(--vscode-editorGroupHeader-tabsBackground)",
-          border: "none", cursor: "pointer",
-          borderBottom: "1px solid var(--vscode-panel-border)",
-        }}
-      >
-        <span style={{ fontSize: "17px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--vscode-foreground)" }}>{method}</span>
-        <span style={{ fontWeight: 400, opacity: 0.45, fontSize: "10px" }}>{total}</span>
-        <span className="eco-chevron" style={{ marginLeft: "auto", fontSize: "16px", opacity: 0.5, transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
-      </button>
-      {open && sortedProviders.map((provider) => (
-        <ProviderGroup key={provider} provider={provider} eps={providerMap.get(provider)!} pColor={pColor(provider)} />
-      ))}
-    </div>
-  );
-}
-
 function GroupedEndpointList({ endpoints }: { endpoints: EndpointRecord[] }) {
-  const byMethod = new Map<string, Map<string, EndpointRecord[]>>();
-  const methodsSeen: string[] = [];
+  const byProvider = new Map<string, EndpointRecord[]>();
   for (const ep of endpoints) {
-    const m = ep.method.toUpperCase();
-    if (!byMethod.has(m)) { byMethod.set(m, new Map()); methodsSeen.push(m); }
-    const byProvider = byMethod.get(m)!;
     const p = ep.provider || "unknown";
     if (!byProvider.has(p)) byProvider.set(p, []);
     byProvider.get(p)!.push(ep);
   }
-  const sortedMethods = methodsSeen.sort((a, b) => {
-    const ia = METHOD_ORDER.indexOf(a), ib = METHOD_ORDER.indexOf(b);
-    if (ia !== -1 && ib !== -1) return ia - ib;
-    if (ia !== -1) return -1; if (ib !== -1) return 1;
-    return a.localeCompare(b);
-  });
+  const sortedProviders = [...byProvider.keys()].sort((a, b) => a.localeCompare(b));
   const pColor = (p: string) => PROVIDER_COLORS[p.toLowerCase()] ?? "var(--vscode-descriptionForeground)";
   return (
     <div>
-      {sortedMethods.map((method) => (
-        <MethodGroup key={method} method={method} providerMap={byMethod.get(method)!} pColor={pColor} />
+      {sortedProviders.map((provider) => (
+        <ProviderGroup key={provider} provider={provider} eps={byProvider.get(provider)!} pColor={pColor(provider)} />
       ))}
     </div>
   );
 }
 
-function EndpointsTab({ endpoints }: { endpoints: EndpointRecord[] }) {
-
-  // Provider counts
+function EndpointSection({
+  title,
+  endpoints,
+  defaultOpen = true,
+}: {
+  title: string;
+  endpoints: EndpointRecord[];
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   const providerCounts = new Map<string, number>();
   for (const ep of endpoints) {
     if (ep.provider && ep.provider !== "unknown") {
@@ -447,6 +426,58 @@ function EndpointsTab({ endpoints }: { endpoints: EndpointRecord[] }) {
     }
   }
   const sortedProviders = [...providerCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div style={{ borderBottom: "1px solid var(--vscode-panel-border)" }}>
+      <button
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          width: "100%",
+          padding: "7px 12px",
+          background: "var(--vscode-editorGroupHeader-tabsBackground)",
+          border: "none",
+          borderBottom: open ? "1px solid var(--vscode-panel-border)" : "none",
+          cursor: "pointer",
+          textAlign: "left",
+          color: "var(--vscode-foreground)",
+        }}
+      >
+        <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{title}</span>
+        <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)" }}>{endpoints.length}</span>
+        <span className="eco-chevron" style={{ marginLeft: "auto", fontSize: "16px", opacity: 0.5, transform: open ? "rotate(90deg)" : "rotate(0deg)" }}>›</span>
+      </button>
+
+      {open && (
+        <>
+          {sortedProviders.length > 0 && (
+            <div style={{ padding: "6px 12px 4px", borderBottom: "1px solid var(--vscode-panel-border)", display: "flex", flexWrap: "wrap", gap: "4px", fontSize: "10px" }}>
+              {sortedProviders.map(([provider, count], index) => (
+                <span key={provider}>
+                  <span style={{ color: providerColor(provider) }}>{provider}</span>
+                  <span style={{ color: "var(--vscode-descriptionForeground)" }}> ×{count}</span>
+                  {index < sortedProviders.length - 1 && <span style={{ opacity: 0.3, marginLeft: "4px" }}>·</span>}
+                </span>
+              ))}
+              {endpoints.every((ep) => ep.costModel === "free") && (
+                <span style={{ color: "var(--vscode-charts-green)", marginLeft: "4px" }}>· all free tier</span>
+              )}
+            </div>
+          )}
+
+          <GroupedEndpointList endpoints={endpoints} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function EndpointsTab({ endpoints }: { endpoints: EndpointRecord[] }) {
+  const paidEndpoints = endpoints.filter((ep) => getEndpointBucket(ep) === "paid");
+  const nonPaidEndpoints = endpoints.filter((ep) => getEndpointBucket(ep) === "non-paid");
+  const unknownEndpoints = endpoints.filter((ep) => getEndpointBucket(ep) === "unknown");
 
   if (endpoints.length === 0) {
     return (
@@ -460,23 +491,12 @@ function EndpointsTab({ endpoints }: { endpoints: EndpointRecord[] }) {
 
   return (
     <div>
-      {/* Provider summary counts */}
-      {sortedProviders.length > 0 && (
-        <div style={{ padding: "6px 12px 4px", borderBottom: "1px solid var(--vscode-panel-border)", display: "flex", flexWrap: "wrap", gap: "4px", fontSize: "10px" }}>
-          {sortedProviders.map(([provider, count], i) => (
-            <span key={provider}>
-              <span style={{ color: providerColor(provider) }}>{provider}</span>
-              <span style={{ color: "var(--vscode-descriptionForeground)" }}> ×{count}</span>
-              {i < sortedProviders.length - 1 && <span style={{ opacity: 0.3, marginLeft: "4px" }}>·</span>}
-            </span>
-          ))}
-          {endpoints.every((ep) => ep.costModel === "free") && (
-            <span style={{ color: "var(--vscode-charts-green)", marginLeft: "4px" }}>· all free tier</span>
-          )}
-        </div>
-      )}
-
-      <GroupedEndpointList endpoints={endpoints} />
+      <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--vscode-panel-border)", fontSize: "10px", color: "var(--vscode-descriptionForeground)", lineHeight: 1.45 }}>
+        Paid uses detected pricing models like <code>per_token</code>, <code>per_transaction</code>, or <code>per_request</code>. Non-paid is <code>free</code>. Unknown means no pricing model was detected.
+      </div>
+      {paidEndpoints.length > 0 && <EndpointSection title="Paid" endpoints={paidEndpoints} />}
+      {nonPaidEndpoints.length > 0 && <EndpointSection title="Non-paid" endpoints={nonPaidEndpoints} defaultOpen={paidEndpoints.length === 0} />}
+      {unknownEndpoints.length > 0 && <EndpointSection title="Unknown" endpoints={unknownEndpoints} defaultOpen={paidEndpoints.length === 0 && nonPaidEndpoints.length === 0} />}
     </div>
   );
 }
