@@ -87,6 +87,7 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState("recost-ai");
   const [keyStatuses, setKeyStatuses] = useState<KeyStatusSummary[]>([]);
   const [focusServiceId, setFocusServiceId] = useState<KeyServiceId | null>(null);
+  const [projectIdSetting, setProjectIdSetting] = useState<string | null>(null);
   const [chatContext, setChatContext] = useState<SuggestionContext | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -127,6 +128,7 @@ export default function App() {
 
   useEffect(() => {
     postMessage({ type: "getAllKeyStatuses" });
+    postMessage({ type: "getProjectIdSetting" });
   }, []);
 
   useEffect(() => {
@@ -194,6 +196,9 @@ export default function App() {
               entry.serviceId === msg.serviceId ? { ...entry, message: msg.message } : entry
             )
           );
+          break;
+        case "projectIdSetting":
+          setProjectIdSetting(msg.value);
           break;
         case "navigate":
           setScreen(msg.screen);
@@ -329,7 +334,13 @@ export default function App() {
       {screen === "simulate" && (
         hasResults ? <SimulatePage endpoints={endpoints} /> : <EmptyPanel title="Run a scan first" body="The simulator needs scan results before it can project API usage." />
       )}
-      {screen === "keys" && <KeysPage statuses={keyStatuses} focusServiceId={focusServiceId} />}
+      {screen === "keys" && (
+        <KeysPage
+          statuses={keyStatuses}
+          focusServiceId={focusServiceId}
+          projectIdSetting={projectIdSetting}
+        />
+      )}
 
     </div>
   );

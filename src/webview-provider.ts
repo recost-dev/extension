@@ -652,6 +652,7 @@ function mergeRemoteAndLocalEndpoints(
 export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "recost.sidebarView";
   private static readonly KEY_VALIDATION_STATE_STORAGE_KEY = "recost.keyValidationState";
+  private static readonly MANUAL_PROJECT_ID_STORAGE_KEY = "recost.manualProjectId";
 
   private _view?: vscode.WebviewView;
   private readonly context: vscode.ExtensionContext;
@@ -747,6 +748,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     this.projectId = this.context.globalState.get<string>("recost.projectId") ?? null;
     void this.sendChatConfig();
     void this.sendAllKeyStatuses();
+    void this.sendProjectIdSetting();
   }
 
 
@@ -757,6 +759,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public openKeys(focusServiceId?: KeyServiceId) {
     this.postMessage({ type: "navigate", screen: "keys", focusServiceId });
     void this.sendAllKeyStatuses(focusServiceId);
+    void this.sendProjectIdSetting();
   }
 
   public async clearManagedKey(serviceId: KeyServiceId) {
@@ -799,6 +802,38 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
   public postMessage(message: HostMessage) {
     this._view?.webview.postMessage(message);
+  }
+
+  private getManualProjectId(): string | null {
+    const value = this.context.workspaceState.get<string>(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY);
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  private async setManualProjectId(value: string): Promise<void> {
+    const trimmed = value.trim();
+    await this.context.workspaceState.update(
+      ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY,
+      trimmed || undefined
+    );
+  }
+
+  private async clearManualProjectId(): Promise<void> {
+    await this.context.workspaceState.update(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY, undefined);
+  }
+
+  private sendProjectIdSetting() {
+    this.postMessage({ type: "projectIdSetting", value: this.getManualProjectId() });
+  }
+
+  private async resolveScanProjectTarget(
+    rcApiKey: string
+  ): Promise<{ projectId: string; source: "manual" | "auto" }> {
+    const manualProjectId = this.getManualProjectId();
+    if (manualProjectId) {
+      return { projectId: manualProjectId, source: "manual" };
+    }
+    return { projectId: await this.getOrCreateProject(rcApiKey), source: "auto" };
   }
 
   private async buildAllKeyStatuses(): Promise<KeyStatusSummary[]> {
@@ -932,11 +967,22 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       case "getAllKeyStatuses":
         await this.sendAllKeyStatuses();
         break;
+      case "getProjectIdSetting":
+        this.sendProjectIdSetting();
+        break;
       case "setKey":
         await this.setServiceKey(message.serviceId, message.value);
         break;
       case "clearKey":
         await this.clearServiceKey(message.serviceId);
+        break;
+      case "setProjectId":
+        await this.setManualProjectId(message.value);
+        this.sendProjectIdSetting();
+        break;
+      case "clearProjectId":
+        await this.clearManualProjectId();
+        this.sendProjectIdSetting();
         break;
       case "testKey":
         await this.testServiceKey(message.serviceId);
@@ -1122,9 +1168,10 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       // Ensure we have a project on the remote API
+      const manualProjectId = this.getManualProjectId();
       let rcApiKey = await this.getRcApiKey();
       if (!rcApiKey) {
-        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+        publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
         this.postMessage({
           type: "scanNotification",
           message: "No ReCost API key — showing local results only. Add a key in Keys to enable remote sync.",
@@ -1141,21 +1188,22 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
         }))
         .filter((call) => call.provider !== "unknown");
       if (remoteApiCalls.length === 0) {
-        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+        publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
         return;
       }
 
       // Show local results immediately so UI unblocks, then update with remote
-      publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+      publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
 
       try {
-        let projectId = await this.getOrCreateProject(rcApiKey);
+        const projectTarget = await this.resolveScanProjectTarget(rcApiKey);
+        let projectId = projectTarget.projectId;
         let scanResult;
         try {
           scanResult = await submitScan(projectId, remoteApiCalls, rcApiKey);
         } catch (err: unknown) {
           // Project may have been deleted, create a fresh one and retry once.
-          if ((err as { status?: number }).status === 404) {
+          if ((err as { status?: number }).status === 404 && projectTarget.source === "auto") {
             const freshId = await createProject(this.getWorkspaceName(), rcApiKey);
             this.projectId = freshId;
             projectId = freshId;
@@ -1243,7 +1291,14 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           await this.sendKeyStatusUpdate("recost", "recost");
           this.openKeys("recost");
         }
-        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+        publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
+        if (status === 404 && manualProjectId) {
+          this.postMessage({
+            type: "scanNotification",
+            message: `Project ID ${manualProjectId} was not found. Keeping the saved manual Project ID and showing local results.`,
+          });
+          return;
+        }
         if (err instanceof Error && err.message === "fetch failed") {
           this.postMessage({
             type: "scanNotification",

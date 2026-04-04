@@ -5,6 +5,7 @@ import { postMessage } from "../vscode";
 interface KeysPageProps {
   statuses: KeyStatusSummary[];
   focusServiceId?: KeyServiceId | null;
+  projectIdSetting: string | null;
 }
 
 function statusLabel(status: KeyStatusSummary): string {
@@ -40,16 +41,24 @@ function statusColor(status: KeyStatusSummary): string {
   }
 }
 
-export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
+export function KeysPage({ statuses, focusServiceId, projectIdSetting }: KeysPageProps) {
   const [expandedServiceId, setExpandedServiceId] = useState<KeyServiceId | null>(focusServiceId ?? null);
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [projectIdDraft, setProjectIdDraft] = useState("");
+  const [projectIdFocused, setProjectIdFocused] = useState(false);
 
   useEffect(() => {
     if (focusServiceId) {
       setExpandedServiceId(focusServiceId);
     }
   }, [focusServiceId]);
+
+  useEffect(() => {
+    if (!projectIdFocused) {
+      setProjectIdDraft(projectIdSetting ?? "");
+    }
+  }, [projectIdFocused, projectIdSetting]);
 
   const sortedStatuses = useMemo(() => {
     return statuses.slice().sort((a, b) => {
@@ -69,6 +78,19 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
     setExpandedServiceId((prev) => (prev === serviceId ? null : serviceId));
   };
 
+  const saveProjectId = () => {
+    const trimmed = projectIdDraft.trim();
+    if (trimmed) {
+      postMessage({ type: "setProjectId", value: trimmed });
+      setProjectIdDraft(trimmed);
+      return;
+    }
+    if (projectIdSetting) {
+      postMessage({ type: "clearProjectId" });
+    }
+    setProjectIdDraft("");
+  };
+
   return (
     <div className="eco-scroll-invisible" style={{ flex: 1, overflowY: "auto", padding: "16px", minHeight: 0 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -77,6 +99,112 @@ export function KeysPage({ statuses, focusServiceId }: KeysPageProps) {
           <p style={{ margin: 0, color: "var(--vscode-descriptionForeground)", fontSize: "12px", lineHeight: 1.5 }}>
             Manage ReCost and model provider credentials in one place. Keys are saved when you collapse the row.
           </p>
+        </div>
+
+        <div
+          style={{
+            border: "1px solid var(--vscode-panel-border)",
+            borderRadius: "8px",
+            padding: "14px",
+            background: "var(--vscode-editor-background)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
+            <div style={{ fontSize: "13px", fontWeight: 600 }}>Project ID</div>
+            <div style={{ color: "var(--vscode-descriptionForeground)", fontSize: "11px" }}>
+              Optional per-workspace override for remote scan uploads.
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              background: "var(--vscode-input-background)",
+              border: "1px solid var(--vscode-input-border, var(--vscode-panel-border))",
+              borderRadius: "6px",
+              padding: "4px",
+            }}
+          >
+            <input
+              type="text"
+              value={projectIdDraft}
+              onFocus={() => setProjectIdFocused(true)}
+              onBlur={() => {
+                setProjectIdFocused(false);
+                saveProjectId();
+              }}
+              onChange={(event) => {
+                setProjectIdDraft(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setProjectIdDraft(projectIdSetting ?? "");
+                  setProjectIdFocused(false);
+                  (event.currentTarget as HTMLInputElement).blur();
+                }
+                if (event.key === "Enter") {
+                  (event.currentTarget as HTMLInputElement).blur();
+                }
+              }}
+              placeholder="Paste project ID"
+              style={{
+                flex: 1,
+                background: "transparent",
+                color: "var(--vscode-input-foreground)",
+                border: "none",
+                outline: "none",
+                fontFamily: "var(--vscode-font-family)",
+                fontSize: "var(--vscode-font-size)",
+                padding: "4px 8px",
+              }}
+            />
+            {projectIdSetting && (
+              <button
+                onClick={() => {
+                  setProjectIdDraft("");
+                  setProjectIdFocused(false);
+                  postMessage({ type: "clearProjectId" });
+                }}
+                title="Clear saved Project ID"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "16px",
+                  minWidth: "16px",
+                  height: "16px",
+                  padding: "0",
+                  border: "none",
+                  borderRadius: "3px",
+                  background: "transparent",
+                  color: "var(--vscode-descriptionForeground)",
+                  cursor: "pointer",
+                  opacity: 0.5,
+                  transition: "opacity 0.15s, background 0.15s",
+                  flexShrink: 0,
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+                  (e.currentTarget as HTMLButtonElement).style.background = "color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 12%, transparent)";
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--vscode-errorForeground, #f14c4c)";
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLButtonElement).style.opacity = "0.5";
+                  (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--vscode-descriptionForeground)";
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
 
         {sortedStatuses.map((status) => {
