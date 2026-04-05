@@ -22,7 +22,6 @@ import {
   type NormalizedChatMessage,
   type NormalizedChatRequest,
 } from "./chat";
-import { LocalServer } from "./local-server";
 import type { WebviewMessage, HostMessage, KeyServiceId, KeyStatusSummary } from "./messages";
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 import { runSimulation, StaticDataSource } from "./simulator";
@@ -652,6 +651,7 @@ function mergeRemoteAndLocalEndpoints(
 export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "recost.sidebarView";
   private static readonly KEY_VALIDATION_STATE_STORAGE_KEY = "recost.keyValidationState";
+  private static readonly MANUAL_PROJECT_ID_STORAGE_KEY = "recost.manualProjectId";
 
   private _view?: vscode.WebviewView;
   private readonly context: vscode.ExtensionContext;
@@ -666,9 +666,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
   // Simulator state (persisted across sessions)
   private savedScenarios: import("./simulator/types").SavedScenario[] = [];
-
-  // Local dashboard server
-  private localServer: LocalServer | null = null;
 
   // Chat state
   private chatHistory: ChatMessage[] = [];
@@ -747,6 +744,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     this.projectId = this.context.globalState.get<string>("recost.projectId") ?? null;
     void this.sendChatConfig();
     void this.sendAllKeyStatuses();
+    void this.sendProjectIdSetting();
   }
 
 
@@ -757,6 +755,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public openKeys(focusServiceId?: KeyServiceId) {
     this.postMessage({ type: "navigate", screen: "keys", focusServiceId });
     void this.sendAllKeyStatuses(focusServiceId);
+    void this.sendProjectIdSetting();
   }
 
   public async clearManagedKey(serviceId: KeyServiceId) {
@@ -799,6 +798,38 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
   public postMessage(message: HostMessage) {
     this._view?.webview.postMessage(message);
+  }
+
+  private getManualProjectId(): string | null {
+    const value = this.context.workspaceState.get<string>(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY);
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  private async setManualProjectId(value: string): Promise<void> {
+    const trimmed = value.trim();
+    await this.context.workspaceState.update(
+      ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY,
+      trimmed || undefined
+    );
+  }
+
+  private async clearManualProjectId(): Promise<void> {
+    await this.context.workspaceState.update(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY, undefined);
+  }
+
+  private sendProjectIdSetting() {
+    this.postMessage({ type: "projectIdSetting", value: this.getManualProjectId() });
+  }
+
+  private async resolveScanProjectTarget(
+    rcApiKey: string
+  ): Promise<{ projectId: string; source: "manual" | "auto" }> {
+    const manualProjectId = this.getManualProjectId();
+    if (manualProjectId) {
+      return { projectId: manualProjectId, source: "manual" };
+    }
+    return { projectId: await this.getOrCreateProject(rcApiKey), source: "auto" };
   }
 
   private async buildAllKeyStatuses(): Promise<KeyStatusSummary[]> {
@@ -932,11 +963,22 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       case "getAllKeyStatuses":
         await this.sendAllKeyStatuses();
         break;
+      case "getProjectIdSetting":
+        this.sendProjectIdSetting();
+        break;
       case "setKey":
         await this.setServiceKey(message.serviceId, message.value);
         break;
       case "clearKey":
         await this.clearServiceKey(message.serviceId);
+        break;
+      case "setProjectId":
+        await this.setManualProjectId(message.value);
+        this.sendProjectIdSetting();
+        break;
+      case "clearProjectId":
+        await this.clearManualProjectId();
+        this.sendProjectIdSetting();
         break;
       case "testKey":
         await this.testServiceKey(message.serviceId);
@@ -1122,9 +1164,10 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       // Ensure we have a project on the remote API
+      const manualProjectId = this.getManualProjectId();
       let rcApiKey = await this.getRcApiKey();
       if (!rcApiKey) {
-        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+        publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
         this.postMessage({
           type: "scanNotification",
           message: "No ReCost API key — showing local results only. Add a key in Keys to enable remote sync.",
@@ -1141,21 +1184,22 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
         }))
         .filter((call) => call.provider !== "unknown");
       if (remoteApiCalls.length === 0) {
-        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+        publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
         return;
       }
 
       // Show local results immediately so UI unblocks, then update with remote
-      publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+      publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
 
       try {
-        let projectId = await this.getOrCreateProject(rcApiKey);
+        const projectTarget = await this.resolveScanProjectTarget(rcApiKey);
+        let projectId = projectTarget.projectId;
         let scanResult;
         try {
           scanResult = await submitScan(projectId, remoteApiCalls, rcApiKey);
         } catch (err: unknown) {
           // Project may have been deleted, create a fresh one and retry once.
-          if ((err as { status?: number }).status === 404) {
+          if ((err as { status?: number }).status === 404 && projectTarget.source === "auto") {
             const freshId = await createProject(this.getWorkspaceName(), rcApiKey);
             this.projectId = freshId;
             projectId = freshId;
@@ -1243,7 +1287,14 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           await this.sendKeyStatusUpdate("recost", "recost");
           this.openKeys("recost");
         }
-        publishLocalOnlyResults(this.projectId ?? "local", `local-${Date.now()}`);
+        publishLocalOnlyResults(manualProjectId ?? this.projectId ?? "local", `local-${Date.now()}`);
+        if (status === 404 && manualProjectId) {
+          this.postMessage({
+            type: "scanNotification",
+            message: `Project ID ${manualProjectId} was not found. Keeping the saved manual Project ID and showing local results.`,
+          });
+          return;
+        }
         if (err instanceof Error && err.message === "fetch failed") {
           this.postMessage({
             type: "scanNotification",
@@ -1971,32 +2022,20 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
   private async handleOpenDashboard() {
     try {
-      const dashboardPath = path.join(this.context.extensionPath, "dashboard-dist");
+      const projectId =
+        this.getManualProjectId()
+        ?? this.projectId
+        ?? this.lastEndpoints[0]?.projectId;
 
-      if (!this.localServer) {
-        this.localServer = new LocalServer(dashboardPath, () => ({
-          endpoints: this.lastEndpoints,
-          suggestions: this.lastSuggestions,
-          summary: this.lastSummary,
-          workspaceName: this.getWorkspaceName(),
-          scenarios: this.savedScenarios,
-          onScenariosChanged: (scenarios) => {
-            this.savedScenarios = scenarios;
-            void this.context.globalState.update("recost.simulatorScenarios", scenarios);
-          },
-        }));
-      }
-
-      if (!this.localServer.hasDistFiles()) {
-        this.postMessage({
-          type: "error",
-          message: "Dashboard not built yet. Run 'npm run build:dashboard' in the extension directory first.",
-        });
+      if (!projectId || projectId === "local") {
+        vscode.window.showErrorMessage(
+          "No project found. Run a synced scan or set a Project ID first."
+        );
         return;
       }
 
-      const port = await this.localServer.start();
-      await vscode.env.openExternal(vscode.Uri.parse(`http://localhost:${port}`));
+      const url = `https://recost.dev/dashboard/projects/${projectId}`;
+      await vscode.env.openExternal(vscode.Uri.parse(url));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to open dashboard";
       this.postMessage({ type: "error", message });

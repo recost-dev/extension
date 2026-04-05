@@ -46,8 +46,11 @@ export type WebviewMessage =
   | { type: "openFile"; file: string; line?: number }
   | { type: "runSimulation"; input: SimulatorInput }
   | { type: "getAllKeyStatuses" }
+  | { type: "getProjectIdSetting" }
   | { type: "setKey"; serviceId: KeyServiceId; value: string }
   | { type: "clearKey"; serviceId: KeyServiceId }
+  | { type: "setProjectId"; value: string }
+  | { type: "clearProjectId" }
   | { type: "testKey"; serviceId: KeyServiceId }
   | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "copyAiContext" };
@@ -79,6 +82,7 @@ export type HostMessage =
   | { type: "allKeyStatuses"; statuses: KeyStatusSummary[]; focusServiceId?: KeyServiceId }
   | { type: "keyStatusUpdated"; status: KeyStatusSummary; focusServiceId?: KeyServiceId }
   | { type: "keyActionError"; serviceId: KeyServiceId; message: string }
+  | { type: "projectIdSetting"; value: string | null }
   | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "error"; message: string }
   | { type: "scanNotification"; message: string }
