@@ -110,4 +110,35 @@ export const STDLIB_DENYLIST = new Set([
   "../ast/ast-scanner",
   "../types",
   "./index",
+
+  // UI notification libraries
+  "sonner", "toast", "react-hot-toast", "react-toastify", "notistack",
+
+  // UI component libraries
+  "radix-ui", "@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu",
+  "shadcn", "lucide-react", "framer-motion", "tailwindcss",
+
+  // State management
+  "zustand", "jotai", "recoil", "redux", "@reduxjs/toolkit",
+
+  // Data fetching / query libraries
+  "swr", "@tanstack/react-query", "react-query",
+
+  // Routing
+  "react-router", "react-router-dom", "next/router", "next/navigation",
+  "wouter", "tanstack-router",
+
+  // Utility libraries
+  "lodash", "lodash-es", "ramda", "date-fns", "dayjs", "moment",
+  "uuid", "nanoid", "clsx", "classnames",
+
+  // Node utilities
+  "dotenv", "zod", "yup", "joi",
+
+  // Python test frameworks
+  "pytest", "unittest", "nose", "hypothesis",
+
+  // Python stdlib
+  "sys", "pathlib", "subprocess", "json", "re", "collections",
+  "itertools", "functools", "typing", "asyncio", "threading",
 ]);
