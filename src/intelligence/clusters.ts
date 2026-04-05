@@ -12,6 +12,11 @@ import { isAnalysisToolingFilePath, isDeprioritizedContextFilePath, isTestLikeFi
 import { filterRealProviders, normalizeProviderId } from "./provider-normalization";
 
 const MAX_PRIMARY_FILES = 5;
+
+let _includeTestFiles = false;
+export function setIncludeTestFiles(value: boolean): void {
+  _includeTestFiles = value;
+}
 const MIN_RELATED_FILES = 2;
 const MAX_RELATED_FILES = 5;
 const MAX_FINDINGS_PER_CLUSTER = 6;
@@ -444,10 +449,12 @@ function compareClusters(a: ReviewCluster, b: ReviewCluster): number {
 }
 
 function selectPrimaryContexts(contexts: FileContext[]): FileContext[] {
-  const preferredRuntimeContexts = contexts.filter((context) =>
-    !isTestLikeFilePath(context.scoredFile.filePath) &&
-    !isDeprioritizedContextFilePath(context.scoredFile.filePath)
-  );
+  const preferredRuntimeContexts = _includeTestFiles
+    ? contexts
+    : contexts.filter((context) =>
+        !isTestLikeFilePath(context.scoredFile.filePath) &&
+        !isDeprioritizedContextFilePath(context.scoredFile.filePath)
+      );
   if (preferredRuntimeContexts.length >= MAX_PRIMARY_FILES) {
     return preferredRuntimeContexts.slice(0, MAX_PRIMARY_FILES);
   }

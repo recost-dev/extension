@@ -9,6 +9,9 @@ import { compressClusters } from "./intelligence/compression";
 import { buildExportContext, formatAsMarkdown } from "./intelligence/export";
 import { buildKeyFingerprint, getKeyService, readStoredSecret, resolveCurrentKeyValue, type PersistedKeyValidationSnapshot } from "./key-management";
 import { getOutputChannel } from "./output";
+import { setIncludeTestFiles as setScannerTestFiles } from "./scanner/workspace-scanner";
+import { setIncludeTestFiles as setScorerTestFiles } from "./intelligence/scorer";
+import { setIncludeTestFiles as setClusterTestFiles } from "./intelligence/clusters";
 
 const ECO_API_KEY = "recost.apiKey";
 const GET_KEY_URL = "https://recost.dev/dashboard/account";
@@ -141,6 +144,9 @@ export function activate(context: vscode.ExtensionContext) {
   // Initialize context variables immediately so view/title when/enablement clauses work on first render
   vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
   vscode.commands.executeCommand("setContext", "recost.scanning", false);
+  vscode.commands.executeCommand("setContext", "recost.includeTestFiles", false);
+
+  let includeTestFiles = false;
 
   const provider = new ReCostSidebarProvider(context);
 
@@ -166,6 +172,19 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand("recost.sidebarView.focus");
     scheduleKeyIndicatorRefresh(statusBar, context, statusOutput, "openKeys");
     provider.openKeys();
+  });
+
+  const toggleTestFilesCommand = vscode.commands.registerCommand("recost.toggleTestFiles", async () => {
+    includeTestFiles = !includeTestFiles;
+    setScannerTestFiles(includeTestFiles);
+    setScorerTestFiles(includeTestFiles);
+    setClusterTestFiles(includeTestFiles);
+    await vscode.commands.executeCommand("setContext", "recost.includeTestFiles", includeTestFiles);
+    vscode.window.showInformationMessage(
+      includeTestFiles
+        ? "ReCost: Test & mock files included in next scan."
+        : "ReCost: Test & mock files excluded from scan."
+    );
   });
 
   const generateContextCommand = vscode.commands.registerCommand("recost.generateContext", async () => {
@@ -268,6 +287,7 @@ export function activate(context: vscode.ExtensionContext) {
     openPanelCommand,
     scanCommand,
     openKeysCommand,
+    toggleTestFilesCommand,
     generateContextCommand,
     statusOnlineCommand,
     statusLocalCommand,

@@ -83,6 +83,11 @@
         "command": "recost.editIgnoreRules",
         "title": "ReCost: Edit Ignore Rules",
         "icon": "$(filter)"
+      },
+      {
+        "command": "recost.toggleTestFiles",
+        "title": "ReCost: Toggle Test & Mock Files",
+        "icon": "$(beaker)"
       }
     ],
     "menus": {
@@ -116,6 +121,11 @@
           "command": "recost.editIgnoreRules",
           "when": "view == recost.sidebarView",
           "group": "navigation@3"
+        },
+        {
+          "command": "recost.toggleTestFiles",
+          "when": "view == recost.sidebarView",
+          "group": "navigation@4"
         }
       ]
     },

@@ -96,18 +96,19 @@ function matchesAny(relativePath: string, matchers: RegExp[]): boolean {
   return matchers.some((matcher) => matcher.test(relativePath));
 }
 
-async function loadIgnorePatterns(repoRoot: string): Promise<string[]> {
+async function loadIgnorePatterns(repoRoot: string, includeTestFiles: boolean = false): Promise<string[]> {
   const ignorePath = path.join(repoRoot, ".recostignore");
+  const defaults = includeTestFiles ? [] : DEFAULT_IGNORE_PATTERNS;
   try {
     const content = await fs.readFile(ignorePath, "utf-8");
     const userPatterns = content
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"));
-    return [...DEFAULT_IGNORE_PATTERNS, ...userPatterns];
+    return [...defaults, ...userPatterns];
   } catch {
     // No .recostignore file — use defaults only
-    return DEFAULT_IGNORE_PATTERNS;
+    return defaults;
   }
 }
 
@@ -151,11 +152,12 @@ export async function discoverFilesInDirectory(
   options?: {
     includeGlobs?: string[];
     excludeGlobs?: string[];
+    includeTestFiles?: boolean;
   }
 ): Promise<{ files: ScanInputFile[]; excludedCount: number }> {
   const includeMatchers = buildGlobMatchers(options?.includeGlobs ?? []);
   const excludeMatchers = buildGlobMatchers(options?.excludeGlobs ?? []);
-  const ignorePatterns = await loadIgnorePatterns(rootDir);
+  const ignorePatterns = await loadIgnorePatterns(rootDir, options?.includeTestFiles ?? false);
   const ignoreMatchers = buildGlobMatchers(ignorePatterns);
   const results: ScanInputFile[] = [];
 
