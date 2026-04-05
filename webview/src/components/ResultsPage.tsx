@@ -1,17 +1,12 @@
 import { useState } from "react";
 import { Markdown } from "./Markdown";
-import type { Suggestion, ScanSummary, SuggestionContext, EndpointRecord } from "../types";
+import type { Suggestion, ScanSummary, EndpointRecord } from "../types";
 import { postMessage } from "../vscode";
 
 interface ResultsPageProps {
   suggestions: Suggestion[];
   summary: ScanSummary;
   endpoints: EndpointRecord[];
-  aiReviewRunning: boolean;
-  aiReviewStage: string;
-  aiReviewError: string;
-  aiReviewStats: { added: number; filtered: number } | null;
-  onAskAI: (context: SuggestionContext) => void;
 }
 
 function formatCost(n: number): string {
@@ -215,11 +210,9 @@ function CodeFix({ codeFix, file, line }: { codeFix: string; file?: string; line
 
 function SuggestionCard({
   suggestion,
-  onAskAI,
   target,
 }: {
   suggestion: Suggestion;
-  onAskAI: (s: Suggestion) => void;
   target: { file?: string; line?: number };
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -269,27 +262,6 @@ function SuggestionCard({
           )}
 
           {suggestion.codeFix && <CodeFix codeFix={suggestion.codeFix} file={target.file} line={target.line} />}
-
-          <button
-            className="eco-btn-icon"
-            onClick={() => onAskAI(suggestion)}
-            style={{
-              marginTop: "10px",
-              gap: "4px",
-              display: "flex",
-              justifyContent: "flex-start",
-              alignItems: "center",
-              color: "#ffffff",
-              background: "#2ea8ff",
-              border: "1px solid #1b8fdf",
-              borderRadius: "4px",
-              fontSize: "11px",
-              fontWeight: 600,
-              padding: "5px 10px",
-            }}
-          >
-            Ask AI
-          </button>
         </div>
       )}
     </div>
@@ -301,14 +273,12 @@ function SeverityGroup({
   suggestions,
   open,
   onToggleGroup,
-  onAskAI,
   resolveTarget,
 }: {
   label: string;
   suggestions: Suggestion[];
   open: boolean;
   onToggleGroup: () => void;
-  onAskAI: (s: Suggestion) => void;
   resolveTarget: (s: Suggestion) => { file?: string; line?: number };
 }) {
   if (suggestions.length === 0) return null;
@@ -331,7 +301,6 @@ function SeverityGroup({
           <SuggestionCard
             key={s.id}
             suggestion={s}
-            onAskAI={onAskAI}
             target={resolveTarget(s)}
           />
         ))}
@@ -516,11 +485,6 @@ export function ResultsPage({
   suggestions,
   summary,
   endpoints,
-  aiReviewRunning,
-  aiReviewStage,
-  aiReviewError,
-  aiReviewStats,
-  onAskAI,
 }: ResultsPageProps) {
   const [findingsTab, setFindingsTab] = useState<"issues" | "endpoints">("issues");
   const [openGroups, setOpenGroups] = useState<Record<"HIGH" | "MEDIUM" | "LOW", boolean>>({
@@ -529,23 +493,6 @@ export function ResultsPage({
     LOW: true,
   });
   const [typeFilter, setTypeFilter] = useState<string>("all");
-
-  const handleAskAI = (suggestion: Suggestion) => {
-    const target = resolveSuggestionTarget(suggestion, endpoints);
-    const files = target.file
-      ? [target.file, ...suggestion.affectedFiles.filter((f) => f !== target.file)]
-      : suggestion.affectedFiles;
-    onAskAI({
-      type: suggestion.type,
-      description: suggestion.description,
-      files,
-      codeFix: suggestion.codeFix,
-      severity: suggestion.severity,
-      estimatedMonthlySavings: suggestion.estimatedMonthlySavings,
-      targetFile: target.file,
-      targetLine: target.line,
-    });
-  };
 
   const presentTypes = Array.from(new Set(suggestions.map((s) => s.type))).sort();
   const visibleSuggestions = typeFilter === "all" ? suggestions : suggestions.filter((s) => s.type === typeFilter);
@@ -593,24 +540,6 @@ export function ResultsPage({
               <span style={{ color: "var(--vscode-editorWarning-foreground)" }}>{inLoopsCount} in loops</span>
             </>
           )}
-          {aiReviewRunning && (
-            <>
-              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-              <span>{aiReviewStage || "Running AI review..."}</span>
-            </>
-          )}
-          {!aiReviewRunning && aiReviewStats && (
-            <>
-              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-              <span>AI added {aiReviewStats.added}, filtered {aiReviewStats.filtered}</span>
-            </>
-          )}
-          {!aiReviewRunning && aiReviewError && (
-            <>
-              <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-              <span style={{ color: "var(--vscode-editorError-foreground)" }}>{aiReviewError}</span>
-            </>
-          )}
         </div>
       </div>
 
@@ -632,7 +561,7 @@ export function ResultsPage({
       </div>
 
       {/* Tab content */}
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+      <div className="eco-scroll-invisible" style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
         {findingsTab === "issues" && (
           <>
             {suggestions.length === 0 ? (
@@ -663,7 +592,6 @@ export function ResultsPage({
                   suggestions={high}
                   open={openGroups.HIGH}
                   onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
-                  onAskAI={handleAskAI}
                   resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
                 />
                 <SeverityGroup
@@ -671,7 +599,6 @@ export function ResultsPage({
                   suggestions={medium}
                   open={openGroups.MEDIUM}
                   onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
-                  onAskAI={handleAskAI}
                   resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
                 />
                 <SeverityGroup
@@ -679,7 +606,6 @@ export function ResultsPage({
                   suggestions={low}
                   open={openGroups.LOW}
                   onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
-                  onAskAI={handleAskAI}
                   resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
                 />
               </>

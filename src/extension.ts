@@ -8,6 +8,10 @@ import { buildReviewClusters } from "./intelligence/clusters";
 import { compressClusters } from "./intelligence/compression";
 import { buildExportContext, formatAsMarkdown } from "./intelligence/export";
 import { buildKeyFingerprint, getKeyService, readStoredSecret, resolveCurrentKeyValue, type PersistedKeyValidationSnapshot } from "./key-management";
+import { getOutputChannel } from "./output";
+import { setIncludeTestFiles as setScannerTestFiles } from "./scanner/workspace-scanner";
+import { setIncludeTestFiles as setScorerTestFiles } from "./intelligence/scorer";
+import { setIncludeTestFiles as setClusterTestFiles } from "./intelligence/clusters";
 
 const ECO_API_KEY = "recost.apiKey";
 const GET_KEY_URL = "https://recost.dev/dashboard/account";
@@ -127,7 +131,7 @@ function scheduleKeyIndicatorRefresh(
 }
 
 export function activate(context: vscode.ExtensionContext) {
-  const statusOutput = vscode.window.createOutputChannel("ReCost Status");
+  const statusOutput = getOutputChannel();
   context.subscriptions.push(statusOutput);
 
   // Status bar
@@ -140,6 +144,9 @@ export function activate(context: vscode.ExtensionContext) {
   // Initialize context variables immediately so view/title when/enablement clauses work on first render
   vscode.commands.executeCommand("setContext", "recost.keyOnline", false);
   vscode.commands.executeCommand("setContext", "recost.scanning", false);
+  vscode.commands.executeCommand("setContext", "recost.includeTestFiles", false);
+
+  let includeTestFiles = false;
 
   const provider = new ReCostSidebarProvider(context);
 
@@ -165,6 +172,19 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand("recost.sidebarView.focus");
     scheduleKeyIndicatorRefresh(statusBar, context, statusOutput, "openKeys");
     provider.openKeys();
+  });
+
+  const toggleTestFilesCommand = vscode.commands.registerCommand("recost.toggleTestFiles", async () => {
+    includeTestFiles = !includeTestFiles;
+    setScannerTestFiles(includeTestFiles);
+    setScorerTestFiles(includeTestFiles);
+    setClusterTestFiles(includeTestFiles);
+    await vscode.commands.executeCommand("setContext", "recost.includeTestFiles", includeTestFiles);
+    vscode.window.showInformationMessage(
+      includeTestFiles
+        ? "ReCost: Test & mock files included in next scan."
+        : "ReCost: Test & mock files excluded from scan."
+    );
   });
 
   const generateContextCommand = vscode.commands.registerCommand("recost.generateContext", async () => {
@@ -236,14 +256,43 @@ export function activate(context: vscode.ExtensionContext) {
   const statusLocalCommand = vscode.commands.registerCommand("recost.statusLocal", () => {});
   const scanningIndicatorCommand = vscode.commands.registerCommand("recost.scanningIndicator", () => {});
 
+  const editIgnoreRulesCommand = vscode.commands.registerCommand("recost.editIgnoreRules", async () => {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!workspaceRoot) {
+      await vscode.window.showErrorMessage("ReCost: No workspace folder open.");
+      return;
+    }
+    const recostignoreUri = vscode.Uri.joinPath(workspaceRoot, ".recostignore");
+    try {
+      await vscode.workspace.fs.stat(recostignoreUri);
+    } catch {
+      const defaultContent = [
+        "# ReCost ignore rules",
+        "# Files and patterns listed here will be excluded from scanning.",
+        "# Uses glob syntax — one pattern per line. Lines starting with # are comments.",
+        "#",
+        "# Examples:",
+        "# **/*.test.ts",
+        "# **/mocks/**",
+        "# src/generated/**",
+        "",
+      ].join("\n");
+      await vscode.workspace.fs.writeFile(recostignoreUri, new TextEncoder().encode(defaultContent));
+    }
+    const doc = await vscode.workspace.openTextDocument(recostignoreUri);
+    await vscode.window.showTextDocument(doc);
+  });
+
   context.subscriptions.push(
     openPanelCommand,
     scanCommand,
     openKeysCommand,
+    toggleTestFilesCommand,
     generateContextCommand,
     statusOnlineCommand,
     statusLocalCommand,
-    scanningIndicatorCommand
+    scanningIndicatorCommand,
+    editIgnoreRulesCommand
   );
 
   // Pricing sync: fire-and-forget on startup, then repeat on a configurable interval

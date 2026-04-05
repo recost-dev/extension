@@ -25,6 +25,11 @@ const HIGH_CONFIDENCE_THRESHOLD = 0.85;
 const TEST_FILE_PRIORITY_MULTIPLIER = 0.05;
 const CONTEXT_NOISE_FILE_PRIORITY_MULTIPLIER = 0.1;
 
+let _includeTestFiles = false;
+export function setIncludeTestFiles(value: boolean): void {
+  _includeTestFiles = value;
+}
+
 interface RawScoreSignals {
   importance: number;
   costLeak: number;
@@ -269,7 +274,7 @@ export function scoreRepoIntelligence(snapshot: RepoIntelligenceSnapshot): Score
       )
     );
     const priorityMultiplier =
-      isTestLikeFilePath(scoredFile.filePath) ? TEST_FILE_PRIORITY_MULTIPLIER :
+      (isTestLikeFilePath(scoredFile.filePath) && !_includeTestFiles) ? TEST_FILE_PRIORITY_MULTIPLIER :
       isDeprioritizedContextFilePath(scoredFile.filePath) ? CONTEXT_NOISE_FILE_PRIORITY_MULTIPLIER :
       1;
     scoredFile.scores.aiReviewPriority = roundScore(priority * priorityMultiplier);

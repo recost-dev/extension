@@ -1,3 +1,4 @@
+import path from "path";
 import type { ApiCallMatch } from "./patterns/types";
 import { getLoopDepth, matchNormalizedLine } from "./patterns";
 import type { Severity, SuggestionType } from "../analysis/types";
@@ -24,6 +25,7 @@ const CLIENT_INIT_PATTERN = /new\s+(OpenAI|Anthropic|CohereClient|Mistral|Stripe
 const TEST_FILE_PATTERN = /(^|\/)(test|tests|spec|stories|storybook|fixtures?|examples?)\//i;
 const STARTUP_FILE_PATTERN = /(^|\/)(scripts|bin|migrations?|seed|bootstrap|cli)\//i;
 const SMALL_BOUNDED_PATTERN = /\b(length\s*:\s*[1-5]\b|<\s*[1-5]\b|slice\(\s*0\s*,\s*[1-5]\s*\))\b/i;
+const JS_TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
 const CACHE_TYPES = new Set(["query", "select", "get", "retrieve", "list", "content", "download"]);
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -239,6 +241,9 @@ function makeFinding(
 }
 
 function detectCacheFinding(relativePath: string, site: MatchedCallSite): LocalWasteFinding | null {
+  console.log('[recost] detectCacheFinding called with:', relativePath);
+  const ext = path.extname(relativePath).toLowerCase();
+  if (!JS_TS_EXTENSIONS.has(ext)) return null;
   if (!site.isRead || site.cacheGuard) return null;
   const queryWithoutPersisted = site.match.kind === "graphql" && !!site.match.inferredCostRisk?.includes("missing-persisted-query-hint");
   const repeatedLookup = site.authLookup || site.configLookup || site.repeatedResourceCount >= 2;
@@ -264,6 +269,8 @@ function detectCacheFinding(relativePath: string, site: MatchedCallSite): LocalW
 }
 
 function detectBatchFinding(relativePath: string, site: MatchedCallSite): LocalWasteFinding | null {
+  const ext = path.extname(relativePath).toLowerCase();
+  if (!JS_TS_EXTENSIONS.has(ext)) return null;
   const batchCapableHint =
     Boolean(site.match.batchCapable) ||
     /embed|embedding|responses|messages|generatecontent|select|query/i.test(site.match.action ?? "");
@@ -288,6 +295,8 @@ function detectBatchFinding(relativePath: string, site: MatchedCallSite): LocalW
 }
 
 function detectRedundancyFinding(relativePath: string, site: MatchedCallSite, clientInitCount: number): LocalWasteFinding | null {
+  const ext = path.extname(relativePath).toLowerCase();
+  if (!JS_TS_EXTENSIONS.has(ext)) return null;
   const repeatedLookup = site.authLookup || site.configLookup;
   const clientChurn = clientInitCount >= 2 && site.hotPath;
   if (!repeatedLookup && !clientChurn && site.repeatedResourceCount < 3) return null;
@@ -311,6 +320,8 @@ function detectRedundancyFinding(relativePath: string, site: MatchedCallSite, cl
 }
 
 function detectNPlusOneFinding(relativePath: string, site: MatchedCallSite): LocalWasteFinding | null {
+  const ext = path.extname(relativePath).toLowerCase();
+  if (!JS_TS_EXTENSIONS.has(ext)) return null;
   if (site.batchGuard || site.concurrencyGuard) return null;
   if (!(site.loopDepth > 0 || (site.promiseAll && site.mapFanout))) return null;
 
@@ -333,6 +344,8 @@ function detectNPlusOneFinding(relativePath: string, site: MatchedCallSite): Loc
 }
 
 function detectRateLimitFinding(relativePath: string, site: MatchedCallSite): LocalWasteFinding | null {
+  const ext = path.extname(relativePath).toLowerCase();
+  if (!JS_TS_EXTENSIONS.has(ext)) return null;
   if (site.retryGuard && site.concurrencyGuard && !site.polling) return null;
   const bursty = site.polling || site.retryNearby || (site.hotPath && (site.promiseAll || site.mapFanout)) || site.isSubscription;
   if (!bursty) return null;
@@ -357,6 +370,8 @@ function detectRateLimitFinding(relativePath: string, site: MatchedCallSite): Lo
 }
 
 function detectConcurrencyFinding(relativePath: string, site: MatchedCallSite): LocalWasteFinding | null {
+  const ext = path.extname(relativePath).toLowerCase();
+  if (!JS_TS_EXTENSIONS.has(ext)) return null;
   if (site.concurrencyGuard) return null;
   const uncontrolled =
     (site.promiseAll && (site.mapFanout || site.arrayFanout || site.loopDepth > 0)) ||

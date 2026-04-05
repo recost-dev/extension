@@ -4,6 +4,17 @@ import type { ScanInputFile } from "./core-scanner";
 
 const ALLOWED_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".rb"]);
 
+const DEFAULT_IGNORE_PATTERNS = [
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.ts",
+  "**/*.spec.tsx",
+  "**/mocks/**",
+  "**/mock-data.*",
+  "**/__mocks__/**",
+  "**/fixtures/**",
+];
+
 export const HARD_EXCLUDED_SEGMENTS = new Set([
   "node_modules",
   "docs",
@@ -85,15 +96,33 @@ function matchesAny(relativePath: string, matchers: RegExp[]): boolean {
   return matchers.some((matcher) => matcher.test(relativePath));
 }
 
+async function loadIgnorePatterns(repoRoot: string, includeTestFiles: boolean = false): Promise<string[]> {
+  const ignorePath = path.join(repoRoot, ".recostignore");
+  const defaults = includeTestFiles ? [] : DEFAULT_IGNORE_PATTERNS;
+  try {
+    const content = await fs.readFile(ignorePath, "utf-8");
+    const userPatterns = content
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    return [...defaults, ...userPatterns];
+  } catch {
+    // No .recostignore file — use defaults only
+    return defaults;
+  }
+}
+
 async function collectFiles(
   rootDir: string,
   currentDir: string,
   includeMatchers: RegExp[],
   excludeMatchers: RegExp[],
+  ignoreMatchers: RegExp[],
   results: ScanInputFile[]
-): Promise<void> {
+): Promise<number> {
   const entries = await fs.readdir(currentDir, { withFileTypes: true });
   entries.sort((a, b) => a.name.localeCompare(b.name));
+  let excluded = 0;
 
   for (const entry of entries) {
     const absolutePath = path.join(currentDir, entry.name);
@@ -101,15 +130,21 @@ async function collectFiles(
     if (isHardExcludedPath(relativePath) || matchesAny(relativePath, excludeMatchers)) continue;
 
     if (entry.isDirectory()) {
-      await collectFiles(rootDir, absolutePath, includeMatchers, excludeMatchers, results);
+      excluded += await collectFiles(rootDir, absolutePath, includeMatchers, excludeMatchers, ignoreMatchers, results);
       continue;
     }
 
     if (!entry.isFile()) continue;
     if (!ALLOWED_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
     if (includeMatchers.length > 0 && !matchesAny(relativePath, includeMatchers)) continue;
+
+    if (matchesAny(relativePath, ignoreMatchers)) {
+      excluded++;
+      continue;
+    }
     results.push({ absolutePath, relativePath });
   }
+  return excluded;
 }
 
 export async function discoverFilesInDirectory(
@@ -117,13 +152,24 @@ export async function discoverFilesInDirectory(
   options?: {
     includeGlobs?: string[];
     excludeGlobs?: string[];
+    includeTestFiles?: boolean;
   }
-): Promise<ScanInputFile[]> {
+): Promise<{ files: ScanInputFile[]; excludedCount: number }> {
   const includeMatchers = buildGlobMatchers(options?.includeGlobs ?? []);
   const excludeMatchers = buildGlobMatchers(options?.excludeGlobs ?? []);
+  const ignorePatterns = await loadIgnorePatterns(rootDir, options?.includeTestFiles ?? false);
+  const ignoreMatchers = buildGlobMatchers(ignorePatterns);
   const results: ScanInputFile[] = [];
 
-  await collectFiles(path.resolve(rootDir), path.resolve(rootDir), includeMatchers, excludeMatchers, results);
+  const excludedCount = await collectFiles(
+    path.resolve(rootDir),
+    path.resolve(rootDir),
+    includeMatchers,
+    excludeMatchers,
+    ignoreMatchers,
+    results
+  );
+
   results.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-  return results;
+  return { files: results, excludedCount };
 }
