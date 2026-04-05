@@ -325,6 +325,9 @@ function buildAggressiveSuggestions(
     const dedupeKey = `${endpoint.id}:${type}`;
     if (existing.has(dedupeKey)) continue;
 
+    // Skip internal endpoints — they have no cost implications
+    if (endpoint.scope === "internal") continue;
+
     // If the waste detector already covers this type for any of this endpoint's files,
     // suppress the aggressive suggestion — the waste detector finding has richer evidence.
     const suppressedByWaste = endpoint.files.some((f) =>
@@ -691,7 +694,8 @@ function mergeRemoteAndLocalEndpoints(
     }
   }
 
-  return [...merged, ...syntheticByMethodUrl.values()];
+  return [...merged, ...syntheticByMethodUrl.values()]
+    .filter((ep) => ep.scope !== "internal");
 }
 
 export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
@@ -1146,14 +1150,15 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           highRiskCount: mergedSuggestions.filter((s) => s.severity === "high").length,
         };
 
-        this.lastEndpoints = endpoints;
+        const externalEndpoints = endpoints.filter((ep) => ep.scope !== "internal");
+        this.lastEndpoints = externalEndpoints;
         this.lastSuggestions = mergedSuggestions;
-        this.lastSummary = summary;
+        this.lastSummary = { ...summary, totalEndpoints: externalEndpoints.length };
         this.postMessage({
           type: "scanResults",
-          endpoints,
+          endpoints: externalEndpoints,
           suggestions: mergedSuggestions,
-          summary,
+          summary: { ...summary, totalEndpoints: externalEndpoints.length },
         });
         void this.exportDebugScanResults({
           mode: "local-only",
@@ -1263,7 +1268,8 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
         const taggedRemoteSuggestions = suggestions.map((s) => ({ ...s, source: s.source ?? "remote" }));
 
         const endpoints = mergeRemoteAndLocalEndpoints(remoteEndpoints, apiCalls, projectId, scanResult.scanId);
-        this.lastEndpoints = endpoints;
+        const externalEndpoints = endpoints.filter((ep) => ep.scope !== "internal");
+        this.lastEndpoints = externalEndpoints;
         const aggressiveSuggestions = buildAggressiveSuggestions(endpoints, taggedRemoteSuggestions, localWasteFindings);
         const mergedSuggestions = mergeLocalWasteFindings(
           aggressiveSuggestions,
@@ -1274,15 +1280,15 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           scanResult.scanId
         );
         this.lastSuggestions = mergedSuggestions;
-        this.lastSummary = scanResult.summary;
+        this.lastSummary = { ...scanResult.summary, totalEndpoints: externalEndpoints.length };
 
         this.postMessage({
           type: "scanResults",
-          endpoints,
+          endpoints: externalEndpoints,
           suggestions: mergedSuggestions,
           summary: {
             ...scanResult.summary,
-            totalEndpoints: Math.max(scanResult.summary.totalEndpoints, endpoints.length),
+            totalEndpoints: externalEndpoints.length,
           },
         });
         void this.exportDebugScanResults({

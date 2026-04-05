@@ -21,6 +21,7 @@ export function isRecostFixtureFile(filePath: string): boolean {
 }
 
 const DEFAULT_IGNORE_PATTERNS = [
+  // Existing patterns
   "**/*.test.ts",
   "**/*.test.tsx",
   "**/*.spec.ts",
@@ -29,6 +30,34 @@ const DEFAULT_IGNORE_PATTERNS = [
   "**/mock-data.*",
   "**/__mocks__/**",
   "**/fixtures/**",
+
+  // New — universal false positive file types
+  "**/*.md",           // markdown files contain URL examples, not API calls
+  "**/*.json",         // JSON files are data definitions, not runtime calls
+  "**/*.lock",         // lockfiles should never be scanned
+  "**/dist/**",        // compiled output
+  "**/build/**",       // compiled output
+  "**/.next/**",       // Next.js build output
+  "**/coverage/**",    // test coverage reports
+  "**/*.min.js",       // minified files
+  "**/*.min.css",      // minified files
+
+  // Pricing, cost, and API configuration files — contain provider data as
+  // constants, not runtime API calls. The AST-level fix (distinguishing object
+  // literal values from call expressions) is tracked as a post-beta issue.
+  "**/pricing.ts",
+  "**/pricing.js",
+  "**/pricing.tsx",
+  "**/costs.ts",
+  "**/costs.js",
+  "**/rates.ts",
+  "**/rates.js",
+  "**/api-config.ts",
+  "**/api-config.js",
+  "**/provider-config.ts",
+  "**/provider-config.js",
+  "**/api-pricing.ts",
+  "**/api-pricing.js",
 ];
 
 export const HARD_EXCLUDED_SEGMENTS = new Set([
