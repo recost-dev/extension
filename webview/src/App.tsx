@@ -62,6 +62,7 @@ export default function App() {
 
   useEffect(() => {
     postMessage({ type: "getAllKeyStatuses" });
+    postMessage({ type: "getProjectIdSetting" });
   }, []);
 
   useEffect(() => {
@@ -105,6 +106,9 @@ export default function App() {
               entry.serviceId === msg.serviceId ? { ...entry, message: msg.message } : entry
             )
           );
+          break;
+        case "projectIdSetting":
+          setProjectIdSetting(msg.value);
           break;
         case "navigate":
           setScreen(msg.screen === "chat" ? "findings" : msg.screen);
@@ -200,7 +204,13 @@ export default function App() {
       {screen === "simulate" && (
         hasResults ? <SimulatePage endpoints={endpoints} /> : <EmptyPanel title="Run a scan first" body="The simulator needs scan results before it can project API usage." />
       )}
-      {screen === "keys" && <KeysPage statuses={keyStatuses} focusServiceId={focusServiceId} />}
+      {screen === "keys" && (
+        <KeysPage
+          statuses={keyStatuses}
+          focusServiceId={focusServiceId}
+          projectIdSetting={projectIdSetting}
+        />
+      )}
 
     </div>
   );

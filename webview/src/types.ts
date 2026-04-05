@@ -198,6 +198,7 @@ export type HostMessage =
   | { type: "allKeyStatuses"; statuses: KeyStatusSummary[]; focusServiceId?: KeyServiceId }
   | { type: "keyStatusUpdated"; status: KeyStatusSummary; focusServiceId?: KeyServiceId }
   | { type: "keyActionError"; serviceId: KeyServiceId; message: string }
+  | { type: "projectIdSetting"; value: string | null }
   | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "error"; message: string }
   | { type: "scanNotification"; message: string }
