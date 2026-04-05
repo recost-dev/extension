@@ -182,8 +182,8 @@ export function activate(context: vscode.ExtensionContext) {
     await vscode.commands.executeCommand("setContext", "recost.includeTestFiles", includeTestFiles);
     vscode.window.showInformationMessage(
       includeTestFiles
-        ? "ReCost: Test & mock files included in next scan."
-        : "ReCost: Test & mock files excluded from scan."
+        ? "ReCost: recost-mock-calls fixture file included in next scan."
+        : "ReCost: Fixture file excluded from scan."
     );
   });
 

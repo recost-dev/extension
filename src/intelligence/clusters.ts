@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { dedupeFindings, makeFindingContextDedupeKey } from "./finding-dedupe";
 import { isAnalysisToolingFilePath, isDeprioritizedContextFilePath, isTestLikeFilePath } from "./file-signals";
+import { isRecostFixtureFile } from "../scanner/file-discovery";
 import { filterRealProviders, normalizeProviderId } from "./provider-normalization";
 
 const MAX_PRIMARY_FILES = 5;
@@ -449,12 +450,16 @@ function compareClusters(a: ReviewCluster, b: ReviewCluster): number {
 }
 
 function selectPrimaryContexts(contexts: FileContext[]): FileContext[] {
-  const preferredRuntimeContexts = _includeTestFiles
-    ? contexts
-    : contexts.filter((context) =>
-        !isTestLikeFilePath(context.scoredFile.filePath) &&
-        !isDeprioritizedContextFilePath(context.scoredFile.filePath)
-      );
+  // NOTE: isTestLikeFilePath only matches directory-based or .test./.spec. patterns.
+  // A recost-mock-calls.ts at the repo root would NOT match isTestLikeFilePath,
+  // so the fixture file must be gated explicitly and independently.
+  const preferredRuntimeContexts = contexts.filter((context) => {
+    const filePath = context.scoredFile.filePath;
+    if (isRecostFixtureFile(filePath)) return _includeTestFiles; // explicit gate regardless of location
+    if (isTestLikeFilePath(filePath)) return false;
+    if (isDeprioritizedContextFilePath(filePath)) return false;
+    return true;
+  });
   if (preferredRuntimeContexts.length >= MAX_PRIMARY_FILES) {
     return preferredRuntimeContexts.slice(0, MAX_PRIMARY_FILES);
   }

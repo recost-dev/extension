@@ -45,6 +45,7 @@ export default function App() {
   });
   const [keyStatuses, setKeyStatuses] = useState<KeyStatusSummary[]>([]);
   const [focusServiceId, setFocusServiceId] = useState<KeyServiceId | null>(null);
+  const [projectIdSetting, setProjectIdSetting] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
   const hasResults = endpoints.length > 0 || suggestions.length > 0 || summary.totalEndpoints > 0;

@@ -151,6 +151,61 @@ Notes:
 | `eco.aiReview.maxCharsPerFile` | `6000` | Max chars per file in AI context |
 | `eco.aiReview.model` | `gpt-4.1-mini` | OpenAI model for AI review |
 
+## Testing ReCost with Mock API Patterns
+
+To test how ReCost detects API cost issues without scanning a real codebase,
+create a file named `recost-mock-calls.ts` (or `.js`, `.tsx`, `.jsx`) anywhere
+in your repo.
+
+This is ReCost's reserved fixture filename. Enable the fixture toggle (beaker
+icon in the sidebar) to surface findings from this file. All other test files
+remain filtered out regardless of toggle state.
+
+### Example
+
+```ts
+// recost-mock-calls.ts
+import OpenAI from "openai";
+
+const client = new OpenAI();
+
+// N+1: flagged as making one API call per loop iteration
+async function embedDocuments(docs: string[]): Promise<void> {
+  for (const doc of docs) {
+    await client.embeddings.create({
+      model: "text-embedding-3-small",
+      input: doc,
+    });
+  }
+}
+
+// Batching opportunity: flagged as sequential calls that could use Promise.all
+async function generateTwoCompletions(a: string, b: string): Promise<void> {
+  const first = await client.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: a }],
+  });
+  const second = await client.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: b }],
+  });
+  console.log(first, second);
+}
+```
+
+### Supported providers
+
+OpenAI, Anthropic, Stripe, Supabase, Firebase, Gemini, Cohere, Mistral,
+AWS Bedrock — any provider in the ReCost fingerprint registry.
+
+### How it works
+
+- **Toggle OFF** — `recost-mock-calls.ts` is excluded from scanning. Clean output.
+- **Toggle ON** — `recost-mock-calls.ts` surfaces with full findings and cost
+  estimates. All other test files remain suppressed.
+
+---
+
 ## API Keys
 
 ### ReCost API Key

@@ -4,6 +4,22 @@ import type { ScanInputFile } from "./core-scanner";
 
 const ALLOWED_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".rb"]);
 
+/**
+ * Reserved filenames that surface when the "Include fixture file" toggle is on.
+ * All other test files remain suppressed regardless of toggle state.
+ * Users create this file to test ReCost against mock API patterns.
+ */
+export const RECOST_FIXTURE_FILENAMES = new Set([
+  "recost-mock-calls.ts",
+  "recost-mock-calls.js",
+  "recost-mock-calls.tsx",
+  "recost-mock-calls.jsx",
+]);
+
+export function isRecostFixtureFile(filePath: string): boolean {
+  return RECOST_FIXTURE_FILENAMES.has(path.basename(filePath));
+}
+
 const DEFAULT_IGNORE_PATTERNS = [
   "**/*.test.ts",
   "**/*.test.tsx",
@@ -96,9 +112,14 @@ function matchesAny(relativePath: string, matchers: RegExp[]): boolean {
   return matchers.some((matcher) => matcher.test(relativePath));
 }
 
-async function loadIgnorePatterns(repoRoot: string, includeTestFiles: boolean = false): Promise<string[]> {
+async function loadIgnorePatterns(repoRoot: string): Promise<string[]> {
   const ignorePath = path.join(repoRoot, ".recostignore");
-  const defaults = includeTestFiles ? [] : DEFAULT_IGNORE_PATTERNS;
+
+  // When toggle is on, only bypass fixture file suppression.
+  // All other default patterns still apply including test file patterns.
+  // The fixture file bypass happens in collectFiles() via isRecostFixtureFile().
+  const defaults = DEFAULT_IGNORE_PATTERNS;
+
   try {
     const content = await fs.readFile(ignorePath, "utf-8");
     const userPatterns = content
@@ -107,7 +128,6 @@ async function loadIgnorePatterns(repoRoot: string, includeTestFiles: boolean = 
       .filter((line) => line.length > 0 && !line.startsWith("#"));
     return [...defaults, ...userPatterns];
   } catch {
-    // No .recostignore file — use defaults only
     return defaults;
   }
 }
@@ -118,7 +138,8 @@ async function collectFiles(
   includeMatchers: RegExp[],
   excludeMatchers: RegExp[],
   ignoreMatchers: RegExp[],
-  results: ScanInputFile[]
+  results: ScanInputFile[],
+  includeTestFiles: boolean = false
 ): Promise<number> {
   const entries = await fs.readdir(currentDir, { withFileTypes: true });
   entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -130,7 +151,7 @@ async function collectFiles(
     if (isHardExcludedPath(relativePath) || matchesAny(relativePath, excludeMatchers)) continue;
 
     if (entry.isDirectory()) {
-      excluded += await collectFiles(rootDir, absolutePath, includeMatchers, excludeMatchers, ignoreMatchers, results);
+      excluded += await collectFiles(rootDir, absolutePath, includeMatchers, excludeMatchers, ignoreMatchers, results, includeTestFiles);
       continue;
     }
 
@@ -138,6 +159,17 @@ async function collectFiles(
     if (!ALLOWED_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
     if (includeMatchers.length > 0 && !matchesAny(relativePath, includeMatchers)) continue;
 
+    // If this is a ReCost fixture file, only include it when toggle is on
+    if (isRecostFixtureFile(relativePath)) {
+      if (includeTestFiles) {
+        results.push({ absolutePath, relativePath });
+      } else {
+        excluded++;
+      }
+      continue;
+    }
+
+    // Normal ignore pattern check for all other files
     if (matchesAny(relativePath, ignoreMatchers)) {
       excluded++;
       continue;
@@ -157,7 +189,7 @@ export async function discoverFilesInDirectory(
 ): Promise<{ files: ScanInputFile[]; excludedCount: number }> {
   const includeMatchers = buildGlobMatchers(options?.includeGlobs ?? []);
   const excludeMatchers = buildGlobMatchers(options?.excludeGlobs ?? []);
-  const ignorePatterns = await loadIgnorePatterns(rootDir, options?.includeTestFiles ?? false);
+  const ignorePatterns = await loadIgnorePatterns(rootDir);
   const ignoreMatchers = buildGlobMatchers(ignorePatterns);
   const results: ScanInputFile[] = [];
 
@@ -167,7 +199,8 @@ export async function discoverFilesInDirectory(
     includeMatchers,
     excludeMatchers,
     ignoreMatchers,
-    results
+    results,
+    options?.includeTestFiles ?? false
   );
 
   results.sort((a, b) => a.relativePath.localeCompare(b.relativePath));

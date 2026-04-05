@@ -188,6 +188,46 @@ function buildAggressiveSuggestions(endpoints: EndpointRecord[], suggestions: Su
   return [...suggestions, ...extras];
 }
 
+const PROXIMITY_THRESHOLD_LINES = 25;
+
+/**
+ * Find the endpoint whose call site is closest to the finding's line number.
+ * Only considers call sites within PROXIMITY_THRESHOLD_LINES of the finding.
+ * Falls back to null if no close match is found, allowing callers to use
+ * file-level cost as a fallback.
+ *
+ * TODO: Replace line-proximity threshold with function-scope matching once
+ * function boundary data is available at this point in the pipeline. Function
+ * scope is semantically more accurate — a finding and its triggering call site
+ * always share the same function body regardless of line distance.
+ */
+function findClosestEndpoint(
+  finding: { affectedFile: string; line?: number },
+  fileEndpoints: EndpointRecord[]
+): EndpointRecord | null {
+  if (!finding.line || fileEndpoints.length === 0) return null;
+
+  let closest: EndpointRecord | null = null;
+  let closestDistance = Infinity;
+
+  for (const ep of fileEndpoints) {
+    // Skip route-def endpoints — they have monthlyCost === 0 and would
+    // produce misleading $0 savings estimates
+    if (ep.monthlyCost === 0 && ep.callSites.every(s => s.library === "route-def")) continue;
+
+    for (const site of ep.callSites) {
+      if (site.file !== finding.affectedFile) continue;
+      const distance = Math.abs(site.line - finding.line);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closest = ep;
+      }
+    }
+  }
+
+  return closestDistance <= PROXIMITY_THRESHOLD_LINES ? closest : null;
+}
+
 function mergeLocalWasteFindings(
   baseSuggestions: Suggestion[],
   localFindings: LocalWasteFinding[],
@@ -203,12 +243,18 @@ function mergeLocalWasteFindings(
     console.log('[recost] fileEndpoints for', finding.affectedFile,
       fileEndpoints.map(ep => ({ scope: ep.scope, provider: ep.provider, costModel: ep.costModel }))
     );
-    if (finding.confidence < 0.5) continue;
+    if (finding.confidence < 0.35) continue;
     const key = `${finding.description}::${finding.affectedFile}`;
     if (existingByDescAndFile.has(key)) continue;
     existingByDescAndFile.add(key);
+    const closestEndpoint = findClosestEndpoint(finding, fileEndpoints);
+    const directCost = closestEndpoint?.monthlyCost ?? 0;
     const fileMonthlyCost = fileEndpoints.reduce((sum, ep) => sum + ep.monthlyCost, 0);
-    const baselineCost = fileMonthlyCost > 0 ? fileMonthlyCost : totalMonthlyCost;
+    const baselineCost = directCost > 0
+      ? directCost
+      : fileMonthlyCost > 0
+      ? fileMonthlyCost
+      : totalMonthlyCost;
     const multiplier =
       finding.type === "redundancy" ? 0.4 :
       finding.type === "n_plus_one" ? 0.35 :

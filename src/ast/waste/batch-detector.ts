@@ -20,6 +20,14 @@
 import type { AstCallMatch } from "../ast-scanner";
 import type { LocalWasteFinding } from "../../scanner/local-waste-detector";
 import type { Severity, SuggestionType } from "../../analysis/types";
+import { STDLIB_DENYLIST } from "../../scanner/fingerprints/index";
+
+function isRealProviderMatch(match: AstCallMatch): boolean {
+  if (!match.provider) return false;
+  if (match.packageName && STDLIB_DENYLIST.has(match.packageName)) return false;
+  if (STDLIB_DENYLIST.has(match.provider)) return false;
+  return true;
+}
 
 // ── Guard patterns (source text window) ──────────────────────────────────────
 
@@ -85,6 +93,7 @@ function detectBatch(
   isTestLike: boolean
 ): LocalWasteFinding | null {
   // Calibration: only fire for loop/parallel contexts; polling → rate-limit detector.
+  if (!isRealProviderMatch(match)) return null;
   if (!BATCH_LOOP_FREQS.has(match.frequency)) return null;
   if (!match.batchCapable) return null;
   if (hasGuardInWindow(source, match.line, BATCH_GUARD)) return null;
@@ -138,6 +147,7 @@ function detectNPlusOne(
 ): LocalWasteFinding | null {
   // Calibration: only fire for collection iteration loops.
   // Polling and parallel fan-out are handled by other detectors.
+  if (!isRealProviderMatch(match)) return null;
   if (!N_PLUS_ONE_FREQS.has(match.frequency)) return null;
   if (match.batchCapable) return null; // batch-detector handles this one
   if (hasGuardInWindow(source, match.line, BATCH_GUARD)) return null;
@@ -186,8 +196,9 @@ function detectSequential(
 ): LocalWasteFinding[] {
   // Group by provider — multiple single calls to the same provider in one file
   // could be fired in parallel via Promise.all.
+  const providerMatches = matches.filter(isRealProviderMatch);
   const byProvider = new Map<string, AstCallMatch[]>();
-  for (const m of matches) {
+  for (const m of providerMatches) {
     if (m.frequency !== "single" || m.loopContext) continue;
     if (!m.provider) continue;
     const group = byProvider.get(m.provider) ?? [];

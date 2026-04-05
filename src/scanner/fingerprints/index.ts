@@ -84,6 +84,7 @@ export const STDLIB_DENYLIST = new Set([
   // Node stdlib
   "path", "fs", "fs/promises", "os", "http", "https", "assert", "assert/strict",
   "node:path", "node:fs", "node:os", "node:assert", "node:http",
+  "node:assert/strict", "node:https",
   // Test frameworks
   "vitest", "jest", "mocha", "chai",
   // UI/frontend frameworks

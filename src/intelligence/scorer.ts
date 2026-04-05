@@ -9,6 +9,7 @@ import type {
   ScoredSnapshot,
 } from "./types";
 import { isDeprioritizedContextFilePath, isTestLikeFilePath } from "./file-signals";
+import { isRecostFixtureFile } from "../scanner/file-discovery";
 import { collectRealProviders } from "./provider-normalization";
 
 const HIGH_FREQUENCY_CLASSES = new Set(["unbounded-loop", "parallel", "polling"]);
@@ -273,10 +274,17 @@ export function scoreRepoIntelligence(snapshot: RepoIntelligenceSnapshot): Score
         computePriorityBonus(scoredFile, findings)
       )
     );
+    // NOTE: isTestLikeFilePath only matches directory-based or .test./.spec. patterns.
+    // A recost-mock-calls.ts at the repo root would NOT match isTestLikeFilePath,
+    // so the fixture check must be explicit and independent of isTestLikeFilePath.
     const priorityMultiplier =
-      (isTestLikeFilePath(scoredFile.filePath) && !_includeTestFiles) ? TEST_FILE_PRIORITY_MULTIPLIER :
-      isDeprioritizedContextFilePath(scoredFile.filePath) ? CONTEXT_NOISE_FILE_PRIORITY_MULTIPLIER :
-      1;
+      isRecostFixtureFile(scoredFile.filePath)
+        ? (_includeTestFiles ? 1 : TEST_FILE_PRIORITY_MULTIPLIER)
+        : isTestLikeFilePath(scoredFile.filePath)
+        ? TEST_FILE_PRIORITY_MULTIPLIER
+        : isDeprioritizedContextFilePath(scoredFile.filePath)
+        ? CONTEXT_NOISE_FILE_PRIORITY_MULTIPLIER
+        : 1;
     scoredFile.scores.aiReviewPriority = roundScore(priority * priorityMultiplier);
 
     return scoredFile;
