@@ -246,9 +246,7 @@ function SuggestionCard({
         {provider && (
           <span style={{ fontSize: "11px", color: "var(--vscode-descriptionForeground)" }}>{provider}</span>
         )}
-        <SourceBadge source={suggestion.source} />
         <PricingBadge pricingClass={suggestion.pricingClass} />
-        <ConfidenceBadge confidence={suggestion.confidence} />
         <span style={{ flex: 1 }} />
         {suggestion.estimatedMonthlySavings > 0 && (
           <span style={{ color: "var(--vscode-charts-green, #4caf50)", fontSize: "11px", flexShrink: 0, whiteSpace: "nowrap" }}>
@@ -260,6 +258,11 @@ function SuggestionCard({
       {expanded && (
         <div className="eco-suggestion-body">
           <Markdown content={suggestion.description} />
+          {typeof suggestion.confidence === "number" && (
+            <span style={{ fontSize: "10px", color: "var(--vscode-descriptionForeground)", opacity: 0.7 }}>
+              {Math.round(suggestion.confidence * 100)}% confidence
+            </span>
+          )}
           {suggestion.evidence && suggestion.evidence.length > 0 && (
             <ul style={{ marginTop: "8px", marginBottom: 0, paddingLeft: "18px" }}>
               {suggestion.evidence.map((item, idx) => (
