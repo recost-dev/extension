@@ -27,7 +27,7 @@ import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./an
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
-import { classifyPricing } from "./scan-results";
+import { classifyPricing, calculateSavings } from "./scan-results";
 import { buildSnapshot } from "./intelligence/builder";
 import { scoreSnapshot } from "./intelligence/scorer";
 import { buildReviewClusters } from "./intelligence/clusters";
@@ -212,19 +212,6 @@ function clampConfidence(value: number): number {
   return value;
 }
 
-function estimateAiSavings(type: Suggestion["type"], severity: Suggestion["severity"], baseline: number): number {
-  const baseMultiplier =
-    type === "redundancy" ? 0.35 :
-    type === "n_plus_one" ? 0.3 :
-    type === "cache" ? 0.2 :
-    type === "batch" ? 0.18 :
-    0.12;
-  const severityMultiplier =
-    severity === "high" ? 1 :
-    severity === "medium" ? 0.75 :
-    0.5;
-  return Number((baseline * baseMultiplier * severityMultiplier).toFixed(2));
-}
 
 function mapStatusToSuggestionType(status: EndpointRecord["status"]): Suggestion["type"] | null {
   switch (status) {
@@ -253,16 +240,6 @@ function chooseSeverity(status: EndpointRecord["status"], monthlyCost: number): 
   return monthlyCost >= 100 ? "medium" : "low";
 }
 
-function estimateSavings(status: EndpointRecord["status"], monthlyCost: number): number {
-  const multiplier =
-    status === "redundant" ? 0.4 :
-    status === "cacheable" ? 0.25 :
-    status === "batchable" ? 0.2 :
-    status === "n_plus_one_risk" ? 0.35 :
-    status === "rate_limit_risk" ? 0.15 :
-    0.1;
-  return Number((monthlyCost * multiplier).toFixed(2));
-}
 
 function confidenceFromEndpointStatus(endpoint: EndpointRecord): number {
   const base =
@@ -344,7 +321,7 @@ function buildAggressiveSuggestions(
       severity: chooseSeverity(endpoint.status, endpoint.monthlyCost),
       affectedEndpoints: [endpoint.id],
       affectedFiles: endpoint.files,
-      estimatedMonthlySavings: estimateSavings(endpoint.status, endpoint.monthlyCost),
+      estimatedMonthlySavings: calculateSavings(type, "medium", endpoint.monthlyCost),
       description: buildAggressiveDescription(endpoint, type),
       codeFix: "",
       source: "local-rule",
@@ -401,7 +378,6 @@ function mergeLocalWasteFindings(
   baseSuggestions: Suggestion[],
   localFindings: Awaited<ReturnType<typeof detectLocalWastePatterns>>,
   endpoints: EndpointRecord[],
-  totalMonthlyCost: number,
   projectId: string,
   scanId: string
 ): Suggestion[] {
@@ -425,19 +401,8 @@ function mergeLocalWasteFindings(
       ? directCost
       : fileMonthlyCost > 0
       ? fileMonthlyCost
-      : totalMonthlyCost;
-    const multiplier =
-      finding.type === "redundancy" ? 0.4 :
-      finding.type === "n_plus_one" ? 0.35 :
-      finding.type === "cache" ? 0.25 :
-      finding.type === "batch" ? 0.2 :
-      finding.type === "concurrency_control" ? 0.22 :
-      0.2;
-    const severityWeight =
-      finding.severity === "high" ? 1 :
-      finding.severity === "medium" ? 0.75 :
-      0.5;
-    const estimatedMonthlySavings = Number((baselineCost * multiplier * severityWeight).toFixed(2));
+      : 0; // unknown — no savings estimate
+    const estimatedMonthlySavings = calculateSavings(finding.type, finding.severity, baselineCost);
     const pricingClass = classifyPricing(fileEndpoints.map((ep) => ep.costModel));
 
     locals.push({
@@ -1143,7 +1108,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           [],
           localWasteFindings,
           endpoints,
-          0,
           localProjectId,
           localScanId
         );
@@ -1279,7 +1243,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           aggressiveSuggestions,
           localWasteFindings,
           endpoints,
-          scanResult.summary.totalMonthlyCost,
           projectId,
           scanResult.scanId
         );
@@ -1630,7 +1593,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     const projectId = this.lastEndpoints[0]?.projectId ?? this.projectId ?? "local";
     const fileEndpoints = this.lastEndpoints.filter((ep) => ep.files.includes(finding.affectedFile));
     const related = fileEndpoints.map((endpoint) => endpoint.id);
-    const totalMonthlyCost = this.lastSummary?.totalMonthlyCost ?? 0;
     const closestEndpoint = findClosestEndpoint(
       { affectedFile: finding.affectedFile, line: finding.targetLine },
       fileEndpoints
@@ -1641,7 +1603,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       ? directCost
       : fileMonthlyCost > 0
       ? fileMonthlyCost
-      : totalMonthlyCost;
+      : 0; // unknown — no savings estimate
 
     return {
       id: `ai-${Date.now()}-${index + 1}`,
@@ -1652,7 +1614,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       affectedEndpoints: related,
       affectedFiles: [finding.affectedFile],
       targetLine: finding.targetLine,
-      estimatedMonthlySavings: estimateAiSavings(finding.type, finding.severity, monthlyBaseline),
+      estimatedMonthlySavings: calculateSavings(finding.type, finding.severity, monthlyBaseline),
       description: finding.description,
       codeFix: "",
       source: "ai",

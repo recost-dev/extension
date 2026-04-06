@@ -58,6 +58,43 @@ export function classifyPricing(
   return result;
 }
 
+// Canonical multipliers for savings estimation.
+// These are the single source of truth — all code paths must use calculateSavings()
+// rather than computing savings inline.
+export const SAVINGS_MULTIPLIERS: Partial<Record<Suggestion["type"], number>> = {
+  redundancy:          0.40,
+  n_plus_one:          0.35,
+  cache:               0.30,
+  batch:               0.20,
+  concurrency_control: 0.22,
+};
+
+export const SEVERITY_WEIGHTS: Record<string, number> = {
+  high:   1.0,
+  medium: 0.75,
+  low:    0.50,
+};
+
+/**
+ * Calculate estimated monthly savings for a finding.
+ *
+ * Uses a fraction of the endpoint's monthly cost based on finding type and
+ * severity. Returns 0 if endpointMonthlyCost is 0 or unknown.
+ *
+ * This is the single canonical savings formula for the extension.
+ * The API-side formula is a separate consolidation task.
+ */
+export function calculateSavings(
+  type: Suggestion["type"],
+  severity: Suggestion["severity"],
+  endpointMonthlyCost: number
+): number {
+  if (!endpointMonthlyCost || endpointMonthlyCost <= 0) return 0;
+  const multiplier = SAVINGS_MULTIPLIERS[type] ?? 0.10;
+  const weight = SEVERITY_WEIGHTS[severity] ?? 0.50;
+  return Number((endpointMonthlyCost * multiplier * weight).toFixed(2));
+}
+
 const DEFAULT_PER_CALL_COST = 0.0001;
 const FREQUENCY_SEVERITY: Record<string, number> = {
   polling: 6,
@@ -125,16 +162,6 @@ function chooseSeverity(status: EndpointRecord["status"], monthlyCost: number): 
   return monthlyCost >= 100 ? "medium" : "low";
 }
 
-function estimateSavings(status: EndpointRecord["status"], monthlyCost: number): number {
-  const multiplier =
-    status === "redundant" ? 0.4 :
-    status === "cacheable" ? 0.25 :
-    status === "batchable" ? 0.2 :
-    status === "n_plus_one_risk" ? 0.35 :
-    status === "rate_limit_risk" ? 0.15 :
-    0.1;
-  return Number((monthlyCost * multiplier).toFixed(2));
-}
 
 function confidenceFromEndpointStatus(endpoint: EndpointRecord): number {
   const base =
@@ -189,7 +216,7 @@ function buildAggressiveSuggestions(endpoints: EndpointRecord[], suggestions: Su
       severity: chooseSeverity(endpoint.status, endpoint.monthlyCost),
       affectedEndpoints: [endpoint.id],
       affectedFiles: endpoint.files,
-      estimatedMonthlySavings: estimateSavings(endpoint.status, endpoint.monthlyCost),
+      estimatedMonthlySavings: calculateSavings(type, "medium", endpoint.monthlyCost),
       description: buildAggressiveDescription(endpoint, type),
       codeFix: "",
       source: "local-rule",
@@ -267,15 +294,7 @@ function mergeLocalWasteFindings(
       ? directCost
       : fileMonthlyCost > 0
       ? fileMonthlyCost
-      : totalMonthlyCost;
-    const multiplier =
-      finding.type === "redundancy" ? 0.4 :
-      finding.type === "n_plus_one" ? 0.35 :
-      finding.type === "cache" ? 0.25 :
-      finding.type === "batch" ? 0.2 :
-      finding.type === "concurrency_control" ? 0.22 :
-      0.2;
-    const severityWeight = finding.severity === "high" ? 1 : finding.severity === "medium" ? 0.75 : 0.5;
+      : 0; // unknown — no savings estimate
     const pricingClass = classifyPricing(fileEndpoints.map((ep) => ep.costModel));
     locals.push({
       id: finding.id,
@@ -286,7 +305,7 @@ function mergeLocalWasteFindings(
       affectedEndpoints: fileEndpoints.map((ep) => ep.id),
       affectedFiles: [finding.affectedFile],
       targetLine: finding.line,
-      estimatedMonthlySavings: Number((baselineCost * multiplier * severityWeight).toFixed(2)),
+      estimatedMonthlySavings: calculateSavings(finding.type, finding.severity, baselineCost),
       description: finding.description,
       codeFix: "",
       source: "local-rule",

@@ -252,7 +252,7 @@ function SuggestionCard({
         <span style={{ flex: 1 }} />
         {suggestion.estimatedMonthlySavings > 0 && (
           <span style={{ color: "var(--vscode-charts-green, #4caf50)", fontSize: "11px", flexShrink: 0, whiteSpace: "nowrap" }}>
-            {formatCost(suggestion.estimatedMonthlySavings)}/mo
+            {formatCost(suggestion.estimatedMonthlySavings)}/mo est. savings
           </span>
         )}
       </button>
@@ -613,7 +613,12 @@ export function ResultsPage({
           <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
           {suggestions.length} issues
           <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>
-          {formatCost(summary.totalMonthlyCost)}/mo
+          <span
+            title="Estimated monthly spend across all detected API endpoints. Based on static analysis — actual spend depends on production call volumes."
+            style={{ cursor: "help" }}
+          >
+            Est. {formatCost(summary.totalMonthlyCost)}/mo spend
+          </span>
           {summary.highRiskCount > 0 && (
             <>
               <span style={{ margin: "0 5px", opacity: 0.4 }}>|</span>

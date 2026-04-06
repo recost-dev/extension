@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0.0",
+  "provider": "elevenlabs",
+  "displayName": "ElevenLabs",
+  "languages": ["javascript", "typescript", "python"],
+  "packages": ["elevenlabs", "@elevenlabs/elevenlabs-js"],
+  "hosts": [
+    { "pattern": "api.elevenlabs.io" }
+  ],
+  "methods": [
+    {
+      "pattern": "textToSpeech.convert",
+      "httpMethod": "POST",
+      "endpoint": "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+      "costModel": "per_request",
+      "perRequestCostUsd": 0.0003,
+      "cacheCapable": true,
+      "description": "~$0.30/1K characters, approximated at ~1000 chars per request"
+    },
+    {
+      "pattern": "textToSpeech.convertAsStream",
+      "httpMethod": "POST",
+      "endpoint": "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream",
+      "costModel": "per_request",
+      "perRequestCostUsd": 0.0003,
+      "streaming": true,
+      "description": "Streaming TTS — same per-character pricing as non-streaming"
+    },
+    {
+      "pattern": "speechToText.convert",
+      "httpMethod": "POST",
+      "endpoint": "https://api.elevenlabs.io/v1/speech-to-text",
+      "costModel": "per_request",
+      "perRequestCostUsd": 0.00006,
+      "cacheCapable": true,
+      "description": "~$0.06/1K characters of audio transcription"
+    },
+    {
+      "pattern": "voices.getAll",
+      "httpMethod": "GET",
+      "endpoint": "https://api.elevenlabs.io/v1/voices",
+      "costModel": "free",
+      "cacheCapable": true,
+      "description": "Listing voices is free"
+    },
+    {
+      "pattern": "voices.get",
+      "httpMethod": "GET",
+      "endpoint": "https://api.elevenlabs.io/v1/voices/{voice_id}",
+      "costModel": "free",
+      "cacheCapable": true,
+      "description": "Retrieving a single voice is free"
+    },
+    {
+      "pattern": "models.getAll",
+      "httpMethod": "GET",
+      "endpoint": "https://api.elevenlabs.io/v1/models",
+      "costModel": "free",
+      "cacheCapable": true,
+      "description": "Listing models is free"
+    }
+  ]
+}

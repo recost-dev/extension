@@ -17,6 +17,7 @@ import gemini from "./gemini.json";
 import cohere from "./cohere.json";
 import mistral from "./mistral.json";
 import vertex from "./vertex.json";
+import elevenlabs from "./elevenlabs.json";
 
 // Host-mapping providers (no methods — used only for host → provider resolution)
 import freeApis from "./free-apis.json";
@@ -45,6 +46,7 @@ export {
   cohere,
   mistral,
   vertex,
+  elevenlabs,
 };
 
 /** Core AI / billing providers — have methods, pricing, and language support */
@@ -59,6 +61,7 @@ export const ALL_PROVIDERS: ProviderFingerprint[] = [
   cohere,
   mistral,
   vertex,
+  elevenlabs,
 ] as ProviderFingerprint[];
 
 /** Host-only mapping providers — used solely to resolve hostname → provider id */
