@@ -58,6 +58,47 @@
       "costModel": "free",
       "cacheCapable": true,
       "description": "Listing models is free"
+    },
+    {
+      "pattern": "convai.conversations.get",
+      "httpMethod": "GET",
+      "endpoint": "https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}",
+      "costModel": "per_request",
+      "perRequestCostUsd": 0.001,
+      "cacheCapable": true,
+      "description": "Conversational AI — fetch conversation details"
+    },
+    {
+      "pattern": "convai.conversations.getAll",
+      "httpMethod": "GET",
+      "endpoint": "https://api.elevenlabs.io/v1/convai/conversations",
+      "costModel": "per_request",
+      "perRequestCostUsd": 0.001,
+      "cacheCapable": true,
+      "description": "Conversational AI — list conversations"
+    },
+    {
+      "pattern": "convai.conversations.delete",
+      "httpMethod": "DELETE",
+      "endpoint": "https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}",
+      "costModel": "free",
+      "description": "Conversational AI — delete a conversation is free"
+    },
+    {
+      "pattern": "convai.agents.get",
+      "httpMethod": "GET",
+      "endpoint": "https://api.elevenlabs.io/v1/convai/agents/{agent_id}",
+      "costModel": "free",
+      "cacheCapable": true,
+      "description": "Conversational AI — fetch agent details is free"
+    },
+    {
+      "pattern": "convai.agents.getAll",
+      "httpMethod": "GET",
+      "endpoint": "https://api.elevenlabs.io/v1/convai/agents",
+      "costModel": "free",
+      "cacheCapable": true,
+      "description": "Conversational AI — list agents is free"
     }
   ]
 }

@@ -10,10 +10,13 @@ import { detectBatchWaste } from "../ast/waste/batch-detector";
 import { detectConcurrencyWaste } from "../ast/waste/concurrency-detector";
 import { lookupMethod, isRegisteredProvider } from "./fingerprints/registry";
 import { STDLIB_DENYLIST } from "./fingerprints/index";
+import { detectPythonWaste } from "./python-waste-detector";
 
 const HTTP_CALL_HINT =
   /\b(fetch|axios|got|superagent|ky|requests|http\.|\$http|openai|responses|completions|embeddings|moderations|vector_stores|vectorStores|assistants|threads|realtime|uploads|batches|containers|skills|videos|evals|images|audio|files|models|anthropic|claude|gemini|genai|bedrock|vertex|cohere|mistral|stripe|graphql|apollo|urql|relay|supabase|firebase|trpc|grpc)\b/i;
 const GENERIC_TEMPLATE_SEGMENT = /\$\{\s*(endpoint|url|path|uri|route)\s*\}/i;
+const JS_TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const PYTHON_EXTENSIONS = new Set([".py", ".pyw"]);
 
 export interface ScanProgress {
   file: string;
@@ -255,19 +258,24 @@ export async function detectLocalWastePatternsInFiles(access: ScanFileAccess): P
 
   const astFindings: LocalWasteFinding[] = [];
   for (const pf of perFileResults) {
+    const ext = path.extname(pf.relativePath).toLowerCase();
     const rawMatches = augmented.get(pf.relativePath) ?? pf.result.matches;
 
-    // Phase 1 gate only: remove stdlib, framework, and build-tool calls.
-    // Phase 2 (registry match) is intentionally NOT applied here — the waste
-    // detectors do code pattern analysis and do not require a known provider match.
-    const matches = rawMatches.filter((match) => {
-      if (match.packageName && STDLIB_DENYLIST.has(match.packageName)) return false;
-      return true;
-    });
+    if (JS_TS_EXTENSIONS.has(ext)) {
+      // Phase 1 gate only: remove stdlib, framework, and build-tool calls.
+      // Phase 2 (registry match) is intentionally NOT applied here — the waste
+      // detectors do code pattern analysis and do not require a known provider match.
+      const matches = rawMatches.filter((match) => {
+        if (match.packageName && STDLIB_DENYLIST.has(match.packageName)) return false;
+        return true;
+      });
 
-    astFindings.push(...detectCacheWaste(matches, pf.source, pf.relativePath));
-    astFindings.push(...detectBatchWaste(matches, pf.source, pf.relativePath));
-    astFindings.push(...detectConcurrencyWaste(matches, pf.source, pf.relativePath));
+      astFindings.push(...detectCacheWaste(matches, pf.source, pf.relativePath));
+      astFindings.push(...detectBatchWaste(matches, pf.source, pf.relativePath));
+      astFindings.push(...detectConcurrencyWaste(matches, pf.source, pf.relativePath));
+    } else if (PYTHON_EXTENSIONS.has(ext)) {
+      astFindings.push(...detectPythonWaste(rawMatches, pf.source, pf.relativePath));
+    }
   }
 
   const seen = new Map<string, LocalWasteFinding>();
