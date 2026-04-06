@@ -56,6 +56,7 @@ export interface Suggestion {
   confidence?: number;
   evidence?: string[];
   reviewedAt?: string;
+  pricingClass?: "paid" | "free" | "unknown";
 }
 
 export interface ScanSummary {
