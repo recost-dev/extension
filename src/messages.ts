@@ -22,6 +22,8 @@ export type KeyStatusState =
 
 export type KeyStatusSource = "missing" | "secret" | "env";
 
+export type ProjectIdStatusState = "missing" | "checking" | "valid" | "invalid";
+
 export interface KeyStatusSummary {
   serviceId: KeyServiceId;
   displayName: string;
@@ -36,6 +38,13 @@ export interface KeyStatusSummary {
   supportsTest: boolean;
 }
 
+export interface ProjectIdStatusSummary {
+  value: string | null;
+  state: ProjectIdStatusState;
+  message?: string;
+  lastCheckedAt?: string;
+}
+
 export type WebviewMessage =
   | { type: "startScan" }
   | { type: "runAiReview" }
@@ -46,7 +55,7 @@ export type WebviewMessage =
   | { type: "openFile"; file: string; line?: number }
   | { type: "runSimulation"; input: SimulatorInput }
   | { type: "getAllKeyStatuses" }
-  | { type: "getProjectIdSetting" }
+  | { type: "getProjectIdStatus" }
   | { type: "setKey"; serviceId: KeyServiceId; value: string }
   | { type: "clearKey"; serviceId: KeyServiceId }
   | { type: "setProjectId"; value: string }
@@ -82,7 +91,7 @@ export type HostMessage =
   | { type: "allKeyStatuses"; statuses: KeyStatusSummary[]; focusServiceId?: KeyServiceId }
   | { type: "keyStatusUpdated"; status: KeyStatusSummary; focusServiceId?: KeyServiceId }
   | { type: "keyActionError"; serviceId: KeyServiceId; message: string }
-  | { type: "projectIdSetting"; value: string | null }
+  | { type: "projectIdStatus"; status: ProjectIdStatusSummary }
   | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "error"; message: string }
   | { type: "scanNotification"; message: string }

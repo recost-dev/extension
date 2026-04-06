@@ -9,6 +9,25 @@ interface ResultsPageProps {
   endpoints: EndpointRecord[];
 }
 
+const ESTIMATE_DISCLAIMER = "These are estimates based on code patterns. Add the ReCost SDK to see real production costs.";
+
+function EstimateDisclaimer() {
+  return (
+    <div
+      style={{
+        padding: "8px 12px",
+        borderBottom: "1px solid var(--vscode-panel-border)",
+        background: "color-mix(in srgb, var(--vscode-editorInfo-foreground, var(--vscode-textLink-foreground)) 8%, var(--vscode-editor-background))",
+        color: "var(--vscode-descriptionForeground)",
+        fontSize: "11px",
+        lineHeight: 1.4,
+      }}
+    >
+      {ESTIMATE_DISCLAIMER}
+    </div>
+  );
+}
+
 function formatCost(n: number): string {
   if (n < 0.01) return '<$0.01';
   if (n >= 1_000) return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -662,6 +681,7 @@ export function ResultsPage({
 
       {/* Tab content */}
       <div className="eco-scroll-invisible" style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+        <EstimateDisclaimer />
         {findingsTab === "issues" && (
           <>
             {suggestions.length === 0 ? (

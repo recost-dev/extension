@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import type { KeyServiceId, KeyStatusSummary } from "../types";
+import type { KeyServiceId, KeyStatusSummary, ProjectIdStatusSummary } from "../types";
 import { postMessage } from "../vscode";
 
 interface KeysPageProps {
   statuses: KeyStatusSummary[];
   focusServiceId?: KeyServiceId | null;
-  projectIdSetting: string | null;
+  projectIdStatus: ProjectIdStatusSummary;
 }
 
 function statusLabel(status: KeyStatusSummary): string {
@@ -41,7 +41,8 @@ function statusColor(status: KeyStatusSummary): string {
   }
 }
 
-export function KeysPage({ statuses, focusServiceId, projectIdSetting }: KeysPageProps) {
+export function KeysPage({ statuses, focusServiceId, projectIdStatus }: KeysPageProps) {
+  const projectIdSetting = projectIdStatus.value;
   const [expandedServiceId, setExpandedServiceId] = useState<KeyServiceId | null>(focusServiceId ?? null);
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -63,6 +64,24 @@ export function KeysPage({ statuses, focusServiceId, projectIdSetting }: KeysPag
   const sortedStatuses = useMemo(() => {
     return statuses.filter((status) => status.serviceId === "recost");
   }, [statuses]);
+
+  const projectStatusLabel =
+    projectIdStatus.state === "checking"
+      ? "Checking..."
+      : projectIdStatus.state === "valid"
+      ? "Valid"
+      : projectIdStatus.state === "invalid"
+      ? "Invalid"
+      : "Not Set";
+
+  const projectStatusColor =
+    projectIdStatus.state === "valid"
+      ? "var(--vscode-testing-iconPassed, #4caf50)"
+      : projectIdStatus.state === "invalid"
+      ? "var(--vscode-editorError-foreground)"
+      : projectIdStatus.state === "checking"
+      ? "var(--vscode-editorWarning-foreground)"
+      : "var(--vscode-descriptionForeground)";
 
   const saveAndCollapse = (serviceId: KeyServiceId) => {
     const value = (draftValues[serviceId] ?? "").trim();
@@ -93,7 +112,7 @@ export function KeysPage({ statuses, focusServiceId, projectIdSetting }: KeysPag
         <div>
           <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "4px" }}>Keys</div>
           <p style={{ margin: 0, color: "var(--vscode-descriptionForeground)", fontSize: "12px", lineHeight: 1.5 }}>
-            Manage your ReCost API key here. Keys are saved when you collapse the row.
+            Manage your Recost api key and project id here for scan upload capability and better analysis functionality.
           </p>
         </div>
 
@@ -109,10 +128,18 @@ export function KeysPage({ statuses, focusServiceId, projectIdSetting }: KeysPag
           }}
         >
           <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
-            <div style={{ fontSize: "13px", fontWeight: 600 }}>Project ID</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ fontSize: "13px", fontWeight: 600 }}>Project ID</div>
+              <span style={{ fontSize: "11px", color: projectStatusColor }}>{projectStatusLabel}</span>
+            </div>
             <div style={{ color: "var(--vscode-descriptionForeground)", fontSize: "11px" }}>
               Optional per-workspace override for remote scan uploads.
             </div>
+            {projectIdStatus.message && (
+              <div style={{ color: projectStatusColor, fontSize: "11px", lineHeight: 1.4 }}>
+                {projectIdStatus.message}
+              </div>
+            )}
           </div>
 
           <div

@@ -115,6 +115,8 @@ export type KeyStatusState =
 
 export type KeyStatusSource = "missing" | "secret" | "env";
 
+export type ProjectIdStatusState = "missing" | "checking" | "valid" | "invalid";
+
 export interface KeyStatusSummary {
   serviceId: KeyServiceId;
   displayName: string;
@@ -127,6 +129,13 @@ export interface KeyStatusSummary {
   maskedPreview?: string;
   lastCheckedAt?: string;
   supportsTest: boolean;
+}
+
+export interface ProjectIdStatusSummary {
+  value: string | null;
+  state: ProjectIdStatusState;
+  message?: string;
+  lastCheckedAt?: string;
 }
 
 export type InputMode = "user-centric" | "volume-centric";
@@ -199,7 +208,7 @@ export type HostMessage =
   | { type: "allKeyStatuses"; statuses: KeyStatusSummary[]; focusServiceId?: KeyServiceId }
   | { type: "keyStatusUpdated"; status: KeyStatusSummary; focusServiceId?: KeyServiceId }
   | { type: "keyActionError"; serviceId: KeyServiceId; message: string }
-  | { type: "projectIdSetting"; value: string | null }
+  | { type: "projectIdStatus"; status: ProjectIdStatusSummary }
   | { type: "navigate"; screen: "landing" | "findings" | "chat" | "simulate" | "keys"; focusServiceId?: KeyServiceId }
   | { type: "error"; message: string }
   | { type: "scanNotification"; message: string }

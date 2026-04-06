@@ -9,7 +9,7 @@ import {
   countScopedWorkspaceFiles,
   getWorkspaceScanFiles,
 } from "./scanner/workspace-scanner";
-import { createProject, findProjectByName, submitScan, getAllEndpoints, getAllSuggestions } from "./api-client";
+import { createProject, findProjectByName, submitScan, getAllEndpoints, getAllSuggestions, validateProjectId } from "./api-client";
 import { buildSystemPrompt } from "./chat/prompts";
 import {
   buildProviderOptions,
@@ -22,7 +22,7 @@ import {
   type NormalizedChatMessage,
   type NormalizedChatRequest,
 } from "./chat";
-import type { WebviewMessage, HostMessage, KeyServiceId, KeyStatusSummary } from "./messages";
+import type { WebviewMessage, HostMessage, KeyServiceId, KeyStatusSummary, ProjectIdStatusSummary } from "./messages";
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
@@ -671,6 +671,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "recost.sidebarView";
   private static readonly KEY_VALIDATION_STATE_STORAGE_KEY = "recost.keyValidationState";
   private static readonly MANUAL_PROJECT_ID_STORAGE_KEY = "recost.manualProjectId";
+  private static readonly MANUAL_PROJECT_ID_VALIDATION_STORAGE_KEY = "recost.manualProjectIdValidation";
 
   private _view?: vscode.WebviewView;
   private readonly context: vscode.ExtensionContext;
@@ -690,6 +691,25 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   private chatHistory: ChatMessage[] = [];
   private readonly outputChannel: vscode.OutputChannel;
   private readonly keyValidationState = new Map<KeyServiceId, PersistedKeyValidationSnapshot>();
+  private readonly projectIdCheckingState = new Set<string>();
+
+  private async sendProjectIdStatus(): Promise<void> {
+    this.postMessage({ type: "projectIdStatus", status: await this.buildProjectIdStatus() });
+  }
+
+  private getWorkspaceScopeKey(): string {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) return "no-workspace";
+    return folders.map((folder) => folder.uri.toString()).sort().join("|");
+  }
+
+  private getScopedProjectIdStorageKey(): string {
+    return `${ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY}:${this.getWorkspaceScopeKey()}`;
+  }
+
+  private getScopedProjectIdValidationStorageKey(): string {
+    return `${ReCostSidebarProvider.MANUAL_PROJECT_ID_VALIDATION_STORAGE_KEY}:${this.getWorkspaceScopeKey()}`;
+  }
 
   private getDebugScanExportPath(): string {
     const workspaceName = this.getWorkspaceName().replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -763,7 +783,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     this.projectId = this.context.globalState.get<string>("recost.projectId") ?? null;
     void this.sendChatConfig();
     void this.sendAllKeyStatuses();
-    void this.sendProjectIdSetting();
+    void this.sendProjectIdStatus();
   }
 
 
@@ -774,7 +794,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public openKeys(focusServiceId?: KeyServiceId) {
     this.postMessage({ type: "navigate", screen: "keys", focusServiceId });
     void this.sendAllKeyStatuses(focusServiceId);
-    void this.sendProjectIdSetting();
+    void this.sendProjectIdStatus();
   }
 
   public async clearManagedKey(serviceId: KeyServiceId) {
@@ -820,25 +840,159 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private getManualProjectId(): string | null {
-    const value = this.context.workspaceState.get<string>(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY);
+    const scopedKey = this.getScopedProjectIdStorageKey();
+    const scopedValue = this.context.workspaceState.get<string>(scopedKey);
+    const value =
+      scopedValue
+      ?? this.context.workspaceState.get<string>(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY);
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
   }
 
   private async setManualProjectId(value: string): Promise<void> {
     const trimmed = value.trim();
-    await this.context.workspaceState.update(
-      ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY,
-      trimmed || undefined
-    );
-  }
-
-  private async clearManualProjectId(): Promise<void> {
+    await this.context.workspaceState.update(this.getScopedProjectIdStorageKey(), trimmed || undefined);
     await this.context.workspaceState.update(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY, undefined);
   }
 
-  private sendProjectIdSetting() {
-    this.postMessage({ type: "projectIdSetting", value: this.getManualProjectId() });
+  private async clearManualProjectId(): Promise<void> {
+    await this.context.workspaceState.update(this.getScopedProjectIdStorageKey(), undefined);
+    await this.context.workspaceState.update(ReCostSidebarProvider.MANUAL_PROJECT_ID_STORAGE_KEY, undefined);
+  }
+
+  private async clearProjectIdValidationState(): Promise<void> {
+    await this.context.workspaceState.update(this.getScopedProjectIdValidationStorageKey(), undefined);
+    await this.context.workspaceState.update(ReCostSidebarProvider.MANUAL_PROJECT_ID_VALIDATION_STORAGE_KEY, undefined);
+  }
+
+  private async setProjectIdValidationState(snapshot: {
+    projectId: string;
+    state: "valid" | "invalid";
+    message?: string;
+    lastCheckedAt: string;
+    keyFingerprint: string;
+  }): Promise<void> {
+    await this.context.workspaceState.update(this.getScopedProjectIdValidationStorageKey(), snapshot);
+    await this.context.workspaceState.update(ReCostSidebarProvider.MANUAL_PROJECT_ID_VALIDATION_STORAGE_KEY, undefined);
+  }
+
+  private async getProjectIdValidationSnapshot(projectId: string): Promise<{
+    projectId: string;
+    state: "valid" | "invalid";
+    message?: string;
+    lastCheckedAt: string;
+    keyFingerprint: string;
+  } | undefined> {
+    const snapshot = this.context.workspaceState.get<{
+      projectId: string;
+      state: "valid" | "invalid";
+      message?: string;
+      lastCheckedAt: string;
+      keyFingerprint: string;
+    }>(this.getScopedProjectIdValidationStorageKey())
+      ?? this.context.workspaceState.get<{
+        projectId: string;
+        state: "valid" | "invalid";
+        message?: string;
+        lastCheckedAt: string;
+        keyFingerprint: string;
+      }>(ReCostSidebarProvider.MANUAL_PROJECT_ID_VALIDATION_STORAGE_KEY);
+    if (!snapshot || snapshot.projectId !== projectId) {
+      return undefined;
+    }
+
+    const recostKey = await resolveCurrentKeyValue(getKeyService("recost"), this.context.secrets);
+    if (!recostKey || snapshot.keyFingerprint !== buildKeyFingerprint(recostKey)) {
+      await this.clearProjectIdValidationState();
+      return undefined;
+    }
+
+    return snapshot;
+  }
+
+  private async buildProjectIdStatus(): Promise<ProjectIdStatusSummary> {
+    const projectId = this.getManualProjectId();
+    if (!projectId) {
+      return { value: null, state: "missing" };
+    }
+
+    if (this.projectIdCheckingState.has(projectId)) {
+      return { value: projectId, state: "checking" };
+    }
+
+    const recostKey = await resolveCurrentKeyValue(getKeyService("recost"), this.context.secrets);
+    if (!recostKey) {
+      return {
+        value: projectId,
+        state: "invalid",
+        message: "ReCost API key is required to validate the Project ID.",
+      };
+    }
+
+    const snapshot = await this.getProjectIdValidationSnapshot(projectId);
+    if (!snapshot) {
+      return {
+        value: projectId,
+        state: "invalid",
+        message: "Project ID has not been validated yet.",
+      };
+    }
+
+    return {
+      value: projectId,
+      state: snapshot.state,
+      message: snapshot.message,
+      lastCheckedAt: snapshot.lastCheckedAt,
+    };
+  }
+
+  private async validateManualProjectId(): Promise<void> {
+    const projectId = this.getManualProjectId();
+    if (!projectId) {
+      await this.clearProjectIdValidationState();
+      await this.sendProjectIdStatus();
+      return;
+    }
+
+    const recostKey = await resolveCurrentKeyValue(getKeyService("recost"), this.context.secrets);
+    if (!recostKey) {
+      await this.clearProjectIdValidationState();
+      await this.sendProjectIdStatus();
+      return;
+    }
+
+    this.projectIdCheckingState.add(projectId);
+    await this.sendProjectIdStatus();
+
+    const lastCheckedAt = new Date().toISOString();
+    try {
+      await validateProjectId(projectId, recostKey);
+      await this.setProjectIdValidationState({
+        projectId,
+        state: "valid",
+        lastCheckedAt,
+        keyFingerprint: buildKeyFingerprint(recostKey),
+      });
+    } catch (error) {
+      const err = error as Error & { status?: number };
+      const message =
+        err.status === 404
+          ? `Project ID ${projectId} was not found.`
+          : err.status === 401 || err.status === 403
+          ? err.message
+          : `Unable to validate Project ID: ${err.message}`;
+      await this.setProjectIdValidationState({
+        projectId,
+        state: "invalid",
+        message,
+        lastCheckedAt,
+        keyFingerprint: buildKeyFingerprint(recostKey),
+      });
+    } finally {
+      this.projectIdCheckingState.delete(projectId);
+    }
+
+    await this.sendProjectIdStatus();
   }
 
   private async resolveScanProjectTarget(
@@ -880,6 +1034,10 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     }
     await this.clearValidationState(serviceId);
     await this.sendKeyStatusUpdate(serviceId);
+    if (serviceId === "recost") {
+      await this.clearProjectIdValidationState();
+      await this.sendProjectIdStatus();
+    }
   }
 
   private async setServiceKey(serviceId: KeyServiceId, value: string) {
@@ -904,6 +1062,9 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     await this.clearValidationState(serviceId);
     await this.sendKeyStatusUpdate(serviceId);
     await this.testServiceKey(serviceId);
+    if (serviceId === "recost" && this.getManualProjectId()) {
+      await this.validateManualProjectId();
+    }
   }
 
   private async testServiceKey(serviceId: KeyServiceId) {
@@ -982,8 +1143,8 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       case "getAllKeyStatuses":
         await this.sendAllKeyStatuses();
         break;
-      case "getProjectIdSetting":
-        this.sendProjectIdSetting();
+      case "getProjectIdStatus":
+        await this.sendProjectIdStatus();
         break;
       case "setKey":
         await this.setServiceKey(message.serviceId, message.value);
@@ -993,11 +1154,13 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
         break;
       case "setProjectId":
         await this.setManualProjectId(message.value);
-        this.sendProjectIdSetting();
+        await this.clearProjectIdValidationState();
+        await this.validateManualProjectId();
         break;
       case "clearProjectId":
         await this.clearManualProjectId();
-        this.sendProjectIdSetting();
+        await this.clearProjectIdValidationState();
+        await this.sendProjectIdStatus();
         break;
       case "testKey":
         await this.testServiceKey(message.serviceId);
@@ -2047,19 +2210,15 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
   private async handleOpenDashboard() {
     try {
-      const projectId =
-        this.getManualProjectId()
-        ?? this.projectId
-        ?? this.lastEndpoints[0]?.projectId;
+      const projectIdStatus = await this.buildProjectIdStatus();
+      const targetProjectId =
+        projectIdStatus.state === "valid" && projectIdStatus.value
+          ? projectIdStatus.value
+          : null;
 
-      if (!projectId || projectId === "local") {
-        vscode.window.showErrorMessage(
-          "No project found. Run a synced scan or set a Project ID first."
-        );
-        return;
-      }
-
-      const url = `https://recost.dev/dashboard/projects/${projectId}`;
+      const url = targetProjectId
+        ? `https://recost.dev/dashboard/projects/${targetProjectId}`
+        : "https://recost.dev/dashboard/projects";
       await vscode.env.openExternal(vscode.Uri.parse(url));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to open dashboard";

@@ -12,6 +12,7 @@ import type {
   HostMessage,
   KeyStatusSummary,
   KeyServiceId,
+  ProjectIdStatusSummary,
 } from "./types";
 
 type Screen = "landing" | "scanning" | "findings" | "simulate" | "keys";
@@ -45,7 +46,7 @@ export default function App() {
   });
   const [keyStatuses, setKeyStatuses] = useState<KeyStatusSummary[]>([]);
   const [focusServiceId, setFocusServiceId] = useState<KeyServiceId | null>(null);
-  const [projectIdSetting, setProjectIdSetting] = useState<string | null>(null);
+  const [projectIdStatus, setProjectIdStatus] = useState<ProjectIdStatusSummary>({ value: null, state: "missing" });
   const [notification, setNotification] = useState<string | null>(null);
 
   const hasResults = endpoints.length > 0 || suggestions.length > 0 || summary.totalEndpoints > 0;
@@ -63,7 +64,7 @@ export default function App() {
 
   useEffect(() => {
     postMessage({ type: "getAllKeyStatuses" });
-    postMessage({ type: "getProjectIdSetting" });
+    postMessage({ type: "getProjectIdStatus" });
   }, []);
 
   useEffect(() => {
@@ -108,8 +109,8 @@ export default function App() {
             )
           );
           break;
-        case "projectIdSetting":
-          setProjectIdSetting(msg.value);
+        case "projectIdStatus":
+          setProjectIdStatus(msg.status);
           break;
         case "navigate":
           setScreen(msg.screen === "chat" ? "findings" : msg.screen);
@@ -209,7 +210,7 @@ export default function App() {
         <KeysPage
           statuses={keyStatuses}
           focusServiceId={focusServiceId}
-          projectIdSetting={projectIdSetting}
+          projectIdStatus={projectIdStatus}
         />
       )}
 

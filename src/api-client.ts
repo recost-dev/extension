@@ -7,10 +7,19 @@ interface ApiError {
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit, rcApiKey?: string): Promise<T> {
+  return apiFetchWith(path, init, rcApiKey, fetch);
+}
+
+async function apiFetchWith<T>(
+  path: string,
+  init: RequestInit | undefined,
+  rcApiKey: string | undefined,
+  fetchImpl: typeof fetch
+): Promise<T> {
   const authHeaders: Record<string, string> = rcApiKey
     ? { "Authorization": `Bearer ${rcApiKey}` }
     : {};
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetchImpl(`${BASE_URL}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...authHeaders, ...init?.headers },
   });
@@ -49,6 +58,25 @@ export async function validateRcApiKey(rcApiKey: string): Promise<void> {
     throw err;
   }
   await apiFetch("/projects?limit=1", undefined, rcApiKey);
+}
+
+export async function validateProjectId(
+  projectId: string,
+  rcApiKey: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<void> {
+  const trimmedProjectId = projectId.trim();
+  if (!trimmedProjectId) {
+    const err = new Error("Project ID must not be empty.") as Error & { status: number };
+    err.status = 400;
+    throw err;
+  }
+  if (!rcApiKey.startsWith("rc-")) {
+    const err = new Error("Invalid ReCost API key — keys must start with rc-") as Error & { status: number };
+    err.status = 401;
+    throw err;
+  }
+  await apiFetchWith(`/projects/${encodeURIComponent(trimmedProjectId)}`, undefined, rcApiKey, fetchImpl);
 }
 
 export interface ScanResult {
