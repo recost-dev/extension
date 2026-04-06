@@ -46,6 +46,18 @@ const LOCAL_PRICING: Record<string, number> = {
   cloudflare: 0.0000003,
   vercel: 0.0000006,
 };
+export function classifyPricing(
+  costModels: (string | undefined)[]
+): "paid" | "free" | "unknown" {
+  const PAID = new Set(["per_token", "per_transaction", "per_request"]);
+  let result: "paid" | "free" | "unknown" = "unknown";
+  for (const model of costModels) {
+    if (model && PAID.has(model)) return "paid";
+    if (model === "free") result = "free";
+  }
+  return result;
+}
+
 const DEFAULT_PER_CALL_COST = 0.0001;
 const FREQUENCY_SEVERITY: Record<string, number> = {
   polling: 6,
@@ -183,6 +195,7 @@ function buildAggressiveSuggestions(endpoints: EndpointRecord[], suggestions: Su
       source: "local-rule",
       confidence: confidenceFromEndpointStatus(endpoint),
       evidence: endpoint.callSites.slice(0, 3).map((site) => `Observed callsite: ${site.file}:${site.line}`),
+      pricingClass: classifyPricing([endpoint.costModel]),
     });
   }
   return [...suggestions, ...extras];
@@ -263,6 +276,7 @@ function mergeLocalWasteFindings(
       finding.type === "concurrency_control" ? 0.22 :
       0.2;
     const severityWeight = finding.severity === "high" ? 1 : finding.severity === "medium" ? 0.75 : 0.5;
+    const pricingClass = classifyPricing(fileEndpoints.map((ep) => ep.costModel));
     locals.push({
       id: finding.id,
       projectId,
@@ -278,6 +292,7 @@ function mergeLocalWasteFindings(
       source: "local-rule",
       confidence: finding.confidence,
       evidence: finding.evidence,
+      pricingClass,
     });
   }
   return [...baseSuggestions, ...locals];

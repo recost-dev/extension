@@ -140,6 +140,24 @@ function ConfidenceBadge({ confidence }: { confidence?: number }) {
   );
 }
 
+function PricingBadge({ pricingClass }: { pricingClass?: "paid" | "free" | "unknown" }) {
+  if (!pricingClass || pricingClass === "unknown") return null;
+  return (
+    <span
+      style={{
+        fontSize: "10px",
+        fontWeight: 500,
+        padding: "1px 6px",
+        borderRadius: "4px",
+        backgroundColor: pricingClass === "paid" ? "rgba(234, 179, 8, 0.15)" : "rgba(107, 114, 128, 0.15)",
+        color: pricingClass === "paid" ? "var(--vscode-charts-yellow)" : "var(--vscode-descriptionForeground)",
+      }}
+    >
+      {pricingClass === "paid" ? "paid" : "free"}
+    </span>
+  );
+}
+
 function CodeFix({ codeFix, file, line }: { codeFix: string; file?: string; line?: number }) {
   const [copied, setCopied] = useState(false);
   const { code, language } = extractCode(codeFix);
@@ -211,19 +229,25 @@ function CodeFix({ codeFix, file, line }: { codeFix: string; file?: string; line
 function SuggestionCard({
   suggestion,
   target,
+  endpoints,
 }: {
   suggestion: Suggestion;
   target: { file?: string; line?: number };
+  endpoints: EndpointRecord[];
 }) {
   const [expanded, setExpanded] = useState(false);
-
+  const provider = endpoints.find((ep) => suggestion.affectedEndpoints.includes(ep.id))?.provider;
 
   return (
     <div className="eco-suggestion">
       <button className="eco-suggestion-header" onClick={() => setExpanded((v) => !v)}>
         <span aria-hidden="true" className={`eco-disclosure${expanded ? " open" : ""}`} />
         <TypeBadge type={suggestion.type} />
+        {provider && (
+          <span style={{ fontSize: "11px", color: "var(--vscode-descriptionForeground)" }}>{provider}</span>
+        )}
         <SourceBadge source={suggestion.source} />
+        <PricingBadge pricingClass={suggestion.pricingClass} />
         <ConfidenceBadge confidence={suggestion.confidence} />
         <span style={{ flex: 1 }} />
         {suggestion.estimatedMonthlySavings > 0 && (
@@ -274,12 +298,14 @@ function SeverityGroup({
   open,
   onToggleGroup,
   resolveTarget,
+  endpoints,
 }: {
   label: string;
   suggestions: Suggestion[];
   open: boolean;
   onToggleGroup: () => void;
   resolveTarget: (s: Suggestion) => { file?: string; line?: number };
+  endpoints: EndpointRecord[];
 }) {
   if (suggestions.length === 0) return null;
 
@@ -302,8 +328,82 @@ function SeverityGroup({
             key={s.id}
             suggestion={s}
             target={resolveTarget(s)}
+            endpoints={endpoints}
           />
         ))}
+    </div>
+  );
+}
+
+function SeverityGroups({ suggestions, endpoints }: { suggestions: Suggestion[]; endpoints: EndpointRecord[] }) {
+  const [openGroups, setOpenGroups] = useState<Record<"HIGH" | "MEDIUM" | "LOW", boolean>>({
+    HIGH: true,
+    MEDIUM: true,
+    LOW: true,
+  });
+  const high = suggestions.filter((s) => s.severity === "high");
+  const medium = suggestions.filter((s) => s.severity === "medium");
+  const low = suggestions.filter((s) => s.severity === "low");
+  const resolveTarget = (s: Suggestion) => resolveSuggestionTarget(s, endpoints);
+  return (
+    <>
+      <SeverityGroup
+        label="HIGH"
+        suggestions={high}
+        open={openGroups.HIGH}
+        onToggleGroup={() => setOpenGroups((p) => ({ ...p, HIGH: !p.HIGH }))}
+        resolveTarget={resolveTarget}
+        endpoints={endpoints}
+      />
+      <SeverityGroup
+        label="MEDIUM"
+        suggestions={medium}
+        open={openGroups.MEDIUM}
+        onToggleGroup={() => setOpenGroups((p) => ({ ...p, MEDIUM: !p.MEDIUM }))}
+        resolveTarget={resolveTarget}
+        endpoints={endpoints}
+      />
+      <SeverityGroup
+        label="LOW"
+        suggestions={low}
+        open={openGroups.LOW}
+        onToggleGroup={() => setOpenGroups((p) => ({ ...p, LOW: !p.LOW }))}
+        resolveTarget={resolveTarget}
+        endpoints={endpoints}
+      />
+    </>
+  );
+}
+
+function PricingSection({
+  title,
+  description,
+  suggestions,
+  endpoints,
+  defaultOpen,
+}: {
+  title: string;
+  description: string;
+  suggestions: Suggestion[];
+  endpoints: EndpointRecord[];
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (suggestions.length === 0) return null;
+  return (
+    <div>
+      <button className="eco-severity-header" onClick={() => setOpen(!open)}>
+        <span>{title}</span>
+        <span style={{ fontSize: "10px", opacity: 0.9 }}>{suggestions.length}</span>
+      </button>
+      {open && (
+        <div>
+          <p style={{ fontSize: "11px", color: "var(--vscode-descriptionForeground)", margin: "4px 12px 8px" }}>
+            {description}
+          </p>
+          <SeverityGroups suggestions={suggestions} endpoints={endpoints} />
+        </div>
+      )}
     </div>
   );
 }
@@ -487,18 +587,10 @@ export function ResultsPage({
   endpoints,
 }: ResultsPageProps) {
   const [findingsTab, setFindingsTab] = useState<"issues" | "endpoints">("issues");
-  const [openGroups, setOpenGroups] = useState<Record<"HIGH" | "MEDIUM" | "LOW", boolean>>({
-    HIGH: true,
-    MEDIUM: true,
-    LOW: true,
-  });
   const [typeFilter, setTypeFilter] = useState<string>("all");
 
   const presentTypes = Array.from(new Set(suggestions.map((s) => s.type))).sort();
   const visibleSuggestions = typeFilter === "all" ? suggestions : suggestions.filter((s) => s.type === typeFilter);
-  const high = visibleSuggestions.filter((s) => s.severity === "high");
-  const medium = visibleSuggestions.filter((s) => s.severity === "medium");
-  const low = visibleSuggestions.filter((s) => s.severity === "low");
 
   const freeCount = endpoints.filter((ep) => ep.costModel === "free").length;
   const inLoopsCount = endpoints.filter((ep) => ep.frequencyClass && ep.frequencyClass.includes("loop")).length;
@@ -587,27 +679,38 @@ export function ResultsPage({
                     </select>
                   </div>
                 )}
-                <SeverityGroup
-                  label="HIGH"
-                  suggestions={high}
-                  open={openGroups.HIGH}
-                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, HIGH: !prev.HIGH }))}
-                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-                />
-                <SeverityGroup
-                  label="MEDIUM"
-                  suggestions={medium}
-                  open={openGroups.MEDIUM}
-                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, MEDIUM: !prev.MEDIUM }))}
-                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-                />
-                <SeverityGroup
-                  label="LOW"
-                  suggestions={low}
-                  open={openGroups.LOW}
-                  onToggleGroup={() => setOpenGroups((prev) => ({ ...prev, LOW: !prev.LOW }))}
-                  resolveTarget={(s) => resolveSuggestionTarget(s, endpoints)}
-                />
+                {(() => {
+                  const paidIssues = visibleSuggestions.filter((s) => s.pricingClass === "paid");
+                  const freeIssues = visibleSuggestions.filter((s) => s.pricingClass === "free");
+                  const unknownIssues = visibleSuggestions.filter((s) => !s.pricingClass || s.pricingClass === "unknown");
+                  const hasPaid = paidIssues.length > 0;
+                  const hasFree = freeIssues.length > 0;
+                  return (
+                    <>
+                      <PricingSection
+                        title="Paid API Issues"
+                        description="These findings relate to paid external API calls and have direct cost impact."
+                        suggestions={paidIssues}
+                        endpoints={endpoints}
+                        defaultOpen={true}
+                      />
+                      <PricingSection
+                        title="Free API Issues"
+                        description="These findings relate to free tier APIs. No direct cost impact but may affect reliability."
+                        suggestions={freeIssues}
+                        endpoints={endpoints}
+                        defaultOpen={!hasPaid}
+                      />
+                      <PricingSection
+                        title="Unknown"
+                        description="These findings relate to APIs where pricing could not be determined."
+                        suggestions={unknownIssues}
+                        endpoints={endpoints}
+                        defaultOpen={!hasPaid && !hasFree}
+                      />
+                    </>
+                  );
+                })()}
               </>
             )}
           </>

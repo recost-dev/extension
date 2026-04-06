@@ -27,6 +27,7 @@ import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./an
 import { runSimulation, StaticDataSource } from "./simulator";
 import type { SimulatorInput } from "./simulator/types";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
+import { classifyPricing } from "./scan-results";
 import { buildSnapshot } from "./intelligence/builder";
 import { scoreSnapshot } from "./intelligence/scorer";
 import { buildReviewClusters } from "./intelligence/clusters";
@@ -349,6 +350,7 @@ function buildAggressiveSuggestions(
       source: "local-rule",
       confidence: confidenceFromEndpointStatus(endpoint),
       evidence: endpoint.callSites.slice(0, 3).map((site) => `Observed callsite: ${site.file}:${site.line}`),
+      pricingClass: classifyPricing([endpoint.costModel]),
     });
   }
 
@@ -436,6 +438,7 @@ function mergeLocalWasteFindings(
       finding.severity === "medium" ? 0.75 :
       0.5;
     const estimatedMonthlySavings = Number((baselineCost * multiplier * severityWeight).toFixed(2));
+    const pricingClass = classifyPricing(fileEndpoints.map((ep) => ep.costModel));
 
     locals.push({
       id: finding.id,
@@ -452,6 +455,7 @@ function mergeLocalWasteFindings(
       source: "local-rule",
       confidence: finding.confidence,
       evidence: finding.evidence,
+      pricingClass,
     });
   }
 
@@ -1655,6 +1659,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       confidence: finding.confidence,
       evidence: finding.evidence,
       reviewedAt: new Date().toISOString(),
+      pricingClass: classifyPricing(fileEndpoints.map((ep) => ep.costModel)),
     };
   }
 
