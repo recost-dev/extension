@@ -21,8 +21,15 @@ src/
   local-server.ts         # Embedded HTTP server (serves dashboard + proxies local analysis)
   webview-provider.ts     # Sidebar webview provider (IPC handling, local pricing table for 40+ providers, cost estimation algorithm)
   messages.ts             # IPC message types (extension ↔ webview)
+  key-management.ts       # Key service registry, validation snapshots, KeyServiceDescriptor; manages recost + all chat provider keys
+  output.ts               # Lazy OutputChannel singleton ("ReCost Status")
+  scan-results.ts         # Post-scan result builder: scope/provider enrichment, local pricing, filters unknown providers before remote submit
+  workspace-file-access.ts # Safe workspace path resolver — guards against path traversal before file reads
   analysis/
     types.ts              # Analysis type definitions
+  cli/
+    scan.ts               # CLI scan runner — orchestrates workspace scan, remote submit, intelligence pipeline, and formatted output
+    filesystem-adapter.ts # ScanFileAccess adapter backed by the real filesystem (vs the VSCode workspace API)
   ast/
     parser-loader.ts      # web-tree-sitter WASM loader (resolves from dist/../assets/parsers/)
     scanner.ts            # AST-based API call scanner (JS/TS/Python)
@@ -50,7 +57,17 @@ src/
     static-source.ts      # StaticDataSource adapter (EndpointRecord[] → SimulatorDataSource, passes frequencyClass + costModel)
     index.ts              # Barrel re-export
   intelligence/           # Intelligence layer — graph model of a scanned repo
-    types.ts              # Shared interface contracts (FileNode, ApiCallNode, FindingNode, ProviderNode, RepoIntelligenceSnapshot, scoring, clustering). Do NOT change without team sync.
+    types.ts              # Shared interface contracts (FileNode, ApiCallNode, FindingNode, ProviderNode, RepoIntelligenceSnapshot, ScoredSnapshot, ReviewCluster, CompressedCluster, ExportedContext, etc.). Do NOT change without team sync.
+    builder.ts            # buildSnapshot() — constructs RepoIntelligenceSnapshot from apiCalls + findings
+    scorer.ts             # scoreSnapshot() — produces ScoredSnapshot with per-file cost/reliability/coverage scores
+    clusters.ts           # buildReviewClusters() — groups ScoredFiles into ReviewCluster batches for AI review
+    compression.ts        # compressClusters() — token-budget-aware compression of clusters into CompressedCluster (≤4000 tokens)
+    export.ts             # buildExportContext() / formatAsJSON() / formatAsMarkdown() — structured export for CLI and AI context
+    cost-utils.ts         # estimateLocalMonthlyCost() — shared local cost estimation (no remote API)
+    file-signals.ts       # isTestLikeFilePath(), isDeprioritizedContextFilePath(), isAnalysisToolingFilePath() predicates
+    finding-dedupe.ts     # dedupeFindings() — deduplicates FindingNode by normalized description + evidence
+    path-utils.ts         # normalizeRepoPath() — cross-platform path normalization
+    provider-normalization.ts  # normalizeProviderId(), filterRealProviders(), collectRealProviders() — canonical provider aliases
     mocks/
       mockSnapshot.ts     # Shared RepoIntelligenceSnapshot mock (5 files, 10 API calls, 6 findings, 3 providers) for tests and local dev
 webview/                  # React sidebar UI
