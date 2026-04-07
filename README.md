@@ -82,7 +82,7 @@ bash scripts/build-vsix.sh
 Then install the generated file:
 
 ```bash
-code --install-extension recost-api-analyzer-0.1.0.vsix
+code --install-extension recost-api-analyzer-0.1.1.vsix
 # or: Ctrl+Shift+P → "Extensions: Install from VSIX..."
 ```
 
@@ -179,6 +179,8 @@ Endpoints with `costModel: "free"` are always projected at $0. The simulator app
 Generates a structured markdown intelligence report from the most recent scan and copies it to the clipboard. The report is optimized for pasting into an AI coding agent (e.g. Claude, Copilot) — it includes a scored summary of API cost hotspots, clustered findings, and actionable context about which files and patterns need attention most.
 
 The same output is available via the CLI with `--format context` and via the `recost.generateContext` command in the Command Palette, which additionally saves the output to `.recost-context.md` in your workspace root.
+
+> **`.recost-context.md` is a generated file** — add it to your `.gitignore` if you don't want it committed. It is regenerated on every context copy or `generateContext` run.
 
 ---
 

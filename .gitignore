@@ -23,6 +23,9 @@ npm-debug.log*
 # Build artifacts
 *.vsix
 
+# ReCost generated output files
+.recost-context.md
+
 # OS
 .DS_Store
 Thumbs.db

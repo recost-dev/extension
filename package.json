@@ -2,7 +2,7 @@
   "name": "recost-api-analyzer",
   "displayName": "ReCost - API Usage Analyzer",
   "description": "Scan your codebase for API call patterns, estimate costs, and get optimization suggestions.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "repository": {
     "type": "git",
