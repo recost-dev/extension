@@ -12,11 +12,7 @@ echo "==> Installing webview dependencies..."
 cd "$EXT_DIR/webview"
 npm install
 
-echo "==> Installing dashboard dependencies..."
-cd "$EXT_DIR/dashboard"
-npm install
-
-echo "==> Building extension (dashboard + webview + backend)..."
+echo "==> Building extension (webview + backend)..."
 cd "$EXT_DIR"
 npm run build
 

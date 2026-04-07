@@ -189,7 +189,7 @@
     }
   },
   "scripts": {
-    "build": "npm run build:dashboard && npm run build:webview && npm run build:ext",
+    "build": "npm run build:webview && npm run build:ext",
     "build:ext": "node esbuild.mjs",
     "scan:cli": "node dist/cli/scan.js",
     "build:webview": "cd webview && npm run build",
