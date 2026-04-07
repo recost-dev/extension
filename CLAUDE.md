@@ -32,11 +32,15 @@ src/
     filesystem-adapter.ts # ScanFileAccess adapter backed by the real filesystem (vs the VSCode workspace API)
   ast/
     parser-loader.ts      # web-tree-sitter WASM loader (resolves from dist/../assets/parsers/)
-    scanner.ts            # AST-based API call scanner (JS/TS/Python)
+    ast-scanner.ts        # AST-based API call scanner (JS/TS/Python)
+    call-visitor.ts       # AST call expression visitor — walks tree, emits raw call sites
     frequency-analyzer.ts # Classifies call frequency: single, bounded-loop, unbounded-loop, polling, parallel, conditional, cache-guarded
     cross-file-resolver.ts # Resolves API calls through helper functions back to their origin file
     import-resolver.ts    # Resolves import paths for cross-file tracing
-    types.ts              # AST scanner output types
+    waste/
+      batch-detector.ts      # AST-based batch and N+1 waste detector
+      cache-detector.ts      # AST-based cache guard waste detector
+      concurrency-detector.ts # AST-based concurrency/parallel waste detector
   chat/
     prompts.ts            # AI prompt templates
     types.ts              # Shared chat types
@@ -46,11 +50,15 @@ src/
     providers/            # Per-provider adapters (recost, openai, anthropic, gemini, xai, cohere, mistral, perplexity)
   scanner/
     patterns.ts           # API call detection regex patterns (fallback/augment to AST)
-    patterns/             # 16 provider-specific pattern scanners (Firebase, GraphQL, OpenAI, Stripe, Anthropic, Bedrock, etc.)
-    workspace-scanner.ts  # Workspace file scanner (orchestrates AST + regex)
+    patterns/             # 16 provider-specific pattern scanners (Firebase, GraphQL, OpenAI, Stripe, Anthropic, Bedrock, etc.) + registry.ts, types.ts, utils.ts
+    core-scanner.ts       # Core single-file scanner (coordinates AST + regex passes)
+    workspace-scanner.ts  # Workspace file scanner (orchestrates core-scanner across files)
+    file-discovery.ts     # Workspace file discovery and glob filtering
+    path-excludes.ts      # Default exclude path patterns
     endpoint-classification.ts  # Classifies endpoints as internal/external, detects 50+ provider hosts
     local-waste-detector.ts     # Detects waste patterns using AST signals (N+1, unbounded loops, polling without backoff, missing cache guards, unbatched parallel)
-    fingerprint-registry.ts     # Per-method pricing fingerprints (costModel, per-call rates)
+    python-waste-detector.ts    # Python-specific waste detection
+    fingerprints/               # Per-method pricing fingerprints — JSON data files per provider + index.ts, registry.ts, types.ts
   simulator/              # Cost Simulator computation layer
     types.ts              # SimulatorInput, SimulatorResult, SavedScenario, scale presets (1K–100K)
     engine.ts             # Pure runSimulation() — frequency-class multipliers, free endpoint zeroing, dynamic confidence
@@ -82,6 +90,7 @@ webview/                  # React sidebar UI
       ResultsPage.tsx     # Main results view with Findings (Issues/Endpoints subtabs), Chat, Simulate tabs
       ChatPage.tsx        # AI chat tab — key-missing warning shown inline as chat bubble
       SimulatePage.tsx    # Cost Simulator tab
+      KeysPage.tsx        # API key / provider key management tab
       Markdown.tsx
       LeafIcon.tsx
     styles/
@@ -105,6 +114,7 @@ dashboard/                # React SPA (full dashboard)
       Endpoints.tsx       # Badge tooltips for costModel + frequencyClass
       Suggestions.tsx
       Simulator.tsx       # Cost Simulator page with scenario management
+      Graph.tsx           # API call graph visualization
     styles/
   vite.config.ts
   package.json
@@ -177,10 +187,10 @@ Then press **F5** in VSCode to launch the Extension Development Host.
 The AST layer (`src/ast/`) uses web-tree-sitter (WASM) to parse JS/TS/Python source files:
 
 - **`parser-loader.ts`**: Loads WASM grammars from `assets/parsers/` relative to `dist/` (esbuild output). Path is `path.join(__dirname, "..", "assets", "parsers")`. Uses a lazy `require()` in a try/catch at module init — if `web-tree-sitter` is not resolvable the module does not crash; `_Parser`/`_Language` are null and `ensureInitialized()` throws, causing the scanner to fall back to regex patterns.
-- **`scanner.ts`**: Walks the AST to find API call sites, emitting `EndpointRecord` with enriched fields
+- **`ast-scanner.ts`** + **`call-visitor.ts`**: Walk the AST to find API call sites, emitting `EndpointRecord` with enriched fields
 - **`frequency-analyzer.ts`**: Classifies each call site by surrounding AST context — loop types, timers, conditionals, cache guards
 - **`cross-file-resolver.ts`**: Follows import chains to resolve helper function calls back to their original HTTP call site
-- **`fingerprint-registry.ts`**: Maps provider+method signatures to pricing models (`per_token`, `per_transaction`, `per_request`, `free`) and per-call cost estimates
+- **`fingerprints/`**: Maps provider+method signatures to pricing models (`per_token`, `per_transaction`, `per_request`, `free`) and per-call cost estimates — data in JSON files per provider, loaded via `index.ts`/`registry.ts`
 
 ### Local Server Endpoints
 
