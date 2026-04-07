@@ -299,7 +299,7 @@ function SuggestionCard({
                   key={f}
                   className="eco-btn-link"
                   style={{ fontSize: "11px" }}
-                  onClick={() => postMessage({ type: "openFile", file: f })}
+                  onClick={() => postMessage({ type: "openFile", file: f, line: suggestion.targetLine })}
                 >
                   {f}
                 </button>
