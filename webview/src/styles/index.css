@@ -4,6 +4,8 @@
 :root {
   --eco-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --eco-ease-emphasis: cubic-bezier(0.22, 1, 0.36, 1);
+  --eco-accent: rgb(242, 107, 29);
+  --eco-accent-hover: rgb(222, 94, 19);
 }
 
 *, *::before, *::after {
@@ -50,7 +52,7 @@ html, body, #root {
   right: 10px;
   bottom: 0;
   height: 2px;
-  background: #4caf50;
+  background: var(--eco-accent);
   transform: scaleX(0);
   transform-origin: center;
   transition: transform 220ms var(--eco-ease-emphasis);
@@ -87,7 +89,7 @@ html, body, #root {
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: #2e7d32;
+  background: var(--eco-accent);
   color: #ffffff;
   border: none;
   border-radius: 6px;
@@ -98,7 +100,7 @@ html, body, #root {
 }
 
 .eco-btn-primary:hover {
-  background: #388e3c;
+  background: var(--eco-accent-hover);
 }
 
 .eco-btn-secondary {

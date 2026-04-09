@@ -9,7 +9,7 @@
     "url": "https://github.com/ecoapi-dev/extension"
   },
   "publisher": "recost",
-  "icon": "media/recost-icon.png",
+  "icon": "recost_white.png",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -25,7 +25,7 @@
         {
           "id": "recost-sidebar",
           "title": "ReCost",
-          "icon": "media/recost-icon.svg"
+          "icon": "recost logo.svg"
         }
       ]
     },
@@ -35,7 +35,7 @@
           "type": "webview",
           "id": "recost.sidebarView",
           "name": "ReCost",
-          "icon": "media/recost-icon.svg"
+          "icon": "recost logo.svg"
         }
       ]
     },

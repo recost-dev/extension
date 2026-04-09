@@ -8,16 +8,16 @@ export function LeafIcon({ size = 64, className = "", animated = false }: LeafIc
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 400 400"
+      viewBox="0 0 180 180"
       width={size}
       height={size}
       fill="none"
-      strokeLinecap="round"
-      strokeLinejoin="round"
       className={`${className} ${animated ? "animate-pulse" : ""}`}
     >
-      <path d="M55 85 L240 85 L240 140 L105 140 L105 315 L55 315 Z" stroke="currentColor" strokeWidth={14} />
-      <path d="M345 315 L160 315 L160 260 L295 260 L295 85 L345 85 Z" fill="currentColor" stroke="currentColor" strokeWidth={14} />
+      <path
+        fill="currentColor"
+        d="M 30 50 L 150 50 Q 145 75 80 90 Q 145 105 150 130 L 30 130 Q 100 90 30 50 Z"
+      />
     </svg>
   );
 }
@@ -26,16 +26,16 @@ export function SmallLeafIcon({ size = 16, className = "" }: { size?: number; cl
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 400 400"
+      viewBox="0 0 180 180"
       width={size}
       height={size}
       fill="none"
-      strokeLinecap="round"
-      strokeLinejoin="round"
       className={className}
     >
-      <path d="M55 85 L240 85 L240 140 L105 140 L105 315 L55 315 Z" stroke="currentColor" strokeWidth={14} />
-      <path d="M345 315 L160 315 L160 260 L295 260 L295 85 L345 85 Z" fill="currentColor" stroke="currentColor" strokeWidth={14} />
+      <path
+        fill="currentColor"
+        d="M 30 50 L 150 50 Q 145 75 80 90 Q 145 105 150 130 L 30 130 Q 100 90 30 50 Z"
+      />
     </svg>
   );
 }
