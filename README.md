@@ -82,7 +82,7 @@ bash scripts/build-vsix.sh
 Then install the generated file:
 
 ```bash
-code --install-extension recost-api-analyzer-0.1.1.vsix
+code --install-extension recost-api-analyzer-0.1.2.vsix
 # or: Ctrl+Shift+P → "Extensions: Install from VSIX..."
 ```
 
