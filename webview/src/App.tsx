@@ -200,7 +200,7 @@ export default function App() {
             summary={summary}
           />
         ) : (
-          <EmptyPanel title="Run a scan first" body="Findings appear here after a workspace scan." />
+          <EmptyPanel title="No findings!" body="There are no endpoints" />
         )
       )}
       {screen === "simulate" && (
