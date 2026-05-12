@@ -48,6 +48,7 @@ import {
 import { resolveWorkspaceFilePathSafely } from "./workspace-file-access";
 import { getOutputChannel } from "./output";
 import type { SourceSpan } from "./scanner/source-span";
+import { computeEndpointId } from "./scanner/endpoint-id";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -470,6 +471,7 @@ function mergeRemoteAndLocalEndpoints(
   }
 
   const syntheticByMethodUrl = new Map<string, EndpointRecord>();
+  const emittedSyntheticIds = new Set<string>();
   for (const call of localCalls) {
     if (!shouldIncludeSynthetic(call)) continue;
     const key = buildEndpointKey(call.method, call.url);
@@ -511,8 +513,22 @@ function mergeRemoteAndLocalEndpoints(
       const canonicalUrl = canonicalizeEndpointUrl(call.url);
       const provider = call.provider ?? detectEndpointProvider(canonicalUrl);
       const callsPerDay = call.frequency === "per-request" ? 100 : call.library === "route-def" ? 0 : 1;
+      const stableId = computeEndpointId({
+        provider,
+        methodSignature: call.methodSignature,
+        filePath: call.file,
+        enclosingFunction: call.enclosingFunction,
+        url: canonicalUrl,
+      });
+      let id = stableId;
+      let suffix = 1;
+      while (emittedSyntheticIds.has(id)) {
+        suffix += 1;
+        id = `${stableId}_${suffix}`;
+      }
+      emittedSyntheticIds.add(id);
       syntheticByMethodUrl.set(key, {
-        id: `local-${scanId}-${syntheticByMethodUrl.size + 1}`,
+        id,
         projectId,
         scanId,
         provider,
@@ -1166,6 +1182,35 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private pruneSavedScenariosAgainst(currentEndpoints: EndpointRecord[]): void {
+    if (this.savedScenarios.length === 0) return;
+    const currentIds = new Set(currentEndpoints.map((e) => e.id));
+    const compatible: import("./simulator/types").SavedScenario[] = [];
+    let droppedCount = 0;
+    for (const scenario of this.savedScenarios) {
+      const referenced = new Set<string>();
+      if (scenario.input.frequencyOverrides) {
+        for (const id of Object.keys(scenario.input.frequencyOverrides)) referenced.add(id);
+      }
+      for (const provider of scenario.result.byProvider) {
+        for (const endpoint of provider.endpoints) referenced.add(endpoint.endpointId);
+      }
+      const allValid = [...referenced].every((id) => currentIds.has(id));
+      if (allValid) {
+        compatible.push(scenario);
+      } else {
+        droppedCount += 1;
+        getOutputChannel().appendLine(
+          `[recost] Dropping saved scenario "${scenario.label}" — references endpoint IDs no longer present in the current scan.`
+        );
+      }
+    }
+    if (droppedCount > 0) {
+      this.savedScenarios = compatible;
+      void this.context.globalState.update("recost.simulatorScenarios", this.savedScenarios);
+    }
+  }
+
   private handleRunSimulation(input: SimulatorInput): void {
     try {
       if (this.lastEndpoints.length === 0) {
@@ -1243,6 +1288,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
         const externalEndpoints = endpoints.filter((ep) => ep.scope !== "internal");
         this.lastEndpoints = externalEndpoints;
+        this.pruneSavedScenariosAgainst(externalEndpoints);
         this.lastSuggestions = mergedSuggestions;
         this.lastSummary = { ...summary, totalEndpoints: externalEndpoints.length };
         this.postMessage({
@@ -1361,6 +1407,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
         const endpoints = mergeRemoteAndLocalEndpoints(remoteEndpoints, apiCalls, projectId, scanResult.scanId);
         const externalEndpoints = endpoints.filter((ep) => ep.scope !== "internal");
         this.lastEndpoints = externalEndpoints;
+        this.pruneSavedScenariosAgainst(externalEndpoints);
         const aggressiveSuggestions = buildAggressiveSuggestions(endpoints, taggedRemoteSuggestions, localWasteFindings);
         const mergedSuggestions = mergeLocalWasteFindings(
           aggressiveSuggestions,
