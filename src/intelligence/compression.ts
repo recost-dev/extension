@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import * as fs from "fs/promises";
 import path from "node:path";
 
 import type { SuggestionType } from "../analysis/types";
@@ -531,12 +531,12 @@ function mergeSnippetRanges(anchors: SnippetAnchor[]): SnippetRange[] {
   return ranges.sort((a, b) => a.priority - b.priority || a.filePath.localeCompare(b.filePath) || a.startLine - b.startLine);
 }
 
-function readSnippet(range: SnippetRange, snapshot: RepoIntelligenceSnapshot): CompressedSnippet | null {
+async function readSnippet(range: SnippetRange, snapshot: RepoIntelligenceSnapshot): Promise<CompressedSnippet | null> {
   const absolutePath = path.resolve(snapshot.repoRoot ?? process.cwd(), range.filePath);
   let source: string;
 
   try {
-    source = fs.readFileSync(absolutePath, "utf8");
+    source = await fs.readFile(absolutePath, "utf8");
   } catch {
     return null;
   }
@@ -559,13 +559,14 @@ function readSnippet(range: SnippetRange, snapshot: RepoIntelligenceSnapshot): C
   };
 }
 
-function extractSnippets(cluster: ReviewCluster, snapshot: RepoIntelligenceSnapshot): CompressedSnippet[] {
+async function extractSnippets(cluster: ReviewCluster, snapshot: RepoIntelligenceSnapshot): Promise<CompressedSnippet[]> {
   const anchors = buildSnippetAnchors(cluster, snapshot);
   const mergedRanges = mergeSnippetRanges(anchors).slice(0, MAX_SNIPPETS);
+
+  const readResults = await Promise.all(mergedRanges.map((range) => readSnippet(range, snapshot)));
   const snippets: CompressedSnippet[] = [];
 
-  for (const range of mergedRanges) {
-    const snippet = readSnippet(range, snapshot);
+  for (const snippet of readResults) {
     if (!snippet) continue;
     snippets.push(snippet);
     if (snippets.length >= MAX_SNIPPETS) break;
@@ -600,23 +601,25 @@ function trimToTokenBudget(clusters: CompressedCluster[]): CompressedCluster[] {
   return trimmed;
 }
 
-export function compressClusters(
+export async function compressClusters(
   clusters: ReviewCluster[],
   snapshot: RepoIntelligenceSnapshot
-): CompressedCluster[] {
-  const result = clusters.map((cluster) => {
-    const primarySummary = buildFileSummary(cluster.primaryFile.filePath, snapshot);
-    const relatedSummaries = cluster.relatedFiles.map((relatedFile) => buildFileSummary(relatedFile.filePath, snapshot));
-    return {
-      id: cluster.id,
-      primarySummary,
-      relatedSummaries,
-      findings: compressFindings(cluster.topFindings, snapshot),
-      snippets: extractSnippets(cluster, snapshot),
-      providers: filterRealProviders(cluster.providers),
-      estimatedMonthlyCost: sumCosts([primarySummary, ...relatedSummaries]),
-      reviewQuestion: cluster.reviewQuestion,
-    };
-  });
+): Promise<CompressedCluster[]> {
+  const result = await Promise.all(
+    clusters.map(async (cluster) => {
+      const primarySummary = buildFileSummary(cluster.primaryFile.filePath, snapshot);
+      const relatedSummaries = cluster.relatedFiles.map((relatedFile) => buildFileSummary(relatedFile.filePath, snapshot));
+      return {
+        id: cluster.id,
+        primarySummary,
+        relatedSummaries,
+        findings: compressFindings(cluster.topFindings, snapshot),
+        snippets: await extractSnippets(cluster, snapshot),
+        providers: filterRealProviders(cluster.providers),
+        estimatedMonthlyCost: sumCosts([primarySummary, ...relatedSummaries]),
+        reviewQuestion: cluster.reviewQuestion,
+      };
+    })
+  );
   return trimToTokenBudget(result);
 }
