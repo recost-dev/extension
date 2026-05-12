@@ -352,6 +352,7 @@ export function mergeRemoteAndLocalEndpoints(
         endpoint.callSites.push({
           file: call.file,
           line: call.line,
+          span: call.span,
           library: call.library ?? "",
           frequency: call.frequency,
           frequencyClass: call.frequencyClass,
@@ -388,6 +389,7 @@ export function mergeRemoteAndLocalEndpoints(
         callSites: [{
           file: call.file,
           line: call.line,
+          span: call.span,
           library: call.library ?? "",
           frequency: call.frequency,
           frequencyClass: call.frequencyClass,
@@ -418,6 +420,7 @@ export function mergeRemoteAndLocalEndpoints(
       synthetic.callSites.push({
         file: call.file,
         line: call.line,
+        span: call.span,
         library: call.library ?? "",
         frequency: call.frequency,
         frequencyClass: call.frequencyClass,
