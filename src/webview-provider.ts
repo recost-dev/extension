@@ -1185,7 +1185,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     this.savedScenarios = next;
     this.scenarioPersistQueue = this.scenarioPersistQueue
       .catch(() => {})
-      .then(() => this.context.globalState.update("eco.simulatorScenarios", next));
+      .then(() => this.context.globalState.update("recost.simulatorScenarios", next));
     await this.scenarioPersistQueue;
   }
 
