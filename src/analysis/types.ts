@@ -12,6 +12,7 @@ export interface ApiCallInput {
   // Enriched fields from AST engine
   provider?: string;
   methodSignature?: string;
+  /** Populated by the AST path only; undefined when the regex fallback emits the call. */
   enclosingFunction?: string | null;
   costModel?: "per_token" | "per_transaction" | "per_request" | "free";
   frequencyClass?: "single" | "bounded-loop" | "unbounded-loop" | "parallel" | "polling" | "conditional" | "cache-guarded";

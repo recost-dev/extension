@@ -595,6 +595,9 @@ export async function scanSourceWithAst(
               const key = `${m.provider}:${m.methodChain}:${line}`;
               if (!seen.has(key)) {
                 seen.add(key);
+                // Override the cached class-method's enclosingFunction with the call-site's
+                // fnName: stable-IDs care about who issues the call, not which method body
+                // the template was first parsed from.
                 matches.push({ ...m, line, column, span: pointSpan(line, column), frequency, loopContext: inLoop || m.loopContext, enclosingFunction: fnName });
               }
             }
