@@ -19,6 +19,8 @@ const PRICING_BACKEND_URL = "https://api.recost.dev";
 const DEFAULT_SYNC_INTERVAL_HOURS = 6;
 const KEY_VALIDATION_STATE_STORAGE_KEY = "recost.keyValidationState";
 
+let activePricingSyncIntervalId: ReturnType<typeof setInterval> | null = null;
+
 function logStatus(output: vscode.OutputChannel, message: string): void {
   const line = `[${new Date().toISOString()}] ${message}`;
   output.appendLine(line);
@@ -126,7 +128,6 @@ function scheduleKeyIndicatorRefresh(
     logStatus(output, `scheduleKeyIndicatorRefresh: end reason=${reason} text="${statusBar.text}"`);
   })().catch((err: unknown) => {
     logStatus(output, `scheduleKeyIndicatorRefresh: error reason=${reason} message=${err instanceof Error ? err.message : String(err)}`);
-    console.error("ReCost: key indicator refresh error", err);
   });
 }
 
@@ -307,8 +308,20 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace
       .getConfiguration("recost")
       .get<number>("pricingSyncIntervalHours") ?? DEFAULT_SYNC_INTERVAL_HOURS;
-  const syncIntervalId = setInterval(syncPricing, intervalHours * 60 * 60 * 1_000);
-  context.subscriptions.push({ dispose: () => clearInterval(syncIntervalId) });
+  if (activePricingSyncIntervalId !== null) {
+    clearInterval(activePricingSyncIntervalId);
+    activePricingSyncIntervalId = null;
+  }
+  activePricingSyncIntervalId = setInterval(syncPricing, intervalHours * 60 * 60 * 1_000);
+  const pricingIntervalDisposer: vscode.Disposable = {
+    dispose: () => {
+      if (activePricingSyncIntervalId !== null) {
+        clearInterval(activePricingSyncIntervalId);
+        activePricingSyncIntervalId = null;
+      }
+    },
+  };
+  context.subscriptions.push(pricingIntervalDisposer);
 
   // Async init: update status bar on startup + show first-run notification if no key
   (async () => {
@@ -331,4 +344,9 @@ export function activate(context: vscode.ExtensionContext) {
   });
 }
 
-export function deactivate() {}
+export function deactivate(): void {
+  if (activePricingSyncIntervalId !== null) {
+    clearInterval(activePricingSyncIntervalId);
+    activePricingSyncIntervalId = null;
+  }
+}
