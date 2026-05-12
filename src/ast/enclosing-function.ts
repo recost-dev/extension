@@ -30,7 +30,10 @@ export function enclosingFunctionName(node: SyntaxNode): string | null {
     }
 
     // Arrow functions or function expressions — look at the binding name on the
-    // surrounding variable_declarator.
+    // surrounding variable_declarator. Destructure bindings
+    // (`const { x } = ...`) produce object_pattern/array_pattern as child(0),
+    // not identifier — those return null on purpose, since the function has no
+    // single name to attribute the call to.
     if (current.type === "arrow_function" || current.type === "function_expression") {
       const decl = current.parent;
       if (decl?.type === "variable_declarator") {

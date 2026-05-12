@@ -62,5 +62,13 @@ async function nameFor(src: string, chain: string, lang = "typescript"): Promise
     assert.equal(n, "ask");
   });
 
+  await run("nested functions → nearest ancestor wins", async () => {
+    const n = await nameFor(
+      `function outer() { function inner() { return openai.chat.completions.create({}); } return inner(); }`,
+      "openai.chat.completions.create"
+    );
+    assert.equal(n, "inner");
+  });
+
   console.log("enclosing-function.test PASSED");
 })().catch((err) => { console.error(err); process.exit(1); });
