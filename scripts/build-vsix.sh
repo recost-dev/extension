@@ -8,7 +8,7 @@
 # Do NOT run in PowerShell or CMD — bash is required.
 #
 # Run from anywhere — the script resolves its own location.
-# Output: eco-api-analyzer-*.vsix in the extension/ directory.
+# Output: recost-api-analyzer-*.vsix in the extension/ directory.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +30,7 @@ echo "==> Packaging .vsix..."
 cd "$EXT_DIR"
 npx @vscode/vsce package --no-dependencies --allow-missing-repository
 
-VSIX=$(ls "$EXT_DIR"/eco-api-analyzer-*.vsix 2>/dev/null | head -n 1)
+VSIX=$(ls "$EXT_DIR"/recost-api-analyzer-*.vsix 2>/dev/null | head -n 1)
 
 echo ""
 echo "Done! VSIX created: $VSIX"
