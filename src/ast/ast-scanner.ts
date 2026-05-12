@@ -24,6 +24,7 @@ import type { SyntaxNode, Tree } from "./parser-loader";
 import type { FileReader } from "./import-resolver";
 import type { SourceSpan } from "../scanner/source-span";
 import { pointSpan } from "../scanner/source-span";
+import { enclosingFunctionName } from "./enclosing-function";
 export type { FrequencyClass } from "./frequency-analyzer";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -52,6 +53,8 @@ export interface AstCallMatch {
   frequency: import("./frequency-analyzer").FrequencyClass;
   /** Convenience: true when frequency implies repeated execution (loop/parallel/polling) */
   loopContext: boolean;
+  /** Name of the function/method/arrow-fn that contains the call (null for top-level calls). */
+  enclosingFunction: string | null;
   streaming?: boolean;
   batchCapable?: boolean;
   cacheCapable?: boolean;
@@ -414,27 +417,6 @@ function resolveProvider(
   return { provider, packageName: pkg, resolvedChain };
 }
 
-// ── Function context tracking ─────────────────────────────────────────────────
-
-/** Walk up the AST from a node to find the enclosing function name (if any). */
-function enclosingFunctionName(node: SyntaxNode): string | null {
-  let current: SyntaxNode | null = node.parent;
-  while (current) {
-    if (current.type === "function_declaration" ||
-        current.type === "method_definition" ||
-        current.type === "function_definition") {
-      for (let i = 0; i < current.childCount; i++) {
-        const c = current.child(i);
-        if (c?.type === "identifier" || c?.type === "property_identifier") {
-          return c.text;
-        }
-      }
-    }
-    current = current.parent;
-  }
-  return null;
-}
-
 // ── Main scanner ──────────────────────────────────────────────────────────────
 
 /**
@@ -500,9 +482,10 @@ export async function scanSourceWithAst(
         methodMatches.push(fp
           ? { kind: "sdk", provider, packageName, methodChain, confidence: 1.0, method: fp.httpMethod,
               endpoint: fp.endpoint, line, column, span: callInfo.span, frequency, loopContext: inLoop,
+              enclosingFunction: methodName,
               streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable }
           : { kind: "sdk", provider, packageName, methodChain, confidence: provider ? 0.7 : 0.1,
-              line, column, span: callInfo.span, frequency, loopContext: inLoop }
+              line, column, span: callInfo.span, frequency, loopContext: inLoop, enclosingFunction: methodName }
         );
       }
       if (methodMatches.length > 0) classInfo.methods.set(methodName, methodMatches);
@@ -535,7 +518,7 @@ export async function scanSourceWithAst(
             if (cached) {
               for (const m of cached) {
                 const key = `${m.provider}:${m.methodChain}:${m.line}`;
-                if (!seen.has(key)) { seen.add(key); matches.push({ ...m, isMiddleware: true }); }
+                if (!seen.has(key)) { seen.add(key); matches.push({ ...m, isMiddleware: true, enclosingFunction: m.enclosingFunction ?? null }); }
               }
             }
             // Note: fnApiCalls is populated in the function scan pass below;
@@ -589,6 +572,7 @@ export async function scanSourceWithAst(
               line, column, span: callInfo.span,
               frequency,
               loopContext: inLoop,
+              enclosingFunction: fnName,
             });
           }
         } catch {
@@ -611,7 +595,7 @@ export async function scanSourceWithAst(
               const key = `${m.provider}:${m.methodChain}:${line}`;
               if (!seen.has(key)) {
                 seen.add(key);
-                matches.push({ ...m, line, column, span: pointSpan(line, column), frequency, loopContext: inLoop || m.loopContext });
+                matches.push({ ...m, line, column, span: pointSpan(line, column), frequency, loopContext: inLoop || m.loopContext, enclosingFunction: fnName });
               }
             }
             continue;
@@ -637,10 +621,11 @@ export async function scanSourceWithAst(
       matches.push({
         kind: "sdk", provider, packageName, methodChain, confidence: 1.0, method: fp.httpMethod,
         endpoint: fp.endpoint, line, column, span: callInfo.span, frequency, loopContext: inLoop,
+        enclosingFunction: fnName,
         streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable,
       });
     } else {
-      matches.push({ kind: "sdk", provider, packageName, methodChain, confidence: provider ? 0.7 : 0.1, line, column, span: callInfo.span, frequency, loopContext: inLoop });
+      matches.push({ kind: "sdk", provider, packageName, methodChain, confidence: provider ? 0.7 : 0.1, line, column, span: callInfo.span, frequency, loopContext: inLoop, enclosingFunction: fnName });
     }
   }
 
@@ -660,9 +645,10 @@ export async function scanSourceWithAst(
       fnMatches.push(fp
         ? { kind: "sdk", provider, packageName, methodChain, confidence: 1.0, method: fp.httpMethod,
             endpoint: fp.endpoint, line, column, span: callInfo.span, frequency: "single", loopContext: false,
+            enclosingFunction: fnName2,
             streaming: fp.streaming, batchCapable: fp.batchCapable, cacheCapable: fp.cacheCapable }
         : { kind: "sdk", provider, packageName, methodChain, confidence: provider ? 0.7 : 0.1,
-            line, column, span: callInfo.span, frequency: "single", loopContext: false }
+            line, column, span: callInfo.span, frequency: "single", loopContext: false, enclosingFunction: fnName2 }
       );
     }
     if (fnMatches.length > 0) fnApiCalls.set(fnName2, fnMatches);
@@ -694,7 +680,7 @@ export async function scanSourceWithAst(
             const key = `${m.provider}:${m.methodChain}:${line}:cb`;
             if (!seen.has(key)) {
               seen.add(key);
-              matches.push({ ...m, line, column, span: pointSpan(line, column), frequency: cbFreq, loopContext: true });
+              matches.push({ ...m, line, column, span: pointSpan(line, column), frequency: cbFreq, loopContext: true, enclosingFunction: m.enclosingFunction ?? null });
             }
           }
         }
@@ -715,7 +701,7 @@ export async function scanSourceWithAst(
                     const key = `${m.provider}:${m.methodChain}:${line}:nested`;
                     if (!seen.has(key)) {
                       seen.add(key);
-                      matches.push({ ...m, line, column, span: pointSpan(line, column), frequency: "parallel", loopContext: true });
+                      matches.push({ ...m, line, column, span: pointSpan(line, column), frequency: "parallel", loopContext: true, enclosingFunction: m.enclosingFunction ?? null });
                     }
                   }
                 }
@@ -741,7 +727,7 @@ export async function scanSourceWithAst(
             const key = `${m.provider}:${m.methodChain}:${line}:mw`;
             if (!seen.has(key)) {
               seen.add(key);
-              matches.push({ ...m, line, column, span: pointSpan(line, column), frequency: "single", loopContext: false, isMiddleware: true });
+              matches.push({ ...m, line, column, span: pointSpan(line, column), frequency: "single", loopContext: false, isMiddleware: true, enclosingFunction: m.enclosingFunction ?? null });
             }
           }
         }

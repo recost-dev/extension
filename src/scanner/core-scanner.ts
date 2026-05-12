@@ -99,6 +99,7 @@ function astMatchToApiCallInput(match: AstCallMatch, file: string): ApiCallInput
     frequencyClass: match.frequency,
     provider: match.provider,
     methodSignature: match.methodChain,
+    enclosingFunction: match.enclosingFunction,
     costModel,
     batchCapable: match.batchCapable,
     cacheCapable: match.cacheCapable,

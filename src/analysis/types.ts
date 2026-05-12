@@ -12,6 +12,7 @@ export interface ApiCallInput {
   // Enriched fields from AST engine
   provider?: string;
   methodSignature?: string;
+  enclosingFunction?: string | null;
   costModel?: "per_token" | "per_transaction" | "per_request" | "free";
   frequencyClass?: "single" | "bounded-loop" | "unbounded-loop" | "parallel" | "polling" | "conditional" | "cache-guarded";
   batchCapable?: boolean;

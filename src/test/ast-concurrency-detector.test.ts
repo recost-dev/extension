@@ -35,6 +35,7 @@ function makeMatch(overrides: Partial<AstCallMatch>): AstCallMatch {
     span: pointSpan(line, column),
     frequency: "single",
     loopContext: false,
+    enclosingFunction: null,
     streaming: false,
     batchCapable: false,
     cacheCapable: false,

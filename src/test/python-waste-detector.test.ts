@@ -28,6 +28,7 @@ function makeMatch(overrides: Partial<AstCallMatch>): AstCallMatch {
     span: pointSpan(line, column),
     frequency: "single",
     loopContext: false,
+    enclosingFunction: null,
     ...overrides,
   };
 }
@@ -153,6 +154,7 @@ async def fetch_all(prompts):
           span: pointSpan(1, 0),
           frequency: "single",
           loopContext: false,
+          enclosingFunction: null,
         },
       ],
       `client.chat.completions.create({ model: "gpt-4o-mini" });`,
