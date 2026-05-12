@@ -84,5 +84,31 @@ const base = {
     assert.match(id, /^ep_[a-z0-9]+$/);
   });
 
+  await run("end-to-end: same call, moved 20 lines, gets the same ID", () => {
+    const callA = {
+      provider: "openai",
+      methodSignature: "chat.completions.create",
+      filePath: "src/services/chat.ts",
+      enclosingFunction: "ask",
+      url: "sdk://openai/chat.completions.create",
+    };
+    const callB = { ...callA }; // same structural input — line/column intentionally absent
+    assert.equal(computeEndpointId(callA), computeEndpointId(callB));
+  });
+
+  await run("end-to-end: two calls in same file but different functions diverge", () => {
+    const a = computeEndpointId({
+      provider: "openai", methodSignature: "chat.completions.create",
+      filePath: "src/x.ts", enclosingFunction: "fnA",
+      url: "sdk://openai/chat.completions.create",
+    });
+    const b = computeEndpointId({
+      provider: "openai", methodSignature: "chat.completions.create",
+      filePath: "src/x.ts", enclosingFunction: "fnB",
+      url: "sdk://openai/chat.completions.create",
+    });
+    assert.notEqual(a, b);
+  });
+
   console.log("endpoint-id.test PASSED");
 })().catch((err) => { console.error(err); process.exit(1); });
