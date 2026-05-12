@@ -46,6 +46,7 @@ import {
   type PersistedKeyValidationSnapshot,
 } from "./key-management";
 import { resolveWorkspaceFilePathSafely } from "./workspace-file-access";
+import { getOutputChannel } from "./output";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -667,6 +668,72 @@ function mergeRemoteAndLocalEndpoints(
     .filter((ep) => ep.scope !== "internal");
 }
 
+export interface WebviewMessageHandlers {
+  startScan(): Promise<void>;
+  runAiReview(): Promise<void>;
+  chat(text: string, provider: string, model: string): Promise<void>;
+  modelChanged(provider: string, model: string): Promise<void>;
+  applyFix(code: string, file: string, line?: number): Promise<void>;
+  openFile(file: string, line?: number): Promise<void>;
+  openDashboard(): Promise<void>;
+  runSimulation(input: SimulatorInput): void | Promise<void>;
+  getAllKeyStatuses(): Promise<void>;
+  getProjectIdStatus(): Promise<void>;
+  setKey(serviceId: KeyServiceId, value: string): Promise<void>;
+  clearKey(serviceId: KeyServiceId): Promise<void>;
+  setProjectId(value: string): Promise<void>;
+  clearProjectId(): Promise<void>;
+  testKey(serviceId: KeyServiceId): Promise<void>;
+  navigate(screen: string, focusServiceId?: KeyServiceId): void;
+  copyAiContext(): Promise<void>;
+  log(message: string): void;
+}
+
+export type DispatchResult =
+  | { status: "ok" }
+  | { status: "unknown" }
+  | { status: "error"; error: string };
+
+export async function dispatchWebviewMessage(
+  message: WebviewMessage,
+  handlers: WebviewMessageHandlers
+): Promise<DispatchResult> {
+  try {
+    switch (message.type) {
+      case "startScan": await handlers.startScan(); return { status: "ok" };
+      case "runAiReview": await handlers.runAiReview(); return { status: "ok" };
+      case "chat": await handlers.chat(message.text, message.provider, message.model); return { status: "ok" };
+      case "modelChanged": await handlers.modelChanged(message.provider, message.model); return { status: "ok" };
+      case "applyFix": await handlers.applyFix(message.code, message.file, message.line); return { status: "ok" };
+      case "openFile": await handlers.openFile(message.file, message.line); return { status: "ok" };
+      case "openDashboard": await handlers.openDashboard(); return { status: "ok" };
+      case "runSimulation": await handlers.runSimulation(message.input); return { status: "ok" };
+      case "getAllKeyStatuses": await handlers.getAllKeyStatuses(); return { status: "ok" };
+      case "getProjectIdStatus": await handlers.getProjectIdStatus(); return { status: "ok" };
+      case "setKey": await handlers.setKey(message.serviceId, message.value); return { status: "ok" };
+      case "clearKey": await handlers.clearKey(message.serviceId); return { status: "ok" };
+      case "setProjectId": await handlers.setProjectId(message.value); return { status: "ok" };
+      case "clearProjectId": await handlers.clearProjectId(); return { status: "ok" };
+      case "testKey": await handlers.testKey(message.serviceId); return { status: "ok" };
+      case "navigate":
+        if (message.screen === "keys") handlers.navigate(message.screen, message.focusServiceId);
+        return { status: "ok" };
+      case "copyAiContext": await handlers.copyAiContext(); return { status: "ok" };
+      default: {
+        const _exhaustive: never = message;
+        const t = (message as { type?: string }).type ?? "<no-type>";
+        handlers.log(`unknown message type: ${t}`);
+        void _exhaustive;
+        return { status: "unknown" };
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    handlers.log(`webview message handler failed (${(message as { type?: string }).type ?? "?"}): ${msg}`);
+    return { status: "error", error: msg };
+  }
+}
+
 export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "recost.sidebarView";
   private static readonly KEY_VALIDATION_STATE_STORAGE_KEY = "recost.keyValidationState";
@@ -776,14 +843,16 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
 
-    webviewView.webview.onDidReceiveMessage(
-      (message: WebviewMessage) => this.handleMessage(message)
+    const messageSub = webviewView.webview.onDidReceiveMessage(
+      (message: WebviewMessage) => { void this.handleMessage(message); }
     );
+    this.context.subscriptions.push(messageSub);
+    webviewView.onDidDispose(() => messageSub.dispose());
 
     this.projectId = this.context.globalState.get<string>("recost.projectId") ?? null;
-    void this.sendChatConfig();
-    void this.sendAllKeyStatuses();
-    void this.sendProjectIdStatus();
+    this.sendChatConfig().catch((e) => getOutputChannel().appendLine(`sendChatConfig failed: ${e instanceof Error ? e.message : String(e)}`));
+    this.sendAllKeyStatuses().catch((e) => getOutputChannel().appendLine(`sendAllKeyStatuses failed: ${e instanceof Error ? e.message : String(e)}`));
+    this.sendProjectIdStatus().catch((e) => getOutputChannel().appendLine(`sendProjectIdStatus failed: ${e instanceof Error ? e.message : String(e)}`));
   }
 
 
@@ -1110,70 +1179,40 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async handleMessage(message: WebviewMessage) {
-    switch (message.type) {
-      case "startScan":
-        await this.handleStartScan();
-        break;
-      case "runAiReview":
-        await this.handleRunAiReview();
-        break;
-      case "chat":
-        await this.handleChat(message.text, message.provider, message.model);
-        break;
-      case "modelChanged": {
-        await this.context.globalState.update("recost.selectedChatProvider", message.provider);
-        await this.context.globalState.update("recost.selectedChatModel", message.model);
-        await this.sendChatConfig(message.provider as ChatProviderId, message.model);
+  private async handleMessage(message: WebviewMessage): Promise<void> {
+    await dispatchWebviewMessage(message, {
+      startScan: () => this.handleStartScan(),
+      runAiReview: () => this.handleRunAiReview(),
+      chat: (text, provider, model) => this.handleChat(text, provider, model),
+      modelChanged: async (provider, model) => {
+        await this.context.globalState.update("recost.selectedChatProvider", provider);
+        await this.context.globalState.update("recost.selectedChatModel", model);
+        await this.sendChatConfig(provider as ChatProviderId, model);
         await this.sendAllKeyStatuses();
-        break;
-      }
-      case "applyFix":
-        await this.handleApplyFix(message.code, message.file, message.line);
-        break;
-      case "openFile":
-        await this.handleOpenFile(message.file, message.line);
-        break;
-      case "openDashboard":
-        await this.handleOpenDashboard();
-        break;
-      case "runSimulation":
-        this.handleRunSimulation(message.input);
-        break;
-      case "getAllKeyStatuses":
-        await this.sendAllKeyStatuses();
-        break;
-      case "getProjectIdStatus":
-        await this.sendProjectIdStatus();
-        break;
-      case "setKey":
-        await this.setServiceKey(message.serviceId, message.value);
-        break;
-      case "clearKey":
-        await this.clearServiceKey(message.serviceId);
-        break;
-      case "setProjectId":
-        await this.setManualProjectId(message.value);
+      },
+      applyFix: (code, file, line) => this.handleApplyFix(code, file, line),
+      openFile: (file, line) => this.handleOpenFile(file, line),
+      openDashboard: () => this.handleOpenDashboard(),
+      runSimulation: (input) => { this.handleRunSimulation(input); },
+      getAllKeyStatuses: () => this.sendAllKeyStatuses(),
+      getProjectIdStatus: () => this.sendProjectIdStatus(),
+      setKey: (serviceId, value) => this.setServiceKey(serviceId, value),
+      clearKey: (serviceId) => this.clearServiceKey(serviceId),
+      setProjectId: async (value) => {
+        await this.setManualProjectId(value);
         await this.clearProjectIdValidationState();
         await this.validateManualProjectId();
-        break;
-      case "clearProjectId":
+      },
+      clearProjectId: async () => {
         await this.clearManualProjectId();
         await this.clearProjectIdValidationState();
         await this.sendProjectIdStatus();
-        break;
-      case "testKey":
-        await this.testServiceKey(message.serviceId);
-        break;
-      case "navigate":
-        if (message.screen === "keys") {
-          this.openKeys(message.focusServiceId);
-        }
-        break;
-      case "copyAiContext":
-        await this.handleCopyAiContext();
-        break;
-    }
+      },
+      testKey: (serviceId) => this.testServiceKey(serviceId),
+      navigate: (_screen, focusServiceId) => this.openKeys(focusServiceId),
+      copyAiContext: () => this.handleCopyAiContext(),
+      log: (m) => getOutputChannel().appendLine(m),
+    });
   }
 
   private async handleCopyAiContext(): Promise<void> {
