@@ -7,7 +7,9 @@ npm-debug.log*
 .wrangler/
 
 # LLM coding assistant directories
-.claude/
+.claude/*
+!.claude/hooks/
+!.claude/settings.json
 .cursor/
 .windsurf/
 .aider/
