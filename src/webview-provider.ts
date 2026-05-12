@@ -1211,8 +1211,9 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
           totalFilesScanned,
         });
         const scored = scoreSnapshot(snapshot);
+        const ch = getOutputChannel();
         for (const file of scored.scoredFiles.slice(0, 5)) {
-          console.log(
+          ch.appendLine(
             `[intelligence] ${file.filePath} | priority=${file.scores.aiReviewPriority.toFixed(2)} | ` +
               `importance=${file.scores.importance.toFixed(2)} | ` +
               `costLeak=${file.scores.costLeak.toFixed(2)} | ` +
