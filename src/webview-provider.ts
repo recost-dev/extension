@@ -739,6 +739,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.outputChannel.appendLine(`[debug-export] Failed to write ${exportPath}: ${message}`);
+      vscode.window.showErrorMessage(`ReCost: failed to export scan results: ${message}`);
     }
   }
 
