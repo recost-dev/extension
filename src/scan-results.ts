@@ -1,7 +1,7 @@
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "./analysis/types";
 import type { LocalWasteFinding } from "./scanner/local-waste-detector";
 import { classifyEndpointScope, detectEndpointProvider } from "./scanner/endpoint-classification";
-import { lookupMethod } from "./scanner/fingerprints/registry";
+import { estimateLocalMonthlyCost } from "./intelligence/cost-utils";
 
 export interface FinalScanResults {
   endpoints: EndpointRecord[];
@@ -11,41 +11,6 @@ export interface FinalScanResults {
 
 const GENERIC_DYNAMIC_TOKENS = new Set(["endpoint", "url", "path", "uri", "route"]);
 const OUTBOUND_LIBRARIES = new Set(["fetch", "axios", "got", "superagent", "ky", "requests", "http", "HttpClient", "$http", "openai"]);
-const LOCAL_PRICING: Record<string, number> = {
-  openai: 0.00015,
-  anthropic: 0.00025,
-  stripe: 0.59,
-  paypal: 0.84,
-  braintree: 0.75,
-  square: 0.59,
-  twilio: 0.0079,
-  sendgrid: 0.0009,
-  mailgun: 0.0018,
-  postmark: 0.0015,
-  "aws-s3": 0.0000004,
-  "aws-api-gateway": 0.0000035,
-  "aws-lambda": 0.0000002,
-  "google-maps": 0.005,
-  "google-translate": 0.010,
-  "google-vision": 0.0015,
-  "google-speech": 0.006,
-  firestore: 0.0000003,
-  auth0: 0.00023,
-  okta: 0.00020,
-  salesforce: 0.0025,
-  mixpanel: 0.00028,
-  segment: 0.00007,
-  amplitude: 0.00049,
-  datadog: 0.0000017,
-  sentry: 0.000363,
-  algolia: 0.0005,
-  cloudinary: 0.000089,
-  mux: 0.032,
-  shipengine: 0.020,
-  easypost: 0.020,
-  cloudflare: 0.0000003,
-  vercel: 0.0000006,
-};
 export function classifyPricing(
   costModels: (string | undefined)[]
 ): "paid" | "free" | "unknown" {
@@ -95,7 +60,6 @@ export function calculateSavings(
   return Number((endpointMonthlyCost * multiplier * weight).toFixed(2));
 }
 
-const DEFAULT_PER_CALL_COST = 0.0001;
 const FREQUENCY_SEVERITY: Record<string, number> = {
   polling: 6,
   "unbounded-loop": 5,
@@ -128,32 +92,6 @@ function mapStatusToSuggestionType(status: EndpointRecord["status"]): Suggestion
     default:
       return null;
   }
-}
-
-function estimateLocalMonthlyCost(provider: string, callsPerDay: number, methodSignature?: string): number {
-  if (methodSignature) {
-    const fingerprint = lookupMethod(provider, methodSignature);
-    if (fingerprint) {
-      if (fingerprint.costModel === "free") return 0;
-      if (fingerprint.costModel === "per_token") {
-        const inputTokens = 500;
-        const outputTokens = 200;
-        const inputCost = (inputTokens / 1_000_000) * (fingerprint.inputPricePer1M ?? 0);
-        const outputCost = (outputTokens / 1_000_000) * (fingerprint.outputPricePer1M ?? 0);
-        return Math.round((inputCost + outputCost) * callsPerDay * 30 * 100) / 100;
-      }
-      if (fingerprint.costModel === "per_transaction") {
-        const txValue = 50;
-        const fee = (fingerprint.fixedFee ?? 0) + txValue * (fingerprint.percentageFee ?? 0);
-        return Math.round(fee * callsPerDay * 30 * 100) / 100;
-      }
-      if (fingerprint.costModel === "per_request") {
-        return Math.round((fingerprint.fixedFee ?? fingerprint.perRequestCostUsd ?? 0.0001) * callsPerDay * 30 * 100) / 100;
-      }
-    }
-  }
-  const perCall = LOCAL_PRICING[provider] ?? DEFAULT_PER_CALL_COST;
-  return Math.round(callsPerDay * perCall * 30 * 100) / 100;
 }
 
 function chooseSeverity(status: EndpointRecord["status"], monthlyCost: number): Suggestion["severity"] {
@@ -456,7 +394,7 @@ export function mergeRemoteAndLocalEndpoints(
           crossFileOrigin: call.crossFileOrigin ?? null,
         }],
         callsPerDay,
-        monthlyCost: estimateLocalMonthlyCost(provider, callsPerDay, call.methodSignature),
+        monthlyCost: estimateLocalMonthlyCost(provider, callsPerDay, call.methodSignature) ?? 0,
         status: call.frequency === "per-request" ? "n_plus_one_risk" : "normal",
         methodSignature: call.methodSignature,
         costModel: call.costModel,
