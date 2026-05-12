@@ -20,4 +20,10 @@ tuples, and fails on any divergence not listed below.
 - file: wrapped-call.ts
   reason: AST follows wrapper functions back to the SDK call; regex sees only the wrapper invocation by name.
   astOnly: true
+- file: fetch-known-host.ts
+  reason: Multi-line fetch with an options object on subsequent lines — regex is line-based and cannot stitch the method across lines, AST sees the full call expression structurally.
+  astOnly: true
+- file: python-requests.py
+  reason: Multi-line requests.post() with URL on a separate line — regex requires URL on the same line as the call site, AST sees the full call expression structurally.
+  astOnly: true
 ```
