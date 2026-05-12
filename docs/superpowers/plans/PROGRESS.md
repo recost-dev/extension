@@ -18,7 +18,7 @@ Tracks execution of the three foundation plans for the parser-accuracy roadmap (
 
 | Plan | Issue | Status | Plan File |
 |---|---|---|---|
-| **B1** Span-based source locations | [#80](https://github.com/recost-dev/extension/issues/80) | 🟡 | [2026-05-12-b1-span-based-source-locations.md](2026-05-12-b1-span-based-source-locations.md) |
+| **B1** Span-based source locations | [#80](https://github.com/recost-dev/extension/issues/80) | 🟡 (code complete; manual EDH check pending on T10) | [2026-05-12-b1-span-based-source-locations.md](2026-05-12-b1-span-based-source-locations.md) |
 | **B3** Stable endpoint IDs | [#82](https://github.com/recost-dev/extension/issues/82) | ⬜ | [2026-05-12-b3-stable-endpoint-ids.md](2026-05-12-b3-stable-endpoint-ids.md) |
 | **A4** AST↔regex parity | [#76](https://github.com/recost-dev/extension/issues/76) | ⬜ | [2026-05-12-a4-ast-regex-parity.md](2026-05-12-a4-ast-regex-parity.md) |
 
@@ -36,8 +36,8 @@ Tracks execution of the three foundation plans for the parser-accuracy roadmap (
 | F3 | Foundation, serial | T4 | 🟢 |
 | F4 | Foundation, serial | T7 | 🟢 |
 | B  | Parallel (2 agents) | T8, T9 | 🟢 |
-| C  | Serial (manual UI) | T10 | ⬜ |
-| V  | Serial (verification) | T11 | ⬜ |
+| C  | Serial (manual UI) | T10 | 🟡 |
+| V  | Serial (verification) | T11 | 🟡 |
 
 ### Tasks
 
@@ -50,8 +50,8 @@ Tracks execution of the three foundation plans for the parser-accuracy roadmap (
 - [x] **T7** (F4) Compute spans in `core-scanner.ts` for both paths
 - [x] **T8** (B) Add `span` to `ApiCallNode` + pipe through `intelligence/builder.ts`
 - [x] **T9** (B) Pipe `span` into `EndpointCallSite` in `scan-results.ts`
-- [ ] **T10** (C) Reveal-by-span in IPC + webview (manual EDH verification)
-- [ ] **T11** (V) Acceptance verification + roadmap doc update
+- [~] **T10** (C) Reveal-by-span in IPC + webview (code landed `69ca79d`; **manual EDH verification pending**)
+- [~] **T11** (V) Acceptance verification + roadmap doc update (3 of 4 acceptance criteria automated-verified `371fd8e`; criterion #3 awaits manual EDH check)
 
 ---
 
@@ -125,6 +125,7 @@ Tracks execution of the three foundation plans for the parser-accuracy roadmap (
 
 > Append `YYYY-MM-DD HH:MM — <one-line update>`. Newest at top.
 
+- 2026-05-12 03:50 — B1 **code complete**. T10 (`69ca79d`) extended `openFile` IPC with `span?` field; `webview-provider.ts` handler builds `vscode.Range` from span when present (falls back to line cursor); `ResultsPage.tsx` sends `site?.span`; webview-side `SourceSpan` mirror added to `webview/src/types.ts` for typecheck. T11 (`371fd8e`) updated `docs/accuracy/traceability.md` § B1 — 3/4 acceptance criteria automated-verified (span field present, multi-line endLine>startLine, line back-compat). **Criterion #3 (full-call selection on click) requires manual EDH verification** — F5 the dev host, run a scan on a workspace with a multi-line `await openai.chat.completions.create({...})`, click that endpoint, confirm the selection covers from `await` through the closing `)`.
 - 2026-05-12 03:25 — B1 batch B complete: `ApiCallNode` gains required-nullable `span: SourceSpan | null` and `intelligence/builder.ts` populates it via `call.span ?? null` (T8, `9003f4d`); `scan-results.ts` propagates `span: call.span` at all 3 callSites construction sites (T9, `afc8f1b`). Both worktree-isolated dispatches landed directly on the working branch (same as Batch A); files disjoint, declared order preserved (T8 → T9).
 - 2026-05-12 03:15 — B1 batch F4 complete: `core-scanner.ts` now threads `span` through both scan paths (T7, `282f1b8`). AST path forwards `match.span` from `AstCallMatch`; regex path computes a line-wide span (col 0 → `line.length`) — true call-tight regex spans require a `matchLine` API change that's out of scope per plan.
 - 2026-05-12 03:10 — B1 batch F3 complete: `AstCallMatch.span` now required and populated at all 10 emit sites in `ast-scanner.ts` (T4, `c346867`). Five test fixtures fixed up to satisfy the new required field: `python-waste-detector.test.ts` (`901e5ae`) and `ast-{batch,cache,concurrency,cross-file-resolver}-detector.test.ts` (`6cbc4a7`, which also added pre-existing missing `confidence: 1` to the four detector helpers). All five test files now build clean and pass. Span-related tsc is fully clean.
