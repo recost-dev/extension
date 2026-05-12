@@ -25,13 +25,18 @@ function debugLog(...args: unknown[]): void {
 let _Parser: (typeof import("web-tree-sitter"))["Parser"] | null = null;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 let _Language: (typeof import("web-tree-sitter"))["Language"] | null = null;
-try {
-  const mod = require("web-tree-sitter") as typeof import("web-tree-sitter");
-  _Parser = mod.Parser;
-  _Language = mod.Language;
-  debugLog("[BUNDLE] web-tree-sitter loaded OK. Parser:", typeof _Parser, "Language:", typeof _Language);
-} catch (err) {
-  console.error("[BUNDLE] web-tree-sitter NOT available — AST scanning disabled:", err);
+if (process.env.RECOST_DISABLE_AST === "1") {
+  // AST scanning disabled by env var; regex pass remains active.
+  debugLog("[BUNDLE] RECOST_DISABLE_AST=1 — AST scanning disabled via env var.");
+} else {
+  try {
+    const mod = require("web-tree-sitter") as typeof import("web-tree-sitter");
+    _Parser = mod.Parser;
+    _Language = mod.Language;
+    debugLog("[BUNDLE] web-tree-sitter loaded OK. Parser:", typeof _Parser, "Language:", typeof _Language);
+  } catch (err) {
+    console.error("[BUNDLE] web-tree-sitter NOT available — AST scanning disabled:", err);
+  }
 }
 
 // ── WASM asset directory ──────────────────────────────────────────────────────

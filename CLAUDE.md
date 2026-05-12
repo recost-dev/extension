@@ -258,3 +258,9 @@ The results screen (`ResultsPage.tsx`) has three top-level tabs: **Findings**, *
 | `eco.aiReview.maxFiles` | `25` | Max files sent to AI review |
 | `eco.aiReview.maxCharsPerFile` | `6000` | Max chars per file in AI context |
 | `eco.aiReview.model` | `gpt-4.1-mini` | OpenAI model for AI review |
+
+## Env Vars
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `RECOST_DISABLE_AST` | unset | When set to `1`, disables web-tree-sitter AST scanning and uses regex-only detection. For testing the fallback path. |
