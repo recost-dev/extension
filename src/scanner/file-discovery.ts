@@ -42,22 +42,10 @@ const DEFAULT_IGNORE_PATTERNS = [
   "**/*.min.js",       // minified files
   "**/*.min.css",      // minified files
 
-  // Pricing, cost, and API configuration files — contain provider data as
-  // constants, not runtime API calls. The AST-level fix (distinguishing object
-  // literal values from call expressions) is tracked as a post-beta issue.
-  "**/pricing.ts",
-  "**/pricing.js",
-  "**/pricing.tsx",
-  "**/costs.ts",
-  "**/costs.js",
-  "**/rates.ts",
-  "**/rates.js",
-  "**/api-config.ts",
-  "**/api-config.js",
-  "**/provider-config.ts",
-  "**/provider-config.js",
-  "**/api-pricing.ts",
-  "**/api-pricing.js",
+  // (A6 / #78) Filename-based pricing/config exclusions were removed in favor
+  // of distinguishing real call_expression sites from object-literal data.
+  // See src/scanner/core-scanner.ts and src/ast/ast-scanner.ts for the logic
+  // that prevents false positives in `{ "method.chain": { ... } }` literals.
 ];
 
 export const HARD_EXCLUDED_SEGMENTS = new Set([
