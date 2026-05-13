@@ -38,6 +38,7 @@ const CACHE_GUARD = /@(?:functools\.)?(?:lru_cache|cache)\b|@(?:cached|cachedmet
 const LANGCHAIN_LOOP_CALL = /\.(invoke|run)\b/i;
 const PYTHON_READ_CALL = /\b(get|list|retrieve|fetch|query|search|lookup|read|describe|embed(?:dings?)?|invoke|run)\b/i;
 const PYTHON_WRITE_CALL = /\b(create|insert|update|delete|submit|upload|write|stream|publish)\b/i;
+const PYTHON_GENERATIVE_METHOD = /\b(chat\.completions|messages|responses|generate|generate_content|invoke|run|stream|images?\.generate|audio\.(speech|transcriptions)|tts|stt)\b/i;
 const ASYNCIO_GATHER = /\basyncio\.gather\s*\(/i;
 
 type ProviderKind = "langchain" | "llamaindex" | "raw-sdk" | "other";
@@ -123,11 +124,22 @@ function betweenWindow(lines: string[], startLine: number, endLine: number, padd
 }
 
 function isReadLikeCall(match: AstCallMatch): boolean {
-  if (match.cacheCapable) return true;
   const method = (match.method ?? "").toUpperCase();
-  if (method === "GET") return true;
   const signature = [match.methodChain, match.endpoint].filter(Boolean).join(" ");
+
+  // Generative endpoints are conceptually non-cacheable even when the registry
+  // marks them cacheCapable. Suppress before any other "read-like" inference.
+  if (PYTHON_GENERATIVE_METHOD.test(signature)) return false;
+
+  // Explicit write verbs always win — even over fingerprint cacheCapable.
   if (PYTHON_WRITE_CALL.test(signature)) return false;
+
+  // Explicit write HTTP methods are authoritative — POST /v1/embed is a remote
+  // computation request, not a read, even if the URL path contains a read keyword.
+  if (method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE") return false;
+
+  if (match.cacheCapable) return true;
+  if (method === "GET") return true;
   return PYTHON_READ_CALL.test(signature);
 }
 

@@ -38,19 +38,19 @@ Each detector has a measured false-positive rate against the benchmark corpus (D
 - [ ] FPR is re-measured on every benchmark CI run; regressions fail the build.
 - [ ] False positives that remain are by-design (documented exceptions, e.g., "we choose to flag this conservatively because the cost of missing it is high").
 
-### Calibration table (measured 2026-05-13 against corpus v1 — 7 fixtures, 3 expected findings)
+### Calibration table (measured 2026-05-13 against corpus v1 — 7 fixtures, 3 expected findings; refreshed after C1 PR-2 merged)
 
 | Detector (scanner `type`) | TP | FP | FN | FPR | Precision | Severity (current) | Notes |
 |---|---|---|---|---|---|---|---|
 | `n_plus_one`           | 1 | 0 | 0 | 0%   | 100% | high   | Only detector with a corpus TP. Sample size = 1. |
-| `cache`                | 0 | 7 | 0 | 100% | 0%   | medium | All 7 emissions are FPs against this corpus. No expected `cache` findings yet. |
-| `batch`                | 0 | 7 | 1 | 100% | 0%   | medium | All 7 emissions are FPs; the one expected `batch` finding (flask-mixed-providers) is missed. |
+| `cache`                | 0 | 0 | 0 | —    | —    | medium | C1 PR-2 dropped emissions from 7 to 0 — Python detector now suppresses generative endpoints + explicit write-shaped HTTP methods, AST detector buckets fetch/axios redundancy by URL. No emissions, no expected entries; row collapses to absent in `findingMetricsByType`. |
+| `batch`                | 0 | 9 | 1 | 100% | 0%   | medium | All 9 emissions are FPs (corpus drift bumped this from 7 → 9 since the original baseline; not caused by PR-2). The one expected `batch` finding (flask-mixed-providers) is missed. Next C1 PR. |
 | `rate_limit`           | 0 | 1 | 0 | 100% | 0%   | low    | One FP. No expected entries. |
 | `concurrency_control`  | — | — | — | —    | —    | low    | Scanner emits nothing on the corpus; not in the table. See "Type-name mismatch" below. |
 
 The corpus labels one fan-out finding as `unbatched_parallel`; the scanner emits `concurrency_control` for the same pattern. The matcher compares type strings exactly, so the expected `unbatched_parallel` shows up as a recall miss (FN = 1) and the scanner's `concurrency_control` (if it were ever emitted on this corpus) would show up as a separate row of FPs. As of 2026-05-13 the scanner emits zero `concurrency_control` findings on the corpus, so only the FN side appears. The label gap is tracked as a corpus follow-up — either rename the expected type to `concurrency_control` or have the scanner emit `unbatched_parallel` for this specific pattern.
 
-Acceptance criterion "no detector with FPR > 30%" currently fails for `cache`, `batch`, and `rate_limit`. Sample sizes are small (corpus v1 has 3 expected findings total), so the FPR numbers are diagnostic, not statistically robust. Treat them as ordering signal for the follow-up PRs: tighten `cache` and `batch` first (each 7 FPs), then `rate_limit`. Wait until the corpus grows past N ≥ 10 expected findings per type before defending an "FPR < 30%" target as final.
+Acceptance criterion "no detector with FPR > 30%" passes for `n_plus_one` and `cache` after PR-2; still fails for `batch` and `rate_limit`. Sample sizes remain small (corpus v1 has 3 expected findings total), so the FPR numbers are diagnostic, not statistically robust. Next C1 PR tightens `batch` (same conceptual fix shape: write-method/generative-method authority over chain/URL keyword inference). Wait until the corpus grows past N ≥ 10 expected findings per type before defending an "FPR < 30%" target as final.
 
 ### Measurement plumbing
 
