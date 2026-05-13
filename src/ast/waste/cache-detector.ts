@@ -53,6 +53,27 @@ function scoreToSeverity(score: number): Severity {
 }
 
 /**
+ * Method chains that are universal HTTP entry points — they carry no resource
+ * identity on their own, so two calls with the same chain but different URLs
+ * are NOT redundant. For these, the redundancy bucket key must include the
+ * endpoint URL.
+ */
+const UNIVERSAL_HTTP_CHAIN = /^(?:fetch|axios(?:\.[a-z]+)?|got|ky|superagent(?:\.[a-z]+)?|requests(?:\.[a-z]+)?)$/i;
+
+function chainKey(match: AstCallMatch): string {
+  if (UNIVERSAL_HTTP_CHAIN.test(match.methodChain)) {
+    // Raw HTTP method chains carry no resource identity — bucket per URL so
+    // distinct endpoints don't collapse into one redundancy bucket. Include the
+    // HTTP method too: `chainCount` is built from all matches (write-likes are
+    // skipped later), so without method in the key a POST /x mutation would
+    // inflate the count and falsely mark a sibling GET /x as redundant.
+    const httpMethod = (match.method ?? "").toUpperCase();
+    return `${match.methodChain}::${httpMethod}::${match.endpoint ?? ""}`;
+  }
+  return match.methodChain;
+}
+
+/**
  * Check whether any of the ~8 source lines before `line` (1-based) contain a
  * recognisable cache-lookup pattern. Falls back gracefully if `source` is empty.
  */
@@ -116,9 +137,12 @@ export function detectCacheWaste(
   const isHotPathFile = HOT_PATH_FILE.test(filePath);
 
   // Count occurrences of each methodChain for redundancy detection.
+  // For universal HTTP chains (fetch/axios/etc.) the bucket is keyed by URL
+  // as well, since the chain alone has no resource identity.
   const chainCount = new Map<string, number>();
   for (const m of matches) {
-    chainCount.set(m.methodChain, (chainCount.get(m.methodChain) ?? 0) + 1);
+    const key = chainKey(m);
+    chainCount.set(key, (chainCount.get(key) ?? 0) + 1);
   }
 
   const findings: LocalWasteFinding[] = [];
@@ -147,7 +171,7 @@ export function detectCacheWaste(
 
     const inLoop = match.loopContext; // parallel | bounded/unbounded loop
     const hotPath = match.isMiddleware === true || isHotPathFile;
-    const occurrences = chainCount.get(match.methodChain) ?? 1;
+    const occurrences = chainCount.get(chainKey(match)) ?? 1;
     const redundant = occurrences >= 2;
     const isAuthConfig =
       AUTH_CHAIN.test(match.methodChain) || CONFIG_CHAIN.test(match.methodChain);
