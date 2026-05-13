@@ -155,10 +155,20 @@ function safeRatio(numerator: number, denominator: number): number {
  * Methods are considered equivalent if either:
  *  - exact string match
  *  - both refer to the same SDK chain regardless of separator (defensive — fixture authors might use "." or " ")
+ *  - one is a dot-suffix of the other (e.g. fixture: "chat.completions.create",
+ *    scanner output: "client.chat.completions.create"). The AST scanner emits the
+ *    full receiver chain ("client.foo.bar.baz"); fixtures typically omit the receiver.
  */
 function methodsEquivalent(a: string, b: string): boolean {
   if (a === b) return true;
-  return normalize(a) === normalize(b);
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (na === nb) return true;
+  if (na.length > 0 && nb.length > 0) {
+    if (na.endsWith("." + nb)) return true;
+    if (nb.endsWith("." + na)) return true;
+  }
+  return false;
 }
 
 function normalize(s: string): string {

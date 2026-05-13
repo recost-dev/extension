@@ -192,6 +192,8 @@
     "build": "npm run build:webview && npm run build:ext",
     "build:ext": "node esbuild.mjs",
     "scan:cli": "node dist/cli/scan.js",
+    "benchmark": "npm run build:ext && tsc -p tsconfig.scanner-tests.json && tsc -p tsconfig.benchmark.json && node dist-test/benchmark/runner.js",
+    "benchmark:smoke": "npm run build:ext && tsc -p tsconfig.scanner-tests.json && tsc -p tsconfig.benchmark.json && node dist-test/benchmark/runner.js --smoke",
     "security:scan": "bash scripts/check-secrets.sh",
     "build:webview": "cd webview && npm run build",
     "build:dashboard": "cd dashboard && npm run build && rm -rf ../dashboard-dist && cp -r dist ../dashboard-dist",
