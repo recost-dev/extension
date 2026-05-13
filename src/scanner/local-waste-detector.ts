@@ -241,6 +241,7 @@ function makeFinding(
 }
 
 function detectCacheFinding(relativePath: string, site: MatchedCallSite): LocalWasteFinding | null {
+  console.log('[recost] detectCacheFinding called with:', relativePath);
   const ext = path.extname(relativePath).toLowerCase();
   if (!JS_TS_EXTENSIONS.has(ext)) return null;
   if (!site.isRead || site.cacheGuard) return null;

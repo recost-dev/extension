@@ -14,8 +14,7 @@ export async function createFilesystemScanAccess(targetPath: string): Promise<Sc
       relativePath: path.basename(resolved),
     });
   } else if (stat.isDirectory()) {
-    const { files: discovered } = await discoverFilesInDirectory(resolved);
-    files.push(...discovered);
+    files.push(...await discoverFilesInDirectory(resolved));
   } else {
     throw new Error(`Unsupported scan target: ${targetPath}`);
   }
