@@ -55,6 +55,38 @@ function buildFixtureAccess(fixtureDir: string): ScanFileAccess {
     const openaiCalls = consumerCalls.filter((c) => c.provider === "openai");
     assert.ok(openaiCalls.length >= 1, `DI constructor failed: got ${openaiCalls.length} calls`);
   });
+
+  await run("A5.regress: simple `const c = new OpenAI(); c.method()` still resolves (no regression from A5 changes)", async () => {
+    const tmpDir = path.join(root, "_simple-regression");
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "consumer.ts"),
+      [
+        'import OpenAI from "openai";',
+        "",
+        "const client = new OpenAI();",
+        "",
+        "export async function ask(p: string): Promise<string> {",
+        "  const r = await client.chat.completions.create({",
+        '    model: "gpt-4o-mini",',
+        '    messages: [{ role: "user", content: p }],',
+        "  });",
+        '  return r.choices[0].message.content ?? "";',
+        "}",
+        "",
+      ].join("\n")
+    );
+    try {
+      const calls = await scanFiles(buildFixtureAccess(tmpDir));
+      const consumerCalls = calls.filter((c) => c.file.endsWith("consumer.ts"));
+      assert.ok(
+        consumerCalls.some((c) => c.provider === "openai"),
+        "simple new OpenAI() must still resolve"
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 })().catch((err) => {
   console.error(err);
   process.exit(1);
