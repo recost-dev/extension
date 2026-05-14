@@ -276,8 +276,10 @@ function processFunctionParams(
 // ── Barrel file / re-export handling ─────────────────────────────────────────
 
 interface ExportEntry {
-  /** Exported name (or null for `export *`) */
+  /** Exported name (or null for `export *`) — the name that consumers import */
   exportedName: string | null;
+  /** Original name in the source file (differs from exportedName when aliased) */
+  originalName?: string;
   /** Relative source path (the `from "..."` string) */
   sourcePath: string;
 }
@@ -299,8 +301,16 @@ function collectExports(tree: Tree): ExportEntry[] {
       for (let j = 0; j < exportClause.childCount; j++) {
         const spec = exportClause.child(j);
         if (!spec || spec.type !== "export_specifier") continue;
-        const ident = spec.child(0); // original name
-        if (ident) entries.push({ exportedName: ident.text, sourcePath });
+        // Tree-sitter export_specifier fields:
+        //   name: the original identifier (what the source file calls it)
+        //   alias: the exported name (what consumers import), present only if `as Y` is used
+        const nameNode = spec.childForFieldName("name") ?? spec.child(0);
+        const aliasNode = spec.childForFieldName("alias");
+        const originalName = nameNode?.text;
+        const exportedName = aliasNode?.text ?? originalName;
+        if (exportedName) {
+          entries.push({ exportedName, originalName, sourcePath });
+        }
       }
     } else {
       // export * from "./providers"
@@ -370,9 +380,13 @@ async function resolveBarrelImport(
             const tree = await parseTreeFn(content);
             if (!tree) continue;
 
-            // Look for the npm package this file imports `name` from
+            // Look for the npm package this file imports `name` from.
+            // When the barrel used an alias (`export { _internalAsk as ask }`),
+            // the source file knows the function by its originalName, not the
+            // consumer-visible alias — so prefer originalName for the lookup.
+            const lookupName = entry.originalName ?? name;
             const { importMap: fileImports } = await resolveImportsCore(tree, candidate, undefined, parseTreeFn);
-            const pkg = fileImports.get(name);
+            const pkg = fileImports.get(lookupName) ?? (lookupName !== name ? fileImports.get(name) : undefined);
             if (pkg) {
               result.set(name, pkg);
               break;

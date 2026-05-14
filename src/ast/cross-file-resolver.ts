@@ -211,6 +211,8 @@ function extractRelativeImports(source: string): ImportedName[] {
 
 interface ReExport {
   exportedName: string;
+  /** Original name in the source file (differs from exportedName when aliased). */
+  originalName: string;
   specifier: string;
 }
 
@@ -231,10 +233,10 @@ function extractReExports(source: string): ReExport[] {
       const asMatch = /(\w+)\s+as\s+(\w+)/.exec(trimmed);
       if (asMatch) {
         // export { foo as bar } from './other' → exported as "bar", original is "foo"
-        results.push({ exportedName: asMatch[2], specifier });
+        results.push({ exportedName: asMatch[2], originalName: asMatch[1], specifier });
       } else {
         const name = trimmed.match(/\w+/)?.[0];
-        if (name) results.push({ exportedName: name, specifier });
+        if (name) results.push({ exportedName: name, originalName: name, specifier });
       }
     }
   }
@@ -356,7 +358,10 @@ function resolveExportedMatches(
     if (re.exportedName !== name) continue;
     const resolved = resolveImportPath(fromFile, re.specifier, knownFiles);
     if (!resolved) continue;
-    const found = resolveExportedMatches(name, resolved, registry, sourceByFile, knownFiles, depth + 1, visited);
+    // When the barrel aliases (`export { _internalAsk as ask }`), the source file
+    // knows the symbol by its originalName — recurse with that name so the export
+    // registry lookup finds the actual function.
+    const found = resolveExportedMatches(re.originalName, resolved, registry, sourceByFile, knownFiles, depth + 1, visited);
     if (found) return found;
   }
 
