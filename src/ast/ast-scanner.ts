@@ -78,6 +78,13 @@ export interface AstScanResult {
   /** Names of imported functions that were passed to middleware registrations
    *  and need cross-file resolution in Phase 3.5. */
   middlewareQueue: string[];
+  /**
+   * Factory return type map: exported function name → npm package.
+   * Populated when a function body contains `return new X()` where X resolves
+   * to a known provider package.  Consumed by the cross-file resolver to
+   * propagate `const client = makeClient()` → `client` → package.
+   */
+  factoryReturnMap: Map<string, string>;
 }
 
 // ── Package → Provider ID mapping ────────────────────────────────────────────
@@ -283,6 +290,7 @@ function collectClassMethods(classNode: SyntaxNode): Map<string, SyntaxNode> {
  * - All imports + constructor assignments from resolveImports
  * - `this.field` → package resolution (from constructor body assignments)
  * - Local class instance tracking (var → class name)
+ * - In-file factory call tracking (const client = makeClient() where makeClient is in factoryReturnMap)
  *
  * Returns:
  * - `varMap`: variableName → packageName
@@ -291,7 +299,8 @@ function collectClassMethods(classNode: SyntaxNode): Map<string, SyntaxNode> {
  */
 function buildExtendedMaps(
   importMap: Map<string, string>,
-  tree: Tree
+  tree: Tree,
+  factoryReturnMap?: Map<string, string>
 ): {
   varMap: Map<string, string>;
   thisFieldMap: Map<string, string>;
@@ -317,6 +326,15 @@ function buildExtendedMaps(
         if (lhs.type === "identifier" && rhs.type === "new_expression") {
           const ctor = rhs.child(1);
           if (ctor) instanceMap.set(lhs.text, ctor.text);
+        }
+        // In-file factory call: `const client = makeClient()` where makeClient is
+        // a known factory function defined in this file.
+        if (lhs.type === "identifier" && rhs.type === "call_expression" && factoryReturnMap) {
+          const callee = rhs.child(0);
+          if (callee?.type === "identifier") {
+            const pkg = factoryReturnMap.get(callee.text);
+            if (pkg) varMap.set(lhs.text, pkg);
+          }
         }
       }
     }
@@ -375,6 +393,63 @@ function walkNode(root: SyntaxNode, fn: (node: SyntaxNode) => void): void {
     const c = root.child(i);
     if (c) walkNode(c, fn);
   }
+}
+
+/**
+ * Scan a function body node for `return new X()` statements.
+ * Returns the resolved package for `X`, or null if not found.
+ *
+ * Handles both `{ return new X(); }` (statement body) and
+ * `=> new X()` (expression body — the function node child is directly a new_expression).
+ */
+function detectFactoryReturnPackage(
+  fnNode: SyntaxNode,
+  varMap: Map<string, string>
+): string | null {
+  let found: string | null = null;
+  walkNode(fnNode, (n) => {
+    if (found) return;
+    // `return new X()` — return_statement whose first non-trivial child is new_expression
+    if (n.type === "return_statement") {
+      for (let i = 0; i < n.childCount; i++) {
+        const c = n.child(i);
+        if (c && c.type === "new_expression") {
+          const ctor = c.child(1);
+          if (ctor) {
+            const pkg = CLASS_TO_PACKAGE[ctor.text] ?? varMap.get(ctor.text);
+            if (pkg && !isInternalImport(pkg)) { found = pkg; return; }
+          }
+        }
+      }
+    }
+    // Arrow function with expression body: `const f = () => new X()`
+    // The new_expression is a direct child of the arrow_function node (not inside a block)
+    if (n.type === "new_expression" && n.parent?.type === "arrow_function") {
+      const ctor = n.child(1);
+      if (ctor) {
+        const pkg = CLASS_TO_PACKAGE[ctor.text] ?? varMap.get(ctor.text);
+        if (pkg && !isInternalImport(pkg)) { found = pkg; return; }
+      }
+    }
+  });
+  return found;
+}
+
+/**
+ * Build a map from exported function name → package for factory functions in this file.
+ * A factory function is one that `return new X()` where X is a known provider class.
+ */
+function buildFactoryReturnMap(
+  tree: Tree,
+  varMap: Map<string, string>
+): Map<string, string> {
+  const factoryReturnMap = new Map<string, string>();
+  const topLevelFunctions = collectTopLevelFunctions(tree);
+  for (const [fnName, fnNode] of topLevelFunctions) {
+    const pkg = detectFactoryReturnPackage(fnNode, varMap);
+    if (pkg) factoryReturnMap.set(fnName, pkg);
+  }
+  return factoryReturnMap;
 }
 
 // ── Provider resolution ───────────────────────────────────────────────────────
@@ -463,16 +538,32 @@ export async function scanSourceWithAst(
   const matches: AstCallMatch[] = [];
   const classRegistry = new Map<string, ClassInfo>();
   const middlewareQueue: string[] = [];
+  const factoryReturnMap = new Map<string, string>();
 
   // ── 1. Parse ────────────────────────────────────────────────────────────────
   const tree = await parseFile(source, language);
-  if (!tree) return { matches, classRegistry, middlewareQueue };
+  if (!tree) return { matches, classRegistry, middlewareQueue, factoryReturnMap };
 
   // ── 2. Resolve imports ──────────────────────────────────────────────────────
   const { importMap, parameterMaps } = await resolveImports(tree, filePath, readFileFn);
 
+  // ── 3a. Build preliminary varMap (needed for factory detection) ──────────────
+  // We need varMap before building factoryReturnMap so that factory bodies can
+  // resolve constructor class names that are imported (e.g. `new OpenAI()` where
+  // `OpenAI` is in importMap).
+  const prelimVarMap = new Map(importMap);
+
+  // ── 3b. Detect factory return types in this file's function bodies ───────────
+  {
+    const topFns = collectTopLevelFunctions(tree);
+    for (const [fnName, fnNode] of topFns) {
+      const pkg = detectFactoryReturnPackage(fnNode, prelimVarMap);
+      if (pkg) factoryReturnMap.set(fnName, pkg);
+    }
+  }
+
   // ── 3. Build extended maps (this.field, instance→class, etc.) ───────────────
-  const { varMap, thisFieldMap, instanceMap } = buildExtendedMaps(importMap, tree);
+  const { varMap, thisFieldMap, instanceMap } = buildExtendedMaps(importMap, tree, factoryReturnMap);
 
   // ── 4. Collect all call expressions ─────────────────────────────────────────
   const allCalls = extractCalls(tree);
@@ -765,7 +856,7 @@ export async function scanSourceWithAst(
     }
   }
 
-  return { matches, classRegistry, middlewareQueue };
+  return { matches, classRegistry, middlewareQueue, factoryReturnMap };
 }
 
 /**
@@ -779,11 +870,11 @@ export async function scanFileWithAst(
   readFileFn: FileReader
 ): Promise<AstScanResult> {
   const source = await readFileFn(filePath);
-  if (source === null) return { matches: [], classRegistry: new Map(), middlewareQueue: [] };
+  if (source === null) return { matches: [], classRegistry: new Map(), middlewareQueue: [], factoryReturnMap: new Map() };
 
   const ext = path.extname(filePath);
   const language = getLanguageForExtension(ext);
-  if (!language) return { matches: [], classRegistry: new Map(), middlewareQueue: [] };
+  if (!language) return { matches: [], classRegistry: new Map(), middlewareQueue: [], factoryReturnMap: new Map() };
 
   return scanSourceWithAst(source, language, filePath, readFileFn);
 }

@@ -642,7 +642,154 @@ export function runCrossFileResolution(
     }
   }
 
+  // ── Factory return post-pass ───────────────────────────────────────────────
+  //
+  // Handles `const client = makeClient()` where `makeClient` is imported from
+  // another file and that file's factory function returns `new OpenAI()`.
+  //
+  // Algorithm:
+  //  1. Build global factory registry: absoluteFilePath → (exportedFnName → package)
+  //     from each file's AstScanResult.factoryReturnMap.
+  //  2. For each consumer file, scan its relative imports for factory functions.
+  //  3. Find `const varName = factoryFn()` patterns in consumer source.
+  //  4. Find call expressions that use varName (e.g. varName.chat.completions.create)
+  //     that aren't already attributed to a provider.
+  //  5. Emit synthetic AstCallMatches attributed to the factory's returned package.
+  runFactoryReturnPostPass(files, normalizedKnown, output, seenKeysByFile);
+
   return output;
+}
+
+// ── Factory return post-pass helpers ──────────────────────────────────────────
+
+/**
+ * Parse `const varName = factoryFn()` patterns from source text.
+ * Returns a map from varName → factoryFn (the callee name).
+ */
+function extractFactoryCallAssignments(source: string): Map<string, string> {
+  const result = new Map<string, string>();
+  // const/let/var varName = factoryFnName()
+  // Also handles: const varName = factoryFnName<T>()
+  const RE = /(?:const|let|var)\s+(\w+)\s*=\s*(\w+)\s*(?:<[^>]*>)?\s*\(\s*\)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = RE.exec(source)) !== null) {
+    result.set(m[1], m[2]);
+  }
+  return result;
+}
+
+/**
+ * Find all `varName.a.b.c(...)` call chains in source text.
+ * Returns { methodChain, line } entries (1-based line numbers).
+ */
+function extractVarMethodCalls(source: string, varName: string): Array<{ methodChain: string; line: number }> {
+  const results: Array<{ methodChain: string; line: number }> = [];
+  const lines = source.split("\n");
+  // Match: varName.something.something...(  — at least one dot required
+  const re = new RegExp(`\\b(${escapeRegex(varName)}(?:\\.[\\w]+)+)\\s*\\(`, "g");
+  for (let i = 0; i < lines.length; i++) {
+    let m: RegExpExecArray | null;
+    const lineRe = new RegExp(re.source, re.flags);
+    while ((m = lineRe.exec(lines[i])) !== null) {
+      results.push({ methodChain: m[1], line: i + 1 });
+    }
+  }
+  return results;
+}
+
+/** Map from npm package to provider ID (mirrors ast-scanner.ts PACKAGE_TO_PROVIDER). */
+const PACKAGE_TO_PROVIDER_LOCAL: Record<string, string> = {
+  openai: "openai",
+  anthropic: "anthropic",
+  "@anthropic-ai/sdk": "anthropic",
+  "@anthropic-ai/bedrock-sdk": "anthropic",
+  "@anthropic-ai/vertex-sdk": "anthropic",
+  stripe: "stripe",
+  "@supabase/supabase-js": "supabase",
+  firebase: "firebase",
+  "firebase-admin": "firebase",
+  "@aws-sdk/client-bedrock-runtime": "aws-bedrock",
+  "@google/generative-ai": "gemini",
+  "@google-cloud/vertexai": "vertex-ai",
+  "cohere-ai": "cohere",
+  cohere: "cohere",
+  "@mistralai/mistralai": "mistral",
+};
+
+function runFactoryReturnPostPass(
+  files: PerFileResult[],
+  normalizedKnown: Set<string>,
+  output: Map<string, AstCallMatch[]>,
+  seenKeysByFile: Map<string, Set<string>>
+): void {
+  // Step 1: Build global factory registry
+  // globalFactoryRegistry: normalizedFilePath → (fnName → package)
+  const globalFactoryRegistry = new Map<string, Map<string, string>>();
+  for (const f of files) {
+    const frm = f.result.factoryReturnMap;
+    if (frm && frm.size > 0) {
+      globalFactoryRegistry.set(normalizePath(f.filePath), frm);
+    }
+  }
+  if (globalFactoryRegistry.size === 0) return;
+
+  // Step 2: For each consumer file, check imports against the factory registry
+  for (const consumer of files) {
+    const consumerPath = normalizePath(consumer.filePath);
+    const imports = extractRelativeImports(consumer.source);
+
+    const seen = seenKeysByFile.get(consumer.relativePath)!;
+    const matches = output.get(consumer.relativePath)!;
+
+    for (const { localName, specifier } of imports) {
+      const resolvedFile = resolveImportPath(consumerPath, specifier, normalizedKnown);
+      if (!resolvedFile) continue;
+
+      const fileFactories = globalFactoryRegistry.get(resolvedFile);
+      if (!fileFactories) continue;
+
+      const pkg = fileFactories.get(localName);
+      if (!pkg) continue;
+
+      const provider = PACKAGE_TO_PROVIDER_LOCAL[pkg] ?? pkg;
+
+      // Step 3: Find `const varName = localName()` in consumer source
+      const factoryAssignments = extractFactoryCallAssignments(consumer.source);
+      // Find all var names assigned from this factory function
+      for (const [varName, callee] of factoryAssignments) {
+        if (callee !== localName) continue;
+
+        // Step 4: Find method calls on varName in consumer source
+        const calls = extractVarMethodCalls(consumer.source, varName);
+        for (const { methodChain, line } of calls) {
+          // Strip varName prefix: "client.chat.completions.create" → "chat.completions.create"
+          const dot = methodChain.indexOf(".");
+          const resolvedChain = dot !== -1 ? methodChain.slice(dot + 1) : "";
+          if (!resolvedChain) continue;
+
+          const key = `${provider}:${resolvedChain}:${line}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          matches.push({
+            kind: "sdk",
+            provider,
+            packageName: pkg,
+            methodChain,
+            confidence: 0.9,
+            line,
+            column: 0,
+            span: { startLine: line, startColumn: 0, endLine: line, endColumn: 0 },
+            frequency: "single",
+            loopContext: false,
+            enclosingFunction: null,
+            crossFile: true,
+            sourceFile: resolvedFile,
+          });
+        }
+      }
+    }
+  }
 }
 
 // ── Source text helpers ───────────────────────────────────────────────────────
