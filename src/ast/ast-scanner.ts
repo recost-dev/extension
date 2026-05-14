@@ -173,6 +173,15 @@ function extractHttpMethodFromOptions(args: SyntaxNode[]): string {
 
 // ── AST traversal helpers ─────────────────────────────────────────────────────
 
+/** Find the first child of `node` with the given type. */
+function childOfType(node: SyntaxNode, type: string): SyntaxNode | null {
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i);
+    if (c && c.type === type) return c;
+  }
+  return null;
+}
+
 /**
  * If `stmt` is an `export_statement`, return the first child that is a
  * declaration node (lexical_declaration, function_declaration, class_declaration,
@@ -358,11 +367,49 @@ function buildExtendedMaps(
   }
 
   // Scan constructor bodies to find this.field = new Pkg() assignments
+  // AND typed constructor params (private readonly ai: OpenAI) → thisFieldMap
   const classes = collectClasses(tree);
   for (const [, classNode] of classes) {
     const methods = collectClassMethods(classNode);
     const constructor = methods.get("constructor");
     if (!constructor) continue;
+
+    // ── Typed constructor params (TS shorthand fields) ─────────────────────
+    // `constructor(private readonly ai: OpenAI)` → thisFieldMap["ai"] = "openai"
+    // The required_parameter has an accessibility_modifier child when it declares
+    // a class field (private/public/protected).  Walk the formal_parameters.
+    const formalParams = childOfType(constructor, "formal_parameters");
+    if (formalParams) {
+      for (let pi = 0; pi < formalParams.childCount; pi++) {
+        const param = formalParams.child(pi);
+        if (!param) continue;
+        if (param.type !== "required_parameter" && param.type !== "optional_parameter") continue;
+
+        // Only process params that have an accessibility modifier (making them class fields)
+        let hasAccessibilityModifier = false;
+        let nameNode: SyntaxNode | null = null;
+        let typeAnnotation: SyntaxNode | null = null;
+
+        for (let ci = 0; ci < param.childCount; ci++) {
+          const c = param.child(ci);
+          if (!c) continue;
+          if (c.type === "accessibility_modifier") hasAccessibilityModifier = true;
+          else if (c.type === "identifier") nameNode = c;
+          else if (c.type === "type_annotation") typeAnnotation = c;
+        }
+
+        if (!hasAccessibilityModifier || !nameNode || !typeAnnotation) continue;
+
+        // type_annotation is `: TypeName` — the type identifier is at child(1)
+        const typeIdent = typeAnnotation.child(1);
+        if (!typeIdent) continue;
+
+        const typeName = typeIdent.text;
+        const pkg = CLASS_TO_PACKAGE[typeName] ?? varMap.get(typeName);
+        if (pkg) thisFieldMap.set(nameNode.text, pkg);
+      }
+    }
+
     // Walk constructor body for `this.field = new ClassName()` assignments
     walkNode(constructor, (n) => {
       if (n.type !== "assignment_expression") return;
