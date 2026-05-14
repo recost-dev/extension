@@ -482,23 +482,6 @@ function detectFactoryReturnPackage(
   return found;
 }
 
-/**
- * Build a map from exported function name → package for factory functions in this file.
- * A factory function is one that `return new X()` where X is a known provider class.
- */
-function buildFactoryReturnMap(
-  tree: Tree,
-  varMap: Map<string, string>
-): Map<string, string> {
-  const factoryReturnMap = new Map<string, string>();
-  const topLevelFunctions = collectTopLevelFunctions(tree);
-  for (const [fnName, fnNode] of topLevelFunctions) {
-    const pkg = detectFactoryReturnPackage(fnNode, varMap);
-    if (pkg) factoryReturnMap.set(fnName, pkg);
-  }
-  return factoryReturnMap;
-}
-
 // ── Provider resolution ───────────────────────────────────────────────────────
 
 const NODE_BUILTIN_MODULES = new Set([

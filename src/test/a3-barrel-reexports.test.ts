@@ -77,6 +77,13 @@ function buildFixtureAccess(fixtureDir: string): ScanFileAccess {
     const calls = await scanFiles(buildFixtureAccess(path.join(root, "barrel-missing")));
     assert.ok(Array.isArray(calls), "scanFiles must return an array even with broken barrels");
   });
+
+  await run("A3.audit.wildcard-then-named: wildcard barrel followed by named re-export resolves `ask` via the second entry", async () => {
+    const calls = await scanFiles(buildFixtureAccess(path.join(root, "barrel-wildcard-then-named")));
+    const consumerCalls = calls.filter((c) => c.file.endsWith("consumer.ts"));
+    const openaiCalls = consumerCalls.filter((c) => c.provider === "openai");
+    assert.ok(openaiCalls.length >= 1, `multi-entry wildcard barrel failed: got ${openaiCalls.length} calls`);
+  });
 })().catch((err) => {
   console.error(err);
   process.exit(1);

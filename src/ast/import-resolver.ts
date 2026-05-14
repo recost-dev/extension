@@ -359,42 +359,50 @@ async function resolveBarrelImport(
   const barrelExports = collectExports(barrelTree);
 
   for (const name of importedNames) {
-    // Find a matching export in the barrel
+    // Find a matching export in the barrel.
+    // A barrel may have multiple entries that could match — e.g. a wildcard
+    // (`export * from "./a"`) followed by a named re-export
+    // (`export { ask } from "./b"`).  We must keep iterating if the current
+    // entry doesn't actually provide the name we need.
     for (const entry of barrelExports) {
-      if (entry.exportedName === name || entry.exportedName === null) {
-        // This barrel re-exports `name` from `entry.sourcePath` — resolve it
-        if (!entry.sourcePath.startsWith(".")) {
-          // Re-exported from an npm package — this IS the package
-          result.set(name, entry.sourcePath);
-        } else {
-          // One more level: read the source file and look for the actual export
-          const srcDir = path.posix.dirname(resolvedBarrelPath);
-          const srcPath = joinPath(srcDir, entry.sourcePath);
-          const srcCandidates = srcPath.endsWith(".ts") || srcPath.endsWith(".js")
-            ? [srcPath]
-            : [srcPath + ".ts", srcPath + ".js"];
+      if (entry.exportedName !== name && entry.exportedName !== null) continue;
 
-          for (const candidate of srcCandidates) {
-            const content = await readFile(candidate);
-            if (content === null) continue;
-            const tree = await parseTreeFn(content);
-            if (!tree) continue;
+      // This barrel re-exports `name` from `entry.sourcePath` — resolve it
+      if (!entry.sourcePath.startsWith(".")) {
+        // Re-exported from an npm package — this IS the package
+        result.set(name, entry.sourcePath);
+      } else {
+        // One more level: read the source file and look for the actual export
+        const srcDir = path.posix.dirname(resolvedBarrelPath);
+        const srcPath = joinPath(srcDir, entry.sourcePath);
+        const srcCandidates = srcPath.endsWith(".ts") || srcPath.endsWith(".js")
+          ? [srcPath]
+          : [srcPath + ".ts", srcPath + ".js"];
 
-            // Look for the npm package this file imports `name` from.
-            // When the barrel used an alias (`export { _internalAsk as ask }`),
-            // the source file knows the function by its originalName, not the
-            // consumer-visible alias — so prefer originalName for the lookup.
-            const lookupName = entry.originalName ?? name;
-            const { importMap: fileImports } = await resolveImportsCore(tree, candidate, undefined, parseTreeFn);
-            const pkg = fileImports.get(lookupName) ?? (lookupName !== name ? fileImports.get(name) : undefined);
-            if (pkg) {
-              result.set(name, pkg);
-              break;
-            }
+        for (const candidate of srcCandidates) {
+          const content = await readFile(candidate);
+          if (content === null) continue;
+          const tree = await parseTreeFn(content);
+          if (!tree) continue;
+
+          // Look for the npm package this file imports `name` from.
+          // When the barrel used an alias (`export { _internalAsk as ask }`),
+          // the source file knows the function by its originalName, not the
+          // consumer-visible alias — so prefer originalName for the lookup.
+          const lookupName = entry.originalName ?? name;
+          const { importMap: fileImports } = await resolveImportsCore(tree, candidate, undefined, parseTreeFn);
+          const pkg = fileImports.get(lookupName) ?? (lookupName !== name ? fileImports.get(name) : undefined);
+          if (pkg) {
+            result.set(name, pkg);
+            break;
           }
         }
-        break; // found export entry for this name
       }
+
+      // Only stop searching barrel entries once the lookup actually succeeded.
+      // If a wildcard entry didn't provide the name (source file didn't export
+      // it), continue to the next barrel entry which may be a named re-export.
+      if (result.has(name)) break;
     }
   }
 
