@@ -603,6 +603,26 @@ async function resolveImportsCore(
         processFunctionParams(stmt, importMap, parameterMaps);
         break;
       }
+
+      case "export_statement": {
+        // `export const x = new Sdk()` / `export function f() {}` / `export class C {}`
+        // Unwrap the inner declaration and re-process it.
+        for (let j = 0; j < stmt.namedChildCount; j++) {
+          const inner = stmt.namedChild(j);
+          if (!inner) continue;
+          if (inner.type === "lexical_declaration" || inner.type === "variable_declaration") {
+            for (let k = 0; k < inner.childCount; k++) {
+              const child = inner.child(k);
+              if (child && child.type === "variable_declarator") {
+                processVariableDeclarator(child, importMap);
+              }
+            }
+          } else if (inner.type === "function_declaration") {
+            processFunctionParams(inner, importMap, parameterMaps);
+          }
+        }
+        break;
+      }
     }
   }
 

@@ -166,12 +166,38 @@ function extractHttpMethodFromOptions(args: SyntaxNode[]): string {
 
 // ── AST traversal helpers ─────────────────────────────────────────────────────
 
+/**
+ * If `stmt` is an `export_statement`, return the first child that is a
+ * declaration node (lexical_declaration, function_declaration, class_declaration,
+ * variable_declaration).  Otherwise return `stmt` unchanged.
+ *
+ * This lets every top-level traversal loop handle `export const x = …`
+ * identically to `const x = …`.
+ */
+function unwrapExport(stmt: SyntaxNode): SyntaxNode {
+  if (stmt.type === "export_statement") {
+    for (let i = 0; i < stmt.namedChildCount; i++) {
+      const child = stmt.namedChild(i);
+      if (child && (
+        child.type === "lexical_declaration" ||
+        child.type === "function_declaration" ||
+        child.type === "class_declaration" ||
+        child.type === "variable_declaration"
+      )) {
+        return child;
+      }
+    }
+  }
+  return stmt;
+}
+
 /** Collect all top-level function names in the file. */
 function collectTopLevelFunctions(tree: Tree): Map<string, SyntaxNode> {
   const fns = new Map<string, SyntaxNode>();
   for (let i = 0; i < tree.rootNode.childCount; i++) {
-    const node = tree.rootNode.child(i);
-    if (!node) continue;
+    const raw = tree.rootNode.child(i);
+    if (!raw) continue;
+    const node = unwrapExport(raw);
     if (node.type === "function_declaration" || node.type === "function_definition") {
       // Scan all children to find the identifier — position varies for async functions
       // (async function foo() → child 0=async, 1=function, 2=identifier)
@@ -202,8 +228,9 @@ function collectTopLevelFunctions(tree: Tree): Map<string, SyntaxNode> {
 function collectClasses(tree: Tree): Map<string, SyntaxNode> {
   const classes = new Map<string, SyntaxNode>();
   for (let i = 0; i < tree.rootNode.childCount; i++) {
-    const node = tree.rootNode.child(i);
-    if (!node) continue;
+    const raw = tree.rootNode.child(i);
+    if (!raw) continue;
+    const node = unwrapExport(raw);
     if (node.type === "class_declaration" || node.type === "class_definition") {
       const name = node.child(1);
       // TypeScript grammar uses "type_identifier" for class names; JS uses "identifier"
@@ -276,8 +303,9 @@ function buildExtendedMaps(
 
   // Walk top-level for instance assignments and this.field assignments
   for (let i = 0; i < tree.rootNode.childCount; i++) {
-    const node = tree.rootNode.child(i);
-    if (!node) continue;
+    const raw = tree.rootNode.child(i);
+    if (!raw) continue;
+    const node = unwrapExport(raw);
 
     if (node.type === "lexical_declaration" || node.type === "variable_declaration") {
       for (let j = 0; j < node.childCount; j++) {
