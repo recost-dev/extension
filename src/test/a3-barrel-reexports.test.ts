@@ -45,11 +45,38 @@ function buildFixtureAccess(fixtureDir: string): ScanFileAccess {
     );
   });
 
-  // AGENT-A3.audit.aliased-INSERT-HERE
-  // AGENT-A3.audit.wildcard-INSERT-HERE
-  // AGENT-A3.audit.nested-INSERT-HERE
-  // AGENT-A3.audit.default-INSERT-HERE
-  // AGENT-A3.audit.missing-INSERT-HERE
+  await run("A3.audit.aliased: `export { x as y }` re-export resolves consumer call to openai", async () => {
+    const calls = await scanFiles(buildFixtureAccess(path.join(root, "barrel-aliased")));
+    const consumerCalls = calls.filter((c) => c.file.endsWith("consumer.ts"));
+    const openaiCalls = consumerCalls.filter((c) => c.provider === "openai");
+    assert.ok(openaiCalls.length >= 1, `aliased re-export failed: got ${openaiCalls.length} calls: ${JSON.stringify(consumerCalls.map((c) => ({ line: c.line, provider: c.provider })))}`);
+  });
+
+  await run("A3.audit.wildcard: `export *` re-export resolves consumer call to openai", async () => {
+    const calls = await scanFiles(buildFixtureAccess(path.join(root, "barrel-wildcard")));
+    const consumerCalls = calls.filter((c) => c.file.endsWith("consumer.ts"));
+    const openaiCalls = consumerCalls.filter((c) => c.provider === "openai");
+    assert.ok(openaiCalls.length >= 1, `wildcard re-export failed: got ${openaiCalls.length} calls`);
+  });
+
+  await run("A3.audit.nested: 2-level nested barrels (`index → providers → openai`) resolve consumer call", async () => {
+    const calls = await scanFiles(buildFixtureAccess(path.join(root, "barrel-nested")));
+    const consumerCalls = calls.filter((c) => c.file.endsWith("consumer.ts"));
+    const openaiCalls = consumerCalls.filter((c) => c.provider === "openai");
+    assert.ok(openaiCalls.length >= 1, `nested barrel failed: got ${openaiCalls.length} calls`);
+  });
+
+  await run("A3.audit.default: `export { default } from` resolves consumer's default import to openai", async () => {
+    const calls = await scanFiles(buildFixtureAccess(path.join(root, "barrel-default")));
+    const consumerCalls = calls.filter((c) => c.file.endsWith("consumer.ts"));
+    const openaiCalls = consumerCalls.filter((c) => c.provider === "openai");
+    assert.ok(openaiCalls.length >= 1, `default re-export failed: got ${openaiCalls.length} calls`);
+  });
+
+  await run("A3.audit.missing: barrel re-exports a non-existent symbol; scan completes without throwing", async () => {
+    const calls = await scanFiles(buildFixtureAccess(path.join(root, "barrel-missing")));
+    assert.ok(Array.isArray(calls), "scanFiles must return an array even with broken barrels");
+  });
 })().catch((err) => {
   console.error(err);
   process.exit(1);
