@@ -89,7 +89,7 @@ export interface AstScanResult {
 
 // ── Package → Provider ID mapping ────────────────────────────────────────────
 
-const PACKAGE_TO_PROVIDER: Record<string, string> = {
+export const PACKAGE_TO_PROVIDER: Record<string, string> = {
   openai: "openai",
   anthropic: "anthropic",          // Python SDK: import anthropic
   "@anthropic-ai/sdk": "anthropic",

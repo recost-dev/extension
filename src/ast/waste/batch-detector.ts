@@ -44,7 +44,7 @@ const CONCURRENCY_GUARD =
  * for parallel calls — the count is intentional (e.g. the API's own `n` param),
  * not a naive map over arbitrary data. Not wasteful in the batch sense.
  */
-const BOUNDED_REPLICATION = /Array\.from\s*\(\s*\{/;
+const BOUNDED_REPLICATION = /Array\.from\s*\(\s*\{\s*length\s*:/;
 
 // ── File-path heuristics ──────────────────────────────────────────────────────
 

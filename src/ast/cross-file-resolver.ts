@@ -16,6 +16,7 @@
  */
 import * as path from "path";
 import type { AstCallMatch, AstScanResult } from "./ast-scanner";
+import { PACKAGE_TO_PROVIDER } from "./ast-scanner";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -686,35 +687,17 @@ function extractVarMethodCalls(source: string, varName: string): Array<{ methodC
   const results: Array<{ methodChain: string; line: number }> = [];
   const lines = source.split("\n");
   // Match: varName.something.something...(  — at least one dot required
+  // Build the regex once; matchAll() returns a fresh iterator per call so
+  // there are no lastIndex state issues between lines.
   const re = new RegExp(`\\b(${escapeRegex(varName)}(?:\\.[\\w]+)+)\\s*\\(`, "g");
   for (let i = 0; i < lines.length; i++) {
-    let m: RegExpExecArray | null;
-    const lineRe = new RegExp(re.source, re.flags);
-    while ((m = lineRe.exec(lines[i])) !== null) {
+    for (const m of lines[i].matchAll(re)) {
       results.push({ methodChain: m[1], line: i + 1 });
     }
   }
   return results;
 }
 
-/** Map from npm package to provider ID (mirrors ast-scanner.ts PACKAGE_TO_PROVIDER). */
-const PACKAGE_TO_PROVIDER_LOCAL: Record<string, string> = {
-  openai: "openai",
-  anthropic: "anthropic",
-  "@anthropic-ai/sdk": "anthropic",
-  "@anthropic-ai/bedrock-sdk": "anthropic",
-  "@anthropic-ai/vertex-sdk": "anthropic",
-  stripe: "stripe",
-  "@supabase/supabase-js": "supabase",
-  firebase: "firebase",
-  "firebase-admin": "firebase",
-  "@aws-sdk/client-bedrock-runtime": "aws-bedrock",
-  "@google/generative-ai": "gemini",
-  "@google-cloud/vertexai": "vertex-ai",
-  "cohere-ai": "cohere",
-  cohere: "cohere",
-  "@mistralai/mistralai": "mistral",
-};
 
 function runFactoryReturnPostPass(
   files: PerFileResult[],
@@ -741,6 +724,11 @@ function runFactoryReturnPostPass(
     const seen = seenKeysByFile.get(consumer.relativePath)!;
     const matches = output.get(consumer.relativePath)!;
 
+    // Step 3: Find `const varName = localName()` in consumer source — hoisted
+    // out of the per-import loop so we only parse the source once per consumer.
+    const factoryAssignments = extractFactoryCallAssignments(consumer.source);
+    if (factoryAssignments.size === 0) continue;
+
     for (const { localName, specifier } of imports) {
       const resolvedFile = resolveImportPath(consumerPath, specifier, normalizedKnown);
       if (!resolvedFile) continue;
@@ -751,10 +739,8 @@ function runFactoryReturnPostPass(
       const pkg = fileFactories.get(localName);
       if (!pkg) continue;
 
-      const provider = PACKAGE_TO_PROVIDER_LOCAL[pkg] ?? pkg;
+      const provider = PACKAGE_TO_PROVIDER[pkg] ?? pkg;
 
-      // Step 3: Find `const varName = localName()` in consumer source
-      const factoryAssignments = extractFactoryCallAssignments(consumer.source);
       // Find all var names assigned from this factory function
       for (const [varName, callee] of factoryAssignments) {
         if (callee !== localName) continue;

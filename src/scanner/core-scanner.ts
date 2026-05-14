@@ -221,7 +221,8 @@ async function gatherResolvedAstMatches(
   let augmented: Map<string, AstCallMatch[]>;
   try {
     augmented = runCrossFileResolution(perFileResults);
-  } catch {
+  } catch (err) {
+    console.warn(`[recost] cross-file resolution failed; using per-file matches:`, err);
     augmented = new Map(perFileResults.map((pf) => [pf.relativePath, pf.result.matches]));
   }
 
