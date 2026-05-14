@@ -210,17 +210,21 @@ function extractRelativeImports(source: string): ImportedName[] {
 // ── Re-export detection ───────────────────────────────────────────────────────
 
 interface ReExport {
-  exportedName: string;
+  /** Exported name (or null for `export *` wildcard re-exports). */
+  exportedName: string | null;
   /** Original name in the source file (differs from exportedName when aliased). */
-  originalName: string;
+  originalName: string | null;
   specifier: string;
 }
 
 /**
- * Detect `export { foo } from './other'` and `export { foo as bar } from './other'` patterns.
+ * Detect `export { foo } from './other'`, `export { foo as bar } from './other'`,
+ * and `export * from './other'` patterns.
  */
 function extractReExports(source: string): ReExport[] {
   const results: ReExport[] = [];
+
+  // Named re-exports: export { foo, bar as baz } from './other'
   const RE_EXPORT = /^export\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/gm;
   let m: RegExpExecArray | null;
   while ((m = RE_EXPORT.exec(source)) !== null) {
@@ -240,6 +244,17 @@ function extractReExports(source: string): ReExport[] {
       }
     }
   }
+
+  // Wildcard re-exports: export * from './other'
+  const WILDCARD_RE_EXPORT = /^export\s+\*\s+from\s+['"]([^'"]+)['"]/gm;
+  let wm: RegExpExecArray | null;
+  while ((wm = WILDCARD_RE_EXPORT.exec(source)) !== null) {
+    const specifier = wm[1];
+    if (!specifier.startsWith(".") && !specifier.startsWith("/")) continue;
+    // null exportedName means "any symbol from this source"
+    results.push({ exportedName: null, originalName: null, specifier });
+  }
+
   return results;
 }
 
@@ -355,13 +370,17 @@ function resolveExportedMatches(
 
   const reExports = extractReExports(source);
   for (const re of reExports) {
-    if (re.exportedName !== name) continue;
+    // Wildcard re-export (`export * from './other'`) — any name passes through.
+    // Named re-export — only proceed if exportedName matches the requested name.
+    if (re.exportedName !== null && re.exportedName !== name) continue;
     const resolved = resolveImportPath(fromFile, re.specifier, knownFiles);
     if (!resolved) continue;
     // When the barrel aliases (`export { _internalAsk as ask }`), the source file
     // knows the symbol by its originalName — recurse with that name so the export
     // registry lookup finds the actual function.
-    const found = resolveExportedMatches(re.originalName, resolved, registry, sourceByFile, knownFiles, depth + 1, visited);
+    // For wildcards, the name passes through unchanged (originalName is null).
+    const lookupName = re.originalName ?? name;
+    const found = resolveExportedMatches(lookupName, resolved, registry, sourceByFile, knownFiles, depth + 1, visited);
     if (found) return found;
   }
 
