@@ -16,6 +16,7 @@ import { scoreSnapshot } from "../intelligence/scorer";
 import { estimateLocalMonthlyCost } from "../intelligence/cost-utils";
 import { buildKeyFingerprint, type PersistedKeyValidationSnapshot } from "../key-management";
 import { getOutputChannel } from "../output";
+import { buildRemoteApiCalls } from "./build-remote-api-calls";
 
 export interface ExportDebugPayload {
   mode: "local-only" | "remote-enriched";
@@ -680,16 +681,22 @@ export class ScanPublishingHandler {
         });
         return;
       }
-      const remoteApiCalls = apiCalls
-        .filter(shouldSubmitRemote)
-        .map((call) => ({
-          ...call,
-          provider: call.provider ?? detectEndpointProvider(canonicalizeEndpointUrl(call.url)) ?? "unknown",
-        }))
-        .filter((call) => call.provider !== "unknown");
+      const { submitted: remoteApiCalls, unknownProviderCount, unknownProviderHosts } =
+        buildRemoteApiCalls(apiCalls);
       if (remoteApiCalls.length === 0) {
         publishLocalOnlyResults(manualProjectId ?? this.ctx.getProjectId() ?? "local", `local-${Date.now()}`);
         return;
+      }
+      if (unknownProviderCount > 0) {
+        const topHosts = Object.entries(unknownProviderHosts)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 3)
+          .map(([host, count]) => `${host}: ${count}`)
+          .join(", ");
+        this.ctx.postMessage({
+          type: "scanNotification",
+          message: `Found ${unknownProviderCount} of ${remoteApiCalls.length} calls with no recognized provider (top hosts: ${topHosts}). They will be submitted with provider=unknown.`,
+        });
       }
 
       publishLocalOnlyResults(manualProjectId ?? this.ctx.getProjectId() ?? "local", `local-${Date.now()}`);
