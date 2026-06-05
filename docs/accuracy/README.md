@@ -15,24 +15,26 @@ The work breaks into four layers. Each layer has one or more tracked issues back
 
 ### Issue index
 
-| ID | # | Title |
-|---|---|---|
-| A1 | [#73](https://github.com/recost-dev/extension/issues/73) | Multi-hop wrapper-function tracing |
-| A2 | [#74](https://github.com/recost-dev/extension/issues/74) | Dynamic URL constant-folding for raw fetch/axios |
-| A3 | [#75](https://github.com/recost-dev/extension/issues/75) | Audit barrel-file / re-export resolution |
-| A4 | [#76](https://github.com/recost-dev/extension/issues/76) | AST ↔ regex parity audit and CI gate |
-| A5 | [#77](https://github.com/recost-dev/extension/issues/77) | Aliased / DI / factory client tracking |
-| A6 | [#78](https://github.com/recost-dev/extension/issues/78) | Filter object-literal false positives in AST scanner (replaces #66) |
-| A7 | [#79](https://github.com/recost-dev/extension/issues/79) | URL-path → method fallback for raw fetch (replaces #72) |
-| B1 | [#80](https://github.com/recost-dev/extension/issues/80) | Span-based source locations |
-| B2 | [#81](https://github.com/recost-dev/extension/issues/81) | Dual locations for cross-file resolved calls |
-| B3 | [#82](https://github.com/recost-dev/extension/issues/82) | Stable endpoint IDs across scans |
-| C1 | [#83](https://github.com/recost-dev/extension/issues/83) | Calibrate the local waste detector |
-| C2 | [#84](https://github.com/recost-dev/extension/issues/84) | Proper dedupe of AI + local-rule findings |
-| C3 | [#85](https://github.com/recost-dev/extension/issues/85) | Confidence everywhere; severity derived from signals |
-| D1 | [#86](https://github.com/recost-dev/extension/issues/86) | Labeled benchmark corpus + CI precision/recall gate |
+| ID | # | Title | Status |
+|---|---|---|---|
+| A1 | [#73](https://github.com/recost-dev/extension/issues/73) | Multi-hop wrapper-function tracing | ✅ shipped |
+| A2 | [#74](https://github.com/recost-dev/extension/issues/74) | Dynamic URL constant-folding for raw fetch/axios | ✅ shipped |
+| A3 | [#75](https://github.com/recost-dev/extension/issues/75) | Audit barrel-file / re-export resolution | ✅ shipped |
+| A4 | [#76](https://github.com/recost-dev/extension/issues/76) | AST ↔ regex parity audit and CI gate | ✅ shipped |
+| A5 | [#77](https://github.com/recost-dev/extension/issues/77) | Aliased / DI / factory client tracking | ✅ shipped |
+| A6 | [#78](https://github.com/recost-dev/extension/issues/78) | Filter object-literal false positives in AST scanner (replaces #66) | ✅ shipped |
+| A7 | [#79](https://github.com/recost-dev/extension/issues/79) | URL-path → method fallback for raw fetch (replaces #72) | ✅ shipped |
+| B1 | [#80](https://github.com/recost-dev/extension/issues/80) | Span-based source locations | ✅ shipped |
+| B2 | [#81](https://github.com/recost-dev/extension/issues/81) | Dual locations for cross-file resolved calls | deferred (issue closed; not implemented) |
+| B3 | [#82](https://github.com/recost-dev/extension/issues/82) | Stable endpoint IDs across scans | ✅ shipped |
+| C1 | [#83](https://github.com/recost-dev/extension/issues/83) | Calibrate the local waste detector | ✅ shipped (1 corpus FN deferred) |
+| C2 | [#84](https://github.com/recost-dev/extension/issues/84) | Proper dedupe of AI + local-rule findings | ✅ shipped |
+| C3 | [#85](https://github.com/recost-dev/extension/issues/85) | Confidence everywhere; severity derived from signals | ✅ shipped |
+| D1 | [#86](https://github.com/recost-dev/extension/issues/86) | Labeled benchmark corpus + CI precision/recall gate | ✅ shipped |
 
 ## Sequencing
+
+**Status (2026-05-31):** Foundation (B1, B3, A4, D1) and all detection gaps (A1, A2, A3, A5, A6, A7) have landed, along with finding-quality work C1, C2, and C3. The DALL-E `unbatched_parallel` finding was recovered in Wave 4 / #117 — finding recall rose 33.33% → 66.67% at 100% precision; one Python cross-function `batch` corpus FN remains deferred as a corpus-labeling follow-up (see [findings.md](findings.md)). B2 (dual locations, the Polish tier) is the only unshipped item — its issue #81 was closed without the feature being implemented (no `PropagatedLocation`/`resolvedSite` in the tree), so it is effectively deferred. The suggested order below is preserved for historical context.
 
 Items are not all equal priority. Suggested order:
 

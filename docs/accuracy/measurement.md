@@ -96,11 +96,28 @@ For each repo and overall:
 | Finding precision | 7.14% |
 | Finding recall | 33.33% |
 
-Baseline committed in `benchmark/baseline.json`. PRs that drop any metric by > 1pp fail CI.
+### Current baseline (as committed in `benchmark/baseline.json`)
+
+| Metric | Value |
+|---|---|
+| Detection precision | 35.35% |
+| Detection recall | 51.47% |
+| Provider attribution accuracy | 82.76% |
+| Finding precision | 100% |
+| Finding recall | 66.67% |
+
+`baseline.json` also carries a `findingMetricsByType` breakdown — per-finding-type
+TP/FP/FN plus derived precision/recall, currently covering `batch`, `n_plus_one`, and
+`unbatched_parallel`. Keys are written in alphabetical order (`sortFindingMetricsByType`)
+so committed diffs stay stable.
+
+PRs that drop any top-level metric by > 1pp fail CI. The gate also fires on a per-type
+**precision** drop > 1pp, but only when the type has ≥ 3 emitted findings (TP+FP) in both
+baseline and current — types with too few findings are too noisy to gate on.
 
 ### Files
-- New: `benchmark/` directory with fixtures + `expected.json` per fixture.
-- New: `benchmark/runner.ts` — runs scanner, compares to expected, outputs metrics.
+- The labeled fixture corpus (each fixture + its `expected.json`) lives in the separate `recost-dev/extension-benchmark` repo, pinned here by SHA in `.benchmark-fixtures-sha`. `benchmark/` in this repo holds the harness, not the corpus (only `benchmark/_smoke/` is an in-repo fixture, for runner development).
+- New: `benchmark/runner.ts` — runs scanner, compares to expected, outputs metrics. Defaults to `--fixtures ../extension-benchmark`.
 - New: `.github/workflows/benchmark.yml` — CI runner.
 - New: `benchmark/baseline.json` — committed baseline metrics.
 

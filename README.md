@@ -40,10 +40,10 @@ src/                        # Extension backend
   messages.ts               # IPC message types
   ast/
     parser-loader.ts        # web-tree-sitter WASM loader
-    scanner.ts              # AST-based API call scanner
+    ast-scanner.ts          # AST-based API call scanner
     frequency-analyzer.ts   # Call frequency classification (single, polling, loop, parallel, etc.)
     cross-file-resolver.ts  # Traces calls through helper functions to origin
-    fingerprint-registry.ts # Per-method pricing fingerprints (costModel, per-call rates)
+    import-resolver.ts      # Resolves import paths for cross-file tracing
   chat/
     providers/              # Per-provider adapters (recost, openai, anthropic, gemini, xai, cohere, mistral, perplexity)
     provider-registry.ts    # Auth resolution (env var → SecretStorage)
@@ -55,6 +55,7 @@ src/                        # Extension backend
     local-waste-detector.ts # AST-signal waste detection (JS/TS)
     python-waste-detector.ts # AST-signal waste detection (Python)
     file-discovery.ts       # File discovery with .recostignore and DEFAULT_IGNORE_PATTERNS support
+    fingerprints/           # Per-method pricing fingerprints (costModel, per-call rates) — JSON per provider + registry
   simulator/                # Cost Simulator — pure computation, no side effects
     engine.ts               # runSimulation() — frequency multipliers, free zeroing, dynamic confidence
     static-source.ts        # EndpointRecord[] → SimulatorDataSource (passes frequencyClass + costModel)
@@ -144,6 +145,7 @@ Each issue card shows:
 - **Type badge** — the waste pattern detected (e.g. `n+1`, `cache`, `batch`, `redundancy`, `rate-limit`, `retry storm`)
 - **Provider** — which API provider is affected
 - **Pricing badge** — `paid` or `free`
+- **Sources badge** — `detected by N sources` when the same finding was flagged by more than one detector (e.g. local rule + AI review); hover to see which
 - **Estimated monthly savings** — shown on the right if calculable
 
 Clicking a card expands it to show:
@@ -153,7 +155,7 @@ Clicking a card expands it to show:
 - Affected file links — click any file path to jump to that location in the editor
 - **Code fix** — when available, a code block with **Apply** (inserts fix directly into the file at the correct line) and **Copy** buttons
 
-A **Type** dropdown filter appears above the list when multiple issue types are present, letting you narrow to a single type.
+A **Type** dropdown filter appears above the list when multiple issue types are present, letting you narrow to a single type. A **Minimum confidence** dropdown (Any / ≥ 40% / ≥ 60% / ≥ 80%) sits next to it to hide lower-confidence findings.
 
 **Endpoints subtab**
 

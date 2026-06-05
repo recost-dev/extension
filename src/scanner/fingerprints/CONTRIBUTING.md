@@ -112,7 +112,8 @@ Valid `Language` values: `"javascript"`, `"typescript"`, `"python"`, `"go"`, `"j
 | `fixedFee` | `number` | per_transaction | Flat USD fee per call (e.g. `0.30` for $0.30) |
 | `percentageFee` | `number` | per_transaction | Fractional rate (e.g. `0.029` for 2.9%) |
 | `streaming` | `boolean` | — | `true` if this method returns a streaming response |
-| `batchCapable` | `boolean` | — | `true` if this method supports batched requests |
+| `batchCapable` | `boolean` | — | `true` if this method supports batched requests (a real batch API) |
+| `inlineParallelCapable` | `boolean` | — | `true` for endpoints with an inline `n`/count parameter (e.g. `images.generate`) — NOT a real batch API |
 | `cacheCapable` | `boolean` | — | `true` if responses can be cached |
 | `description` | `string` | — | One-line human-readable description |
 

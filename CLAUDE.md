@@ -22,6 +22,8 @@ src/
   messages.ts             # IPC message types (extension ↔ webview)
   key-management.ts       # Key service registry, validation snapshots, KeyServiceDescriptor; manages recost + all chat provider keys
   output.ts               # Lazy OutputChannel singleton ("ReCost Status")
+  config.ts               # Centralized ReCost base URLs (RECOST_API_BASE_URL / RECOST_DASHBOARD_BASE_URL) with env-var override, prod defaults otherwise
+  scan-id.ts              # newLocalScanId() — collision-resistant local scan ID (`local-<unix_ms>-<8 hex>`) for when no remote scan ID is available
   scan-results.ts         # Post-scan result builder: scope/provider enrichment, local pricing, filters unknown providers before remote submit
   workspace-file-access.ts # Safe workspace path resolver — guards against path traversal before file reads
   analysis/
@@ -47,6 +49,12 @@ src/
     index.ts              # executeChat() dispatcher
     errors.ts             # ChatAdapterError
     providers/            # Per-provider adapters (recost, openai, anthropic, gemini, xai, cohere, mistral, perplexity)
+  webview/                # Extension-host IPC message handlers (split out of webview-provider.ts)
+    chat-handler.ts       # Handles chat IPC messages; merges provider key state
+    scan-publishing-handler.ts # Builds + submits the remote scan payload
+    build-remote-api-calls.ts  # buildRemoteApiCalls() — applies shouldSubmitRemote() + lookupHost() provider resolution
+    key-management-handler.ts  # Handles provider/recost key set/validate/delete IPC
+    simulation-handler.ts # Handles runSimulation IPC; returns simulationResult
   scanner/
     patterns.ts           # API call detection regex patterns (fallback/augment to AST)
     patterns/             # 16 provider-specific pattern scanners (Firebase, GraphQL, OpenAI, Stripe, Anthropic, Bedrock, etc.) + registry.ts, types.ts, utils.ts
@@ -174,7 +182,7 @@ Then press **F5** in VSCode to launch the Extension Development Host.
 - All "local" analysis (sustainability footprint, cost-by-provider, simulator runs, scenario CRUD) is computed on the extension host and delivered to the webview through typed IPC messages — no embedded HTTP server, no localhost ports
 - Webview ↔ extension IPC uses typed messages defined in `messages.ts`
 - The workspace scanner (`workspace-scanner.ts`) orchestrates the AST scanner (`src/ast/`) and regex patterns (`patterns/`) to detect API calls across supported file types
-- AST scanning produces rich per-endpoint metadata: `frequencyClass`, `costModel`, `batchCapable`, `cacheCapable`, `streaming`, `isMiddleware`, `crossFileOrigins`, `methodSignature`
+- AST scanning produces rich per-endpoint metadata: `frequencyClass`, `costModel`, `batchCapable`, `inlineParallelCapable`, `cacheCapable`, `streaming`, `isMiddleware`, `crossFileOrigins`, `methodSignature`
 - `endpoint-classification.ts` classifies detected endpoints as internal/external and identifies 50+ provider hosts (GitHub, Stripe, AWS, Google, Twilio, etc.)
 - `local-waste-detector.ts` detects waste patterns using AST signals (N+1, unbounded loops, polling without backoff, missing cache guards, unbatched parallel calls)
 - AI review is optional: prompts live in `chat/prompts.ts`, calls go through `openai` SDK; key is stored in VSCode SecretStorage
@@ -275,3 +283,5 @@ Do not refactor the extension to consume API constants or sync `LOCAL_PRICING`. 
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `RECOST_DISABLE_AST` | unset | When set to `1`, disables web-tree-sitter AST scanning and uses regex-only detection. For testing the fallback path. |
+| `RECOST_API_BASE_URL` | `https://api.recost.dev` | Overrides the ReCost API base URL (resolved in `src/config.ts`). |
+| `RECOST_DASHBOARD_BASE_URL` | `https://recost.dev` | Overrides the ReCost dashboard base URL (resolved in `src/config.ts`). |

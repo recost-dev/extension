@@ -1,6 +1,8 @@
 # Intelligence Layer — Remaining Work
 
-Sibling to `INTEL_CONTEXT.md`. Covers the four unimplemented spec items and the ecoapi → recost rename.
+Sibling to `INTEL_CONTEXT.md`. Covered the four then-unimplemented spec items and the ecoapi → recost rename.
+
+> **Status: ✅ COMPLETE.** All five tasks below have shipped. The implementation sketches are retained as a historical record of how each landed.
 
 ---
 
@@ -8,11 +10,11 @@ Sibling to `INTEL_CONTEXT.md`. Covers the four unimplemented spec items and the 
 
 | Task | File(s) | Status |
 |---|---|---|
-| 1. Wire up cost estimation | `compression.ts`, `cost-utils.ts` | TODO |
-| 2. Add `costLeaks` + `providerSummary` to export | `types.ts`, `export.ts` | TODO |
-| 3. Token budget enforcement | `compression.ts` | TODO |
-| 4. `recost pack` CLI subcommand | `src/cli/scan.ts` | TODO |
-| 5. Docs rename (ecoapi → recost) | `CLAUDE.md`, `INTEL_CONTEXT.md` | TODO |
+| 1. Wire up cost estimation | `compression.ts`, `cost-utils.ts` | ✅ done |
+| 2. Add `costLeaks` + `providerSummary` to export | `types.ts`, `export.ts` | ✅ done |
+| 3. Token budget enforcement | `compression.ts` | ✅ done |
+| 4. `recost pack` CLI subcommand | `src/cli/scan.ts` | ✅ done |
+| 5. Docs rename (ecoapi → recost) | `CLAUDE.md`, `INTEL_CONTEXT.md` | ✅ done |
 
 ---
 

@@ -1,6 +1,6 @@
 # Benchmark
 
-Hand-labeled accuracy gate for the scanner. Fails CI when precision or recall drops > 1pp.
+Hand-labeled accuracy gate for the scanner. Fails CI when an aggregate precision/recall metric — or a per-finding-type precision — drops > 1pp. Per-type precision drops only gate when both baseline and current emitted ≥ 3 findings of that type (small samples are too noisy to gate on).
 
 ## Quick start
 
@@ -16,10 +16,10 @@ npm run benchmark
 ## Layout
 
 - `runner.ts` — orchestrates per-fixture scan + metric computation. Reads `--fixtures <dir>` (default `../extension-benchmark`).
-- `metrics.ts` — pure precision/recall math.
+- `metrics.ts` — pure precision/recall math, including per-finding-type TP/FP/FN counts (`findingMetricsByType`, e.g. `batch`, `n_plus_one`, `unbatched_parallel`).
 - `schema.ts` — `expected.json` types + validator.
 - `report.ts` — console + markdown report formatting.
-- `baseline.json` — committed metric baseline. Gate compares current run vs this.
+- `baseline.json` — committed metric baseline (aggregate metrics + `findingMetricsByType`, keys sorted by name for stable diffs). Gate compares current run vs this.
 - `_smoke/` — tiny in-repo fixture for runner development.
 
 ## CI
