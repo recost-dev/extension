@@ -5,7 +5,7 @@ import {
   countScopedWorkspaceFiles,
   getWorkspaceScanFiles,
 } from "../scanner/workspace-scanner";
-import { createProject, submitScan, getAllEndpoints, getAllSuggestions, type ApiClientError } from "../api-client";
+import { submitScan, getAllEndpoints, getAllSuggestions, type ApiClientError } from "../api-client";
 import type { HostMessage, KeyServiceId } from "../messages";
 import type { ApiCallInput, EndpointRecord, Suggestion, ScanSummary } from "../analysis/types";
 import { classifyEndpointScope, detectEndpointProvider } from "../scanner/endpoint-classification";
@@ -51,11 +51,9 @@ export interface ScanPublishingHandlerContext {
   setLastSummary(summary: ScanSummary | null): void;
   setLastApiCalls(calls: ApiCallInput[]): void;
   setLastFindings(findings: Awaited<ReturnType<typeof detectLocalWastePatterns>>): void;
-  setProjectId(id: string | null): void;
-  getProjectId(): string | null;
   getManualProjectId(): string | null;
   getRcApiKey(): Promise<string | undefined>;
-  resolveScanProjectTarget(rcApiKey: string): Promise<{ projectId: string; source: "manual" | "auto" }>;
+  resolveScanProjectTarget(rcApiKey: string): Promise<{ projectId: string; source: "manual" } | null>;
   getWorkspaceName(): string;
   openKeys(focusServiceId?: KeyServiceId): void;
   setRecostValidationState(snapshot: PersistedKeyValidationSnapshot): Promise<void>;
@@ -695,7 +693,7 @@ export class ScanPublishingHandler {
       const manualProjectId = this.ctx.getManualProjectId();
       let rcApiKey = await this.ctx.getRcApiKey();
       if (!rcApiKey) {
-        publishLocalOnlyResults(manualProjectId ?? this.ctx.getProjectId() ?? "local", newLocalScanId());
+        publishLocalOnlyResults(manualProjectId ?? "local", newLocalScanId());
         this.ctx.postMessage({
           type: "scanNotification",
           message: "No ReCost API key — showing local results only. Add a key in Keys to enable remote sync.",
@@ -705,7 +703,7 @@ export class ScanPublishingHandler {
       const { submitted: remoteApiCalls, unknownProviderCount, unknownProviderHosts } =
         buildRemoteApiCalls(apiCalls);
       if (remoteApiCalls.length === 0) {
-        publishLocalOnlyResults(manualProjectId ?? this.ctx.getProjectId() ?? "local", newLocalScanId());
+        publishLocalOnlyResults(manualProjectId ?? "local", newLocalScanId());
         return;
       }
       if (unknownProviderCount > 0) {
@@ -720,25 +718,19 @@ export class ScanPublishingHandler {
         });
       }
 
-      publishLocalOnlyResults(manualProjectId ?? this.ctx.getProjectId() ?? "local", newLocalScanId());
+      publishLocalOnlyResults(manualProjectId ?? "local", newLocalScanId());
 
       try {
         const projectTarget = await this.ctx.resolveScanProjectTarget(rcApiKey);
-        let projectId = projectTarget.projectId;
-        let scanResult;
-        try {
-          scanResult = await submitScan(projectId, remoteApiCalls, rcApiKey);
-        } catch (err: unknown) {
-          if ((err as { status?: number }).status === 404 && projectTarget.source === "auto") {
-            const freshId = await createProject(this.ctx.getWorkspaceName(), rcApiKey);
-            this.ctx.setProjectId(freshId);
-            projectId = freshId;
-            await this.ctx.context.globalState.update("recost.projectId", freshId);
-            scanResult = await submitScan(projectId, remoteApiCalls, rcApiKey);
-          } else {
-            throw err;
-          }
+        if (!projectTarget) {
+          this.ctx.postMessage({
+            type: "scanNotification",
+            message: "Add a Project ID from your dashboard in the Keys tab to sync remotely.",
+          });
+          return;
         }
+        const projectId = projectTarget.projectId;
+        const scanResult = await submitScan(projectId, remoteApiCalls, rcApiKey);
 
         const [remoteEndpoints, suggestions] = await Promise.all([
           getAllEndpoints(projectId, scanResult.scanId, rcApiKey),
@@ -816,7 +808,7 @@ export class ScanPublishingHandler {
             type: "scanNotification",
             message: `ReCost scan rate limit reached. ${waitText} Showing local results.`,
           });
-          publishLocalOnlyResults(manualProjectId ?? this.ctx.getProjectId() ?? "local", newLocalScanId());
+          publishLocalOnlyResults(manualProjectId ?? "local", newLocalScanId());
           return;
         }
 
@@ -840,7 +832,7 @@ export class ScanPublishingHandler {
           this.ctx.refreshStatusBar();
           this.ctx.openKeys("recost");
         }
-        publishLocalOnlyResults(manualProjectId ?? this.ctx.getProjectId() ?? "local", newLocalScanId());
+        publishLocalOnlyResults(manualProjectId ?? "local", newLocalScanId());
         if (status === 404 && manualProjectId) {
           this.ctx.postMessage({
             type: "scanNotification",

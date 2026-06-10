@@ -217,6 +217,12 @@ Two separate key systems coexist:
 - `context.secrets.onDidChange` listener keeps status bar live without reload
 - After key validation in the webview (`serviceId === "recost"`), `recost.keyOnline` context is also updated so the status bar stays in sync
 
+**Project ID (for remote scan submission)** — projects are created **only** in the web dashboard; the extension and CLI never auto-create them. Remote enrichment requires a user-supplied Project ID:
+- In the extension: paste the dashboard's Project ID into the Keys tab. It is stored per-workspace in `workspaceState` (`recost.manualProjectId:<workspace-scope>`) and validated against `GET /projects/{id}` (key-fingerprinted validation snapshots).
+- `resolveScanProjectTarget()` in `webview-provider.ts` returns `{ projectId, source: "manual" }` when a Project ID is set, otherwise `null`. A `null` target means the scan runs **local-only** and posts a `scanNotification` nudging the user to add a Project ID.
+- In the CLI (`src/cli/scan.ts`): supply the Project ID via `--project-id <id>` or the `RECOST_PROJECT_ID` env var (flag wins). Without it, the CLI runs local-only and prints a stderr nudge.
+- There is no auto-created `recost.projectId` globalState key and no `createProject`/`findProjectByName` in `api-client.ts` anymore.
+
 **Chat provider keys** (OpenAI, Anthropic, etc.) — managed in `webview-provider.ts` + `chat/provider-registry.ts`:
 - Stored per-provider in `context.secrets` under provider-specific keys (e.g., `eco.providerApiKey.openai`)
 - Resolved via env var → SecretStorage fallback in `resolveProviderAuth()`

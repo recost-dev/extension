@@ -44,7 +44,6 @@ require.cache[require.resolve("../api-client")] = {
   filename: require.resolve("../api-client"),
   loaded: true,
   exports: {
-    createProject: async () => "proj-stub",
     submitScan: async () => {
       if (nextScanError) throw nextScanError;
       return { scanId: "scan-stub", summary: { totalEndpoints: 0, redundantCalls: 0, n1Suspects: 0, batchOpportunities: 0, cacheOpportunities: 0 } };
@@ -67,11 +66,9 @@ function makeCtx(posted: HostMessage[]): ScanPublishingHandlerContext {
     setLastSummary: () => {},
     setLastApiCalls: () => {},
     setLastFindings: () => {},
-    setProjectId: () => {},
-    getProjectId: () => null,
     getManualProjectId: () => null,
     getRcApiKey: async () => "rc-good",
-    resolveScanProjectTarget: async () => ({ projectId: "proj-stub", source: "auto" }),
+    resolveScanProjectTarget: async () => ({ projectId: "proj-stub", source: "manual" as const }),
     getWorkspaceName: () => "ws",
     openKeys: () => {},
     setRecostValidationState: noop,
@@ -148,6 +145,44 @@ async function runTests() {
     await handler.handleStartScan();
     assert.equal(refreshCalls, 1);
     assert.equal(refreshedAfterUpdate, true, "refreshStatusBar must be called after sendRecostKeyStatusUpdate");
+  }
+
+  // 5. No project target (no manual ID) → local-only + nudge, never calls submitScan
+  {
+    const posted: HostMessage[] = [];
+    nextScanError = null;
+    let submitCalled = false;
+    const api = require.cache[require.resolve("../api-client")]!.exports as { submitScan: (...a: unknown[]) => Promise<unknown> };
+    const realSubmit = api.submitScan;
+    api.submitScan = async (...a: unknown[]) => { submitCalled = true; return realSubmit(...a); };
+    const ctx: ScanPublishingHandlerContext = {
+      ...makeCtx(posted),
+      resolveScanProjectTarget: async () => null,
+    };
+    const handler = new ScanPublishingHandler(ctx);
+    await handler.handleStartScan();
+    api.submitScan = realSubmit;
+    assert.equal(submitCalled, false, "submitScan must not be called without a project target");
+    const nudge = posted.find((m) => m.type === "scanNotification" && /Project ID/i.test((m as { message: string }).message));
+    assert.ok(nudge, "expected a nudge to add a Project ID");
+  }
+
+  // 6. Manual project target → submitScan IS called with that project id
+  {
+    const posted: HostMessage[] = [];
+    nextScanError = null;
+    let submittedProjectId: string | null = null;
+    const api = require.cache[require.resolve("../api-client")]!.exports as { submitScan: (projectId: string, ...a: unknown[]) => Promise<unknown> };
+    const realSubmit = api.submitScan;
+    api.submitScan = async (projectId: string, ...a: unknown[]) => { submittedProjectId = projectId; return realSubmit(projectId, ...a); };
+    const ctx: ScanPublishingHandlerContext = {
+      ...makeCtx(posted),
+      resolveScanProjectTarget: async () => ({ projectId: "proj-manual", source: "manual" as const }),
+    };
+    const handler = new ScanPublishingHandler(ctx);
+    await handler.handleStartScan();
+    api.submitScan = realSubmit;
+    assert.equal(submittedProjectId, "proj-manual");
   }
 
   console.log("PASS scan-publishing-handler");

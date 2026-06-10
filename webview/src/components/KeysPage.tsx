@@ -133,8 +133,24 @@ export function KeysPage({ statuses, focusServiceId, projectIdStatus }: KeysPage
               <span style={{ fontSize: "11px", color: projectStatusColor }}>{projectStatusLabel}</span>
             </div>
             <div style={{ color: "var(--vscode-descriptionForeground)", fontSize: "11px" }}>
-              Optional per-workspace override for remote scan uploads.
+              Create a project in the ReCost dashboard, then paste its ID here to sync scans remotely. Without it, scans stay local-only.
             </div>
+            <button
+              type="button"
+              onClick={() => postMessage({ type: "openDashboard" })}
+              style={{
+                alignSelf: "flex-start",
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                color: "var(--vscode-textLink-foreground)",
+                fontSize: "11px",
+                textDecoration: "underline",
+              }}
+            >
+              Open dashboard
+            </button>
             {projectIdStatus.message && (
               <div style={{ color: projectStatusColor, fontSize: "11px", lineHeight: 1.4 }}>
                 {projectIdStatus.message}

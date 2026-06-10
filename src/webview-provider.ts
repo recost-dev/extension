@@ -7,7 +7,7 @@ import {
   detectLocalWastePatterns,
   countScopedWorkspaceFiles,
 } from "./scanner/workspace-scanner";
-import { findProjectByName, createProject, validateProjectId } from "./api-client";
+import { validateProjectId } from "./api-client";
 import {
   getDefaultChatSelection,
   type ChatProviderId,
@@ -144,7 +144,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   private lastEndpoints: EndpointRecord[] = [];
   private lastSuggestions: Suggestion[] = [];
   private lastSummary: ScanSummary | null = null;
-  private projectId: string | null = null;
   private lastApiCalls: ApiCallInput[] = [];
   private lastFindings: Awaited<ReturnType<typeof detectLocalWastePatterns>> = [];
 
@@ -226,7 +225,7 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       getLastEndpoints: () => this.lastEndpoints,
       getLastSuggestions: () => this.lastSuggestions,
       getLastSummary: () => this.lastSummary,
-      getProjectId: () => this.projectId,
+      getProjectId: () => this.getManualProjectId(),
       setLastSuggestions: (suggestions) => { this.lastSuggestions = suggestions; },
       setLastSummary: (summary) => { this.lastSummary = summary; },
       getKeyServiceIdForProvider: (providerId) => this.getKeyServiceIdForProvider(providerId),
@@ -244,8 +243,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
       setLastSummary: (summary) => { this.lastSummary = summary; },
       setLastApiCalls: (calls) => { this.lastApiCalls = calls; },
       setLastFindings: (findings) => { this.lastFindings = findings; },
-      setProjectId: (id) => { this.projectId = id; },
-      getProjectId: () => this.projectId,
       getManualProjectId: () => this.getManualProjectId(),
       getRcApiKey: () => this.getRcApiKey(),
       resolveScanProjectTarget: (rcApiKey) => this.resolveScanProjectTarget(rcApiKey),
@@ -281,7 +278,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
     this.context.subscriptions.push(messageSub);
     webviewView.onDidDispose(() => messageSub.dispose());
 
-    this.projectId = this.context.globalState.get<string>("recost.projectId") ?? null;
     this.sendChatConfig().catch((e) => getOutputChannel().appendLine(`sendChatConfig failed: ${e instanceof Error ? e.message : String(e)}`));
     this.sendAllKeyStatuses().catch((e) => getOutputChannel().appendLine(`sendAllKeyStatuses failed: ${e instanceof Error ? e.message : String(e)}`));
     this.sendProjectIdStatus().catch((e) => getOutputChannel().appendLine(`sendProjectIdStatus failed: ${e instanceof Error ? e.message : String(e)}`));
@@ -490,13 +486,10 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async resolveScanProjectTarget(
-    rcApiKey: string
-  ): Promise<{ projectId: string; source: "manual" | "auto" }> {
+    _rcApiKey: string
+  ): Promise<{ projectId: string; source: "manual" } | null> {
     const manualProjectId = this.getManualProjectId();
-    if (manualProjectId) {
-      return { projectId: manualProjectId, source: "manual" };
-    }
-    return { projectId: await this.getOrCreateProject(rcApiKey), source: "auto" };
+    return manualProjectId ? { projectId: manualProjectId, source: "manual" } : null;
   }
 
   private async sendAllKeyStatuses(focusServiceId?: KeyServiceId) {
@@ -587,19 +580,6 @@ export class ReCostSidebarProvider implements vscode.WebviewViewProvider {
 
   private handleRunAiReview() {
     return this.chatHandler.handleRunAiReview();
-  }
-
-  private async getOrCreateProject(rcApiKey?: string): Promise<string> {
-    if (this.projectId) {
-      return this.projectId;
-    }
-    // No local record — check if a project with this workspace name already exists
-    // (handles cloning the same repo on a new machine)
-    const existing = await findProjectByName(this.getWorkspaceName(), rcApiKey);
-    const id = existing ?? await createProject(this.getWorkspaceName(), rcApiKey);
-    this.projectId = id;
-    await this.context.globalState.update("recost.projectId", id);
-    return id;
   }
 
   private getWorkspaceName(): string {
