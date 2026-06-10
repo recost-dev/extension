@@ -3,7 +3,7 @@ import * as path from "path";
 import { newLocalScanId } from "../scan-id";
 import { createFilesystemScanAccess } from "./filesystem-adapter";
 import { detectLocalWastePatternsInFiles, scanFiles } from "../scanner/core-scanner";
-import { createProject, getAllEndpoints, getAllSuggestions, submitScan } from "../api-client";
+import { getAllEndpoints, getAllSuggestions, submitScan } from "../api-client";
 import { buildLocalScanResults, buildRemoteScanResults, shouldSubmitRemote, type FinalScanResults } from "../scan-results";
 import { buildSnapshot } from "../intelligence/builder";
 import { scoreSnapshot } from "../intelligence/scorer";
@@ -14,6 +14,7 @@ import { buildExportContext, formatAsJSON, formatAsMarkdown } from "../intellige
 interface CliOptions {
   target: string;
   format: "json" | "summary" | "context";
+  projectId?: string;
 }
 
 interface CliResult {
@@ -53,8 +54,12 @@ function getFlag(args: string[], flag: string): string | null {
 function printHelp(): void {
   process.stdout.write(
     [
-      "Usage: node dist/cli/scan.js <file-or-directory> [--format json|summary|context]",
+      "Usage: node dist/cli/scan.js <file-or-directory> [--format json|summary|context] [--project-id <id>]",
       "       node dist/cli/scan.js pack <directory> [--format markdown|json] [--output <file>] [--append-claude-md]",
+      "",
+      "Options:",
+      "  --format <fmt>      Output format: json (default), summary, context",
+      "  --project-id <id>   Dashboard project ID for remote sync (or RECOST_PROJECT_ID env var)",
       "",
       "Formats:",
       "  json     Full scan results as JSON (default)",
@@ -83,6 +88,7 @@ function parseArgs(argv: string[]): CliOptions | null {
   const args = [...argv];
   let target = "";
   let format: CliOptions["format"] = "json";
+  let projectId: string | undefined;
 
   while (args.length > 0) {
     const arg = args.shift();
@@ -96,6 +102,12 @@ function parseArgs(argv: string[]): CliOptions | null {
       }
       throw new Error(`Unsupported format: ${value ?? "(missing value)"}`);
     }
+    if (arg === "--project-id") {
+      const value = args.shift();
+      if (!value) throw new Error("--project-id requires a value");
+      projectId = value;
+      continue;
+    }
     if (!target) {
       target = arg;
       continue;
@@ -104,7 +116,7 @@ function parseArgs(argv: string[]): CliOptions | null {
   }
 
   if (!target) return null;
-  return { target, format };
+  return { target, format, projectId: (projectId ?? process.env.RECOST_PROJECT_ID?.trim()) || undefined };
 }
 
 function writeSummary(result: CliResult): void {
@@ -233,9 +245,9 @@ async function main(): Promise<void> {
   const rcApiKey = resolveRcApiKey();
   const remoteApiCalls = apiCalls.filter(shouldSubmitRemote);
   let remoteResult: CliResult["remote"] = null;
-  if (rcApiKey && remoteApiCalls.length > 0) {
+  if (rcApiKey && options.projectId && remoteApiCalls.length > 0) {
     try {
-      projectId = await createProject(path.basename(path.resolve(options.target)), rcApiKey);
+      projectId = options.projectId;
       const remoteScan = await submitScan(projectId, remoteApiCalls, rcApiKey);
       scanId = remoteScan.scanId;
       const [remoteEndpoints, remoteSuggestions] = await Promise.all([
@@ -263,6 +275,10 @@ async function main(): Promise<void> {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`Remote enrichment unavailable: ${message}. Falling back to local-only results.\n`);
     }
+  }
+
+  if (rcApiKey && !options.projectId && remoteApiCalls.length > 0) {
+    process.stderr.write("Set RECOST_PROJECT_ID (or --project-id) to sync scans remotely. Showing local-only results.\n");
   }
 
   const result: CliResult = {
